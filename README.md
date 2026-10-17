@@ -159,3 +159,30 @@ docs/superpowers/     设计规格与实现计划
 ---
 
 愿你在每一次断链与续链之间，都能看见自己的道。
+
+## 部署到 GitHub Pages
+
+本项目是纯静态站点，不需要构建，直接把仓库根目录发布即可。
+
+1. 在 GitHub 新建一个空仓库（不要勾选自动生成 README），例如 `wuxing-wendao`。
+2. 在本目录执行：
+
+```bash
+git remote add origin https://github.com/<你的用户名>/wuxing-wendao.git
+git push -u origin main
+```
+
+3. 打开仓库 → **Settings → Pages**。
+4. **Build and deployment → Source** 选择 **Deploy from a branch**。
+5. **Branch** 选择 `main`，目录选择 `/ (root)`，点击 **Save**。
+6. 等待 1–2 分钟，页面顶部会显示站点地址：
+   `https://<你的用户名>.github.io/wuxing-wendao/`
+
+若仓库名是 `<你的用户名>.github.io`，站点地址则是 `https://<你的用户名>.github.io/`。
+
+注意：
+
+- 游戏存档使用浏览器 `localStorage`，`file://` 本地打开与 GitHub Pages 属于不同来源，进度不会互通；每个域名/路径各自独立存档。
+- 页面是 HTTPS 的，Chrome / Edge / Safari 均可运行；推荐 Chrome / Edge。
+- 如果仓库是私有的且 Pages 入口不可用，需要将仓库改为 Public，或使用支持私有仓库 Pages 的 GitHub 计划。
+- 更新游戏只需提交并推送：Pages 会自动重新发布，可能需要几十秒到几分钟。
