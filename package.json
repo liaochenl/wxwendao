@@ -5,6 +5,7 @@
   "description": "《五行问道》——五行连携 Roguelike 卡牌游戏",
   "scripts": {
     "test": "node --test test/engine.test.js",
-    "sim": "node test/sim.js"
+    "sim": "node test/sim.js",
+    "audit:mobile": "node test/mobile-audit.mjs"
   }
 }
