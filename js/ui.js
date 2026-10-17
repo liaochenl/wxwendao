@@ -1,0 +1,1498 @@
+/* 《五行问道》界面层：屏幕渲染、交互、动画与音效。 */
+(function () {
+  'use strict';
+  const D = window.WX_DATA;
+  const E = window.WXEngine;
+
+  const TYPE_NAMES = { attack: '攻击', skill: '技法', power: '功法', curse: '禁制', status: '业障' };
+  const CHAR_GLYPHS = { sword: '剑', alchemist: '丹', monk: '体' };
+  const ACT_FLAVOR = {
+    1: '山门之外，妖雾初起。循着香火与剑鸣，向山巅行去。',
+    2: '魔窟深处，赤焰焚心。每一步都踩在旧日的灰烬上。',
+    3: '天阙将倾，五行失序。去问一问，这天到底是谁的天。'
+  };
+  const RARITY_LABEL = { starter: '初始', common: '凡品', uncommon: '灵品', rare: '玄品', curse: '禁制', special: '异数' };
+  const CHAR_STYLE = { sword: '连携爆发 · 直伤抽牌', alchemist: '持续伤害 · 中毒回春', monk: '厚甲反伤 · 稳健推进' };
+  const CHAR_TIPS = {
+    sword: '先金后水接链，遇到木属敌人时，断链打相克往往更赚。',
+    alchemist: '叠毒之后靠灼烧与回春拖长战线，别急着和敌人换血。',
+    monk: '留甲反伤，用土生金接攻击；护甲保留让你更敢卖血。'
+  };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function hpPct(cur, max) { return Math.max(0, Math.min(100, Math.round(cur / Math.max(1, max) * 100))); }
+  function pctNum(a, b) { return Math.max(0, Math.min(100, Math.round(a / Math.max(1, b) * 100))); }
+  const KW_CLASS = {
+    '中毒': 'debuff', '灼烧': 'debuff', '虚弱': 'debuff', '易伤': 'debuff', '定身': 'debuff',
+    '护甲': 'block', '格挡': 'block', '灵气': 'energy', '连携': 'chain', '周天': 'chain',
+    '锐气': 'buff', '坚韧': 'buff', '荆棘': 'buff', '回春': 'buff', '蓄势': 'buff',
+    '贯穿': 'muted', '消耗': 'muted', '保留': 'muted'
+  };
+  function formatText(text) {
+    return esc(text).replace(/中毒|灼烧|虚弱|易伤|定身|护甲|格挡|灵气|连携|周天|锐气|坚韧|荆棘|回春|蓄势|贯穿|消耗|保留/g, m => `<em class="kw kw-${KW_CLASS[m] || 'muted'}">${m}</em>`);
+  }
+
+  function sortDeck(list) {
+    const typeOrder = { attack: 0, skill: 1, curse: 2, status: 3 };
+    return list.slice().sort((a, b) => {
+      const da = D.cardMap[a.id], db = D.cardMap[b.id];
+      return (typeOrder[da.type] || 0) - (typeOrder[db.type] || 0) ||
+        da.cost - db.cost ||
+        (da.name > db.name ? 1 : da.name < db.name ? -1 : 0);
+    });
+  }
+
+  function elem(id) { return D.elements[id] || D.elements.none; }
+  function elemBadge(id, label) {
+    const el = elem(id);
+    return `<span class="elem-badge" style="--el:${el.color};--el-dark:${el.dark}" title="${esc(el.name)}行">${esc(label || el.glyph)}</span>`;
+  }
+  function statusChips(statuses, who) {
+    if (!statuses) return '';
+    return Object.keys(D.statuses).filter(k => statuses[k] > 0).map(k => {
+      const s = D.statuses[k];
+      return `<span class="status-chip ${s.debuff ? 'debuff' : 'buff'}" title="${esc(s.name)}：${esc(s.desc)}">${esc(s.glyph)}<b>${statuses[k]}</b></span>`;
+    }).join('');
+  }
+  function weakElement(enemyElem) {
+    return D.elementOrder.find(e => D.elements[e].overcomes === enemyElem) || null;
+  }
+  function relicById(id) { return D.relicMap[id]; }
+  function potionById(id) { return D.potionMap[id]; }
+  function cardData(inst) { return E.getCardData(inst); }
+
+  function cardHTML(inst, opts) {
+    opts = opts || {};
+    const data = cardData(inst);
+    if (!data) return '';
+    const mode = opts.mode || 'static';
+    const el = elem(data.element);
+    const upgraded = !!inst.up;
+    const isHand = mode === 'hand';
+    const canPlay = isHand ? E.canPlayCard(UI.state, opts.index) : null;
+    const cost = canPlay && canPlay.ok ? canPlay.cost : data.cost;
+    const discounted = isHand && canPlay && canPlay.ok && cost < data.cost;
+    let preview = null;
+    if (isHand && UI.state && UI.state.combat && UI.state.combat.phase === 'player') {
+      try { preview = E.getPreview(UI.state, opts.index, UI.targetIndex); } catch (err) { preview = null; }
+    }
+    const live = [];
+    if (preview) {
+      if (preview.damage != null) live.push(`<span class="live live-dmg">${preview.damage}${preview.hits > 1 ? '×' + preview.hits : ''} 伤</span>`);
+      if (preview.block != null) live.push(`<span class="live live-block">${preview.block} 甲</span>`);
+      if (preview.cross) live.push('<span class="live live-cross">克制</span>');
+      if (preview.chainAfter > 0 && preview.linked) live.push(`<span class="live live-chain">连携 ${preview.chainAfter}</span>`);
+      if (preview.poison) live.push(`<span class="live live-poison">毒 ${preview.poison}</span>`);
+      if (preview.heal) live.push(`<span class="live live-heal">愈 ${preview.heal}</span>`);
+      if (preview.draw) live.push(`<span class="live live-draw">抽 ${preview.draw}</span>`);
+    }
+    const classes = ['card', 'el-' + data.element, 'rarity-' + data.rarity];
+    if (upgraded) classes.push('upgraded');
+    if (isHand) classes.push('in-hand');
+    if (isHand && canPlay && !canPlay.ok) classes.push('disabled');
+    if (isHand && UI.selected === opts.index) classes.push('selected');
+    if (opts.locked) classes.push('locked');
+    if (opts.sold) classes.push('sold');
+    if (opts.selectable) classes.push('selectable');
+    if (opts.selected) classes.push('picked');
+    const style = isHand ? `--rot:${opts.rot || 0}deg;--lift:${opts.lift || 0}px;margin-left:${opts.marginLeft || 0}px` : '';
+    const tag = opts.tag || (isHand ? 'button' : 'div');
+    const actionAttr = isHand ? `data-action="play-card" data-index="${opts.index}"` : (opts.pickUid ? `data-action="pick-card" data-uid="${esc(opts.pickUid)}"` : '');
+    const tooltip = `${data.name}（${TYPE_NAMES[data.type] || ''}·${RARITY_LABEL[data.rarity] || ''}）\n${data.text}${upgraded ? '\n（已悟）' : ''}`;
+    const inner = `
+      <div class="card-inner">
+        <div class="card-top">
+          <span class="card-cost ${discounted ? 'discounted' : ''}">${cost}</span>
+          <span class="card-name">${esc(data.name)}</span>
+          <span class="card-elem" style="--el:${el.color}">${esc(el.glyph)}</span>
+        </div>
+        <div class="card-art" style="--el:${el.color};--el-dark:${el.dark}">
+          <span class="card-watermark">${esc(el.glyph)}</span>
+          <span class="card-type">${TYPE_NAMES[data.type] || ''} · ${RARITY_LABEL[data.rarity] || ''}</span>
+        </div>
+        <div class="card-text">${formatText(data.text)}</div>
+        <div class="card-live">${live.join('')}</div>
+        <div class="card-foot">
+          <span>${data.exhaust ? '消耗' : ''}${data.retain ? ' 保留' : ''}</span>
+          <span class="card-rarity">${RARITY_LABEL[data.rarity] || ''}</span>
+        </div>
+      </div>`;
+    if (tag === 'button') {
+      return `<button type="button" class="${classes.join(' ')}" style="${style}" ${actionAttr} title="${esc(tooltip)}">${inner}</button>`;
+    }
+    return `<div class="${classes.join(' ')}" style="${style}" ${actionAttr} title="${esc(tooltip)}">${inner}</div>`;
+  }
+
+  function relicChip(id, opts) {
+    opts = opts || {};
+    const r = relicById(id);
+    if (!r) return '';
+    return `<span class="relic-chip ${opts.big ? 'big' : ''}" title="${esc(r.name)}：${esc(r.desc)}"><i>${esc(r.name.slice(0, 1))}</i>${opts.showName ? `<span>${esc(r.name)}</span>` : ''}</span>`;
+  }
+  function potionChip(id, opts) {
+    opts = opts || {};
+    const p = potionById(id);
+    if (!p) return '';
+    return `<span class="potion-chip" title="${esc(p.name)}：${esc(p.desc)}">${esc(p.icon)}</span>`;
+  }
+  function hpBarHTML(cur, max, cls) {
+    return `<span class="hpbar ${cls || ''}"><span class="hpbar-fill" style="width:${hpPct(cur, max)}%"></span><span class="hpbar-text">${cur} / ${max}</span></span>`;
+  }
+  function goldHTML(gold) { return `<span class="gold-pill" title="金币">◈ ${gold}</span>`; }
+  function statusName(k) { return D.statuses[k] ? D.statuses[k].name : k; }
+  function statusList(arr) { return (arr || []).map(s => `${statusName(s.status)}${s.value || ''}`).join('、'); }
+  function outcomeText(value) { return value > 0 ? `+${value}` : `${value}`; }
+
+  const UI = {
+    init(opts) {
+      this.app = opts.app;
+      this.meta = opts.meta;
+      this.state = opts.saved || null;
+      this.hasRun = !!opts.saved;
+      this.screen = 'title';
+      this.savedScreen = opts.saved ? opts.saved.screen : null;
+      this.selectedChar = 'sword';
+      this.ascension = 0;
+      this.selected = null;
+      this.targetIndex = 0;
+      this.busy = false;
+      this.finishing = false;
+      this.overlay = null;
+      this.picker = null;
+      this.pile = null;
+      this.compTab = 'cards';
+      this.victoryHandled = false;
+      this.gameoverHandled = false;
+      this.soundOn = !!(this.meta.settings && this.meta.settings.sound);
+      this.audio = null;
+      this.bg = null;
+      this.bind();
+      this.initBackground();
+      this.render();
+    },
+
+    /* ---------------- 事件绑定 ---------------- */
+    bind() {
+      const root = document.getElementById('app');
+      root.addEventListener('click', (ev) => {
+        const target = ev.target.closest('[data-action]');
+        if (!target) return;
+        ev.preventDefault();
+        this.action(target.dataset.action, target);
+      });
+      window.addEventListener('resize', () => {
+        this.resizeBackground();
+        clearTimeout(this._resizeTimer);
+        this._resizeTimer = setTimeout(() => {
+          if (!this.busy && this.state && this.screen === 'combat') this.render();
+        }, 160);
+      });
+    },
+
+    action(name, el) {
+      if (!['toggle-sound', 'close-overlay', 'overlay-stop'].includes(name)) this.sfx('click');
+      const idx = el.dataset.index != null ? Number(el.dataset.index) : null;
+      switch (name) {
+        case 'title-new': this.screen = 'select'; this.render(); break;
+        case 'title-continue':
+          if (this.state) { this.screen = this.state.screen === 'title' ? 'map' : this.state.screen; this.render(); }
+          break;
+        case 'title-compendium': this.screen = 'compendium'; this.compTab = 'cards'; this.render(); break;
+        case 'select-char': this.selectedChar = el.dataset.char; this.render(); break;
+        case 'asc-minus': this.ascension = Math.max(0, this.ascension - 1); this.render(); break;
+        case 'asc-plus': this.ascension = Math.min(this.meta.maxAscension, this.ascension + 1); this.render(); break;
+        case 'begin-run': this.beginRun(); break;
+        case 'to-title': this.screen = 'title'; this.render(); break;
+        case 'comp-tab': this.compTab = el.dataset.tab; this.render(); break;
+        case 'node': this.enterNode(el.dataset.id); break;
+        case 'play-card': this.onCardClick(Number(el.dataset.index)); break;
+        case 'enemy': this.onEnemyClick(Number(el.dataset.index)); break;
+        case 'end-turn': this.endTurn(); break;
+        case 'use-potion': this.usePotion(Number(el.dataset.index)); break;
+        case 'view-deck': this.overlay = 'deck'; this.render(); break;
+        case 'view-relics': this.overlay = 'relics'; this.render(); break;
+        case 'open-piles': this.pile = el.dataset.pile; this.overlay = 'piles'; this.render(); break;
+        case 'close-overlay': this.overlay = null; this.picker = null; this.render(); break;
+        case 'take-card': this.takeRewardCard(Number(el.dataset.index)); break;
+        case 'skip-card': this.skipReward(); break;
+        case 'continue-reward': this.continueReward(); break;
+        case 'shop-buy': this.buy(el.dataset.kind, Number(el.dataset.index)); break;
+        case 'shop-remove': this.openRemovePicker(); break;
+        case 'shop-leave': this.leaveShop(); break;
+        case 'rest-heal': this.restHeal(); break;
+        case 'rest-upgrade': this.openUpgradePicker(); break;
+        case 'event-choice': this.applyEvent(Number(el.dataset.index)); break;
+        case 'continue-event': this.continueEvent(); break;
+        case 'treasure-continue': this.continueTreasure(); break;
+        case 'pick-card': this.pickCard(el.dataset.uid); break;
+        case 'settings': this.overlay = 'settings'; this.render(); break;
+        case 'help': this.overlay = 'help'; this.render(); break;
+        case 'toggle-sound': this.toggleSound(); break;
+        case 'abandon-run': this.abandonRun(); break;
+        case 'back-title-keep': this.screen = 'title'; this.overlay = null; this.render(); break;
+        case 'game-new': this.screen = 'select'; this.overlay = null; this.render(); break;
+        case 'game-home': this.screen = 'title'; this.overlay = null; this.render(); break;
+        case 'victory-new': this.screen = 'select'; this.render(); break;
+        case 'victory-home': this.screen = 'title'; this.render(); break;
+        case 'open-potion-slot': break;
+        default: break;
+      }
+    },
+
+    handleKey(ev) {
+      if (ev.key === 'Escape') {
+        if (this.overlay) { this.overlay = null; this.picker = null; this.render(); }
+        else if (this.screen === 'combat' && this.selected != null) { this.selected = null; this.render(); }
+        return;
+      }
+      if (this.screen !== 'combat' || this.overlay || this.busy) return;
+      if (ev.key === 'e' || ev.key === 'E') { ev.preventDefault(); this.endTurn(); return; }
+      if (/^[1-9]$/.test(ev.key)) {
+        const i = Number(ev.key) - 1;
+        const c = this.state && this.state.combat;
+        if (c && c.hand[i]) {
+          ev.preventDefault();
+          const can = E.canPlayCard(this.state, i);
+          if (can.ok) this.playCard(i, this.targetIndex);
+          else this.toast(can.reason || '无法打出');
+        }
+      }
+    },
+
+    /* ---------------- 核心流程 ---------------- */
+    sync() {
+      if (!this.state) { this.screen = 'title'; return; }
+      this.screen = this.state.screen;
+      if (this.screen === 'victory' && !this.victoryHandled) {
+        this.victoryHandled = true;
+        this.hasRun = false;
+        this.app.onVictory(this.state);
+      }
+      if (this.screen === 'gameover' && !this.gameoverHandled) {
+        this.gameoverHandled = true;
+        this.hasRun = false;
+        this.app.onGameOver(this.state);
+      }
+    },
+    commit() {
+      this.sync();
+      if (this.hasRun) this.app.saveRun(this.state);
+      this.render();
+    },
+    beginRun() {
+      if (this.hasRun && this.state && !window.confirm('当前进度会被覆盖，确定开始新的轮回吗？')) return;
+      const st = this.app.newRun(this.selectedChar, this.ascension);
+      this.state = st;
+      this.hasRun = true;
+      this.victoryHandled = false;
+      this.gameoverHandled = false;
+      this.ascension = st.ascension;
+      this.selected = null;
+      this.targetIndex = 0;
+      this.overlay = null;
+      this.commit();
+      this.sfx('start');
+    },
+    enterNode(id) {
+      if (this.busy) return;
+      const res = E.enterNode(this.state, id);
+      if (!res.ok) { this.toast(res.reason || '无法前往'); return; }
+      this.selected = null;
+      this.targetIndex = 0;
+      this.commit();
+    },
+    onCardClick(index) {
+      if (!this.state || !this.state.combat || this.busy) return;
+      const c = this.state.combat;
+      if (c.phase !== 'player') return;
+      const inst = c.hand[index];
+      if (!inst) return;
+      const data = cardData(inst);
+      if (!data) return;
+      if (data.unplayable || data.type === 'curse' || data.type === 'status') { this.toast('这张牌无法打出，只能留在手中。'); return; }
+      const can = E.canPlayCard(this.state, index);
+      if (!can.ok) { this.toast(can.reason || '无法打出'); return; }
+      const alive = c.enemies.filter(e => e.hp > 0);
+      if (E.cardNeedsTarget(data) && alive.length > 1) {
+        if (this.selected === index) { this.selected = null; this.render(); return; }
+        this.selected = index;
+        this.targetIndex = 0;
+        this.render();
+        return;
+      }
+      this.playCard(index, alive.length === 1 ? c.enemies.indexOf(alive[0]) : this.targetIndex);
+    },
+    onEnemyClick(index) {
+      if (!this.state || !this.state.combat || this.busy) return;
+      const c = this.state.combat;
+      const enemy = c.enemies[index];
+      if (!enemy || enemy.hp <= 0) return;
+      if (this.selected != null) { this.playCard(this.selected, index); return; }
+      this.targetIndex = index;
+      this.toast('已锁定目标：' + enemy.name);
+      this.render();
+    },
+    async playCard(index, target) {
+      if (this.busy) return;
+      const c = this.state.combat;
+      if (!c || c.phase !== 'player') return;
+      this.busy = true;
+      this.selected = null;
+      const cardEl = document.querySelector('.hand .card[data-index="' + index + '"]');
+      if (cardEl) cardEl.classList.add('casting');
+      this.sfx('card');
+      await sleep(140);
+      const res = E.playCard(this.state, index, target);
+      if (!res.ok) {
+        this.busy = false;
+        this.toast(res.reason || '无法打出');
+        this.render();
+        return;
+      }
+      this.render();
+      await this.fx(res.events);
+      this.busy = false;
+      this.commit();
+      this.checkCombatState();
+    },
+    async usePotion(index) {
+      if (this.busy || !this.state || !this.state.combat) return;
+      if (this.state.combat.phase !== 'player') return;
+      this.busy = true;
+      const res = E.usePotion(this.state, index, this.targetIndex);
+      if (!res.ok) { this.busy = false; this.toast(res.reason || '无法使用'); this.render(); return; }
+      this.render();
+      await this.fx(res.events);
+      this.busy = false;
+      this.commit();
+      this.checkCombatState();
+    },
+    async endTurn() {
+      if (this.busy || !this.state || !this.state.combat) return;
+      const c = this.state.combat;
+      if (c.phase !== 'player') return;
+      this.busy = true;
+      this.selected = null;
+      this.sfx('endturn');
+      const res = E.endPlayerTurn(this.state);
+      this.render();
+      await this.fx(res.events);
+      this.busy = false;
+      this.commit();
+      if (!this.state.combat || this.state.combat.phase !== 'enemy') { this.checkCombatState(); return; }
+      this.busy = true;
+      await sleep(320);
+      const res2 = E.runEnemyTurn(this.state);
+      this.render();
+      await this.fx(res2.events);
+      this.busy = false;
+      this.commit();
+      this.checkCombatState();
+    },
+    async checkCombatState() {
+      if (this.finishing) return;
+      const c = this.state && this.state.combat;
+      if (!c) return;
+      if (c.phase === 'won') {
+        this.finishing = true;
+        this.sfx('win');
+        await sleep(650);
+        if (this.state && this.state.combat && this.state.combat.phase === 'won') {
+          const res = E.finishCombat(this.state);
+          if (!res.ok) this.toast(res.reason || '结算失败');
+          this.overlay = null;
+          this.picker = null;
+          this.sync();
+          if (this.hasRun) this.app.saveRun(this.state);
+          this.render();
+        }
+        this.finishing = false;
+      } else if (c.phase === 'lost') {
+        this.finishing = true;
+        this.sfx('lose');
+        await sleep(900);
+        if (this.state && this.state.combat && this.state.combat.phase === 'lost') {
+          this.state.screen = 'gameover';
+          this.overlay = null;
+          this.picker = null;
+          this.sync();
+          this.render();
+        }
+        this.finishing = false;
+      }
+    },
+    takeRewardCard(index) {
+      if (!this.state || !this.state.reward) return;
+      const res = E.takeRewardCard(this.state, index);
+      if (!res.ok) this.toast(res.reason || '无法选择');
+      this.app.saveRun(this.state);
+      this.render();
+      this.sfx('card');
+    },
+    skipReward() {
+      if (!this.state || !this.state.reward) return;
+      E.skipReward(this.state);
+      this.app.saveRun(this.state);
+      this.render();
+    },
+    continueReward() {
+      if (!this.state || !this.state.reward) return;
+      const prevAct = this.state.act;
+      E.continueReward(this.state);
+      this.sync();
+      if (this.hasRun) this.app.saveRun(this.state);
+      this.render();
+      if (this.hasRun && this.state.screen === 'map' && this.state.act !== prevAct) {
+        setTimeout(() => this.banner(E.getActName(this.state.act) + ' · 新的去路', 'gold'), 150);
+      }
+    },
+    buy(kind, index) {
+      const res = E.buyItem(this.state, kind, index);
+      if (!res.ok) { this.toast(res.reason || '无法购买'); return; }
+      this.sfx('coin');
+      this.app.saveRun(this.state);
+      this.render();
+    },
+    openRemovePicker() {
+      const shop = this.state.shop;
+      if (!shop || shop.removeUsed) { this.toast('本店已使用过移除服务'); return; }
+      if (this.state.gold < shop.removePrice) { this.toast('金币不足'); return; }
+      this.picker = { mode: 'remove-shop', title: '选择一张牌移除', price: shop.removePrice };
+      this.overlay = 'picker';
+      this.render();
+    },
+    openUpgradePicker() {
+      if (!this.state || this.state.screen !== 'rest') return;
+      this.picker = { mode: 'upgrade-rest', title: '选择一张牌参悟' };
+      this.overlay = 'picker';
+      this.render();
+    },
+    pickCard(uid) {
+      if (!this.picker || !this.state) return;
+      if (this.picker.mode === 'upgrade-rest') {
+        const res = E.restUpgrade(this.state, uid);
+        if (!res.ok) { this.toast(res.reason || '无法升级'); return; }
+        this.overlay = null;
+        this.picker = null;
+        this.sfx('upgrade');
+        this.commit();
+      } else if (this.picker.mode === 'remove-shop') {
+        const res = E.removeCardFromDeck(this.state, uid);
+        if (!res.ok) { this.toast(res.reason || '无法移除'); return; }
+        this.overlay = null;
+        this.picker = null;
+        this.sfx('coin');
+        this.app.saveRun(this.state);
+        this.render();
+      }
+    },
+    restHeal() {
+      const res = E.restHeal(this.state);
+      if (!res.ok) { this.toast(res.reason); return; }
+      this.sfx('heal');
+      this.commit();
+    },
+    applyEvent(index) {
+      const res = E.applyEventChoice(this.state, index);
+      if (!res.ok) { this.toast(res.reason || '无法选择'); return; }
+      this.sfx('event');
+      this.app.saveRun(this.state);
+      this.render();
+    },
+    continueEvent() {
+      E.continueEvent(this.state);
+      this.commit();
+    },
+    continueTreasure() {
+      E.continueTreasure(this.state);
+      this.commit();
+      this.sfx('coin');
+    },
+    leaveShop() {
+      E.leaveShop(this.state);
+      this.commit();
+    },
+    toggleSound() {
+      this.soundOn = !this.soundOn;
+      this.meta.settings.sound = this.soundOn;
+      this.app.saveMeta();
+      this.render();
+      if (this.soundOn) this.sfx('click');
+    },
+    abandonRun() {
+      if (!window.confirm('确定放弃本次轮回？当前存档会被清除。')) return;
+      this.state = null;
+      this.hasRun = false;
+      this.overlay = null;
+      this.app.clearRun();
+      this.screen = 'title';
+      this.render();
+    },
+
+    /* ---------------- 特效 / 音效 ---------------- */
+    async fx(events) {
+      if (!events || !events.length) return;
+      for (const ev of events) {
+        switch (ev.t) {
+          case 'damage': {
+            const el = ev.target === 'player' ? document.getElementById('player-panel') : document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
+            const amount = Math.max(0, (ev.amount || 0) - (ev.blocked || 0));
+            if (ev.target === 'player') {
+              this.shakeScreen();
+              this.floatAt(el, ev.blocked > 0 && amount === 0 ? '格挡' : '-' + amount, ev.blocked > 0 ? 'fx-block' : 'fx-hurt');
+              this.sfx(ev.blocked > 0 && amount === 0 ? 'block' : 'hurt');
+            } else {
+              this.hitPulse(el);
+              this.floatAt(el, ev.cross ? '克制 -' + amount : '-' + amount, ev.cross ? 'fx-cross' : 'fx-damage');
+              this.sfx(ev.cross ? 'cross' : 'hit');
+            }
+            await sleep(ev.target === 'player' ? 110 : 85);
+            break;
+          }
+          case 'block': {
+            const el = ev.target === 'player' ? document.getElementById('player-panel') : document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
+            this.floatAt(el, '甲 +' + ev.amount, 'fx-block');
+            this.sfx('block');
+            await sleep(60);
+            break;
+          }
+          case 'heal': {
+            const el = ev.target === 'enemy' ? document.querySelector('[data-enemy-uid="' + ev.uid + '"]') : document.getElementById('player-panel');
+            this.floatAt(el, '+' + ev.amount, 'fx-heal');
+            this.sfx('heal');
+            await sleep(70);
+            break;
+          }
+          case 'status': {
+            const el = ev.target === 'player' ? document.getElementById('player-panel') : document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
+            const s = D.statuses[ev.key];
+            this.floatAt(el, (s ? s.glyph : '') + (ev.amount > 0 ? '+' + ev.amount : ev.amount), s && s.debuff ? 'fx-debuff' : 'fx-buff');
+            await sleep(55);
+            break;
+          }
+          case 'chain': {
+            if (ev.linked) {
+              this.floatAt(document.querySelector('.chain-panel'), '相生 · 连携 ' + ev.chain, 'fx-chain');
+              this.sfx('chain');
+            } else if (ev.reset) {
+              this.floatAt(document.querySelector('.chain-panel'), '周天归元', 'fx-chain');
+            } else if (ev.element && ev.prev) {
+              this.floatAt(document.querySelector('.chain-panel'), '断链', 'fx-break');
+            } else if (ev.element) {
+              this.floatAt(document.querySelector('.chain-panel'), '起手 · ' + elem(ev.element).glyph, 'fx-chain');
+            }
+            await sleep(70);
+            break;
+          }
+          case 'zhoutian': {
+            this.sfx('zhoutian');
+            document.body.classList.add('zhoutian-flash');
+            this.floatAt(document.querySelector('.chain-panel'), '五行周天', 'fx-zhoutian');
+            setTimeout(() => document.body.classList.remove('zhoutian-flash'), 900);
+            await sleep(520);
+            break;
+          }
+          case 'phase': {
+            this.banner(ev.log || '阶段转换');
+            this.sfx('phase');
+            await sleep(700);
+            break;
+          }
+          case 'enemyMove': {
+            const el = document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
+            this.hitPulse(el);
+            await sleep(90);
+            break;
+          }
+          case 'death': {
+            const el = document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
+            if (el) el.classList.add('dying');
+            this.sfx('death');
+            await sleep(180);
+            break;
+          }
+          case 'potion': this.sfx('potion'); await sleep(60); break;
+          case 'energy': this.sfx('energy'); await sleep(45); break;
+          case 'draw':
+          case 'shuffle': await sleep(25); break;
+          case 'turnStart':
+            this.sfx('turn');
+            await sleep(80);
+            break;
+          case 'lose': this.sfx('lose'); await sleep(200); break;
+          case 'win': this.sfx('win'); await sleep(150); break;
+          case 'combatStart': this.sfx('start'); await sleep(180); break;
+          default: break;
+        }
+      }
+    },
+    floatAt(el, text, cls) {
+      if (!el || !text) return;
+      const rect = el.getBoundingClientRect();
+      const span = document.createElement('span');
+      span.className = 'float-text ' + (cls || '');
+      span.textContent = text;
+      span.style.left = (rect.left + rect.width / 2 + (Math.random() * 30 - 15)) + 'px';
+      span.style.top = (rect.top + rect.height * 0.32) + 'px';
+      document.getElementById('fx-layer').appendChild(span);
+      setTimeout(() => span.remove(), 1100);
+    },
+    hitPulse(el) {
+      if (!el) return;
+      el.classList.remove('hit');
+      void el.offsetWidth;
+      el.classList.add('hit');
+      setTimeout(() => el.classList.remove('hit'), 280);
+    },
+    shakeScreen() {
+      const app = document.getElementById('app');
+      app.classList.remove('shake');
+      void app.offsetWidth;
+      app.classList.add('shake');
+      setTimeout(() => app.classList.remove('shake'), 260);
+    },
+    banner(text, kind) {
+      const div = document.createElement('div');
+      div.className = 'banner ' + (kind || '');
+      div.innerHTML = `<span>${esc(text)}</span>`;
+      document.getElementById('fx-layer').appendChild(div);
+      setTimeout(() => div.remove(), 1900);
+    },
+    initAudio() {
+      if (this.audio) return;
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        this.audio = new Ctx();
+      } catch (err) { this.audio = null; }
+    },
+    unlockAudio() {
+      this.initAudio();
+      if (this.audio && this.audio.state === 'suspended') this.audio.resume();
+    },
+    tone(freq, dur, type, vol, delay) {
+      if (!this.audio || !this.soundOn) return;
+      const t0 = this.audio.currentTime + (delay || 0);
+      const osc = this.audio.createOscillator();
+      const gain = this.audio.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(vol || 0.05, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(gain).connect(this.audio.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.03);
+    },
+    sfx(name) {
+      if (!this.soundOn) return;
+      this.initAudio();
+      if (!this.audio) return;
+      if (this.audio.state === 'suspended') this.audio.resume();
+      switch (name) {
+        case 'click': this.tone(560, 0.05, 'triangle', 0.025); break;
+        case 'card': this.tone(420, 0.09, 'sine', 0.045); this.tone(640, 0.11, 'sine', 0.035, 0.05); break;
+        case 'hit': this.tone(150, 0.1, 'sawtooth', 0.05); this.tone(90, 0.14, 'triangle', 0.045, 0.02); break;
+        case 'cross': this.tone(220, 0.09, 'square', 0.04); this.tone(880, 0.12, 'triangle', 0.035, 0.04); break;
+        case 'hurt': this.tone(110, 0.16, 'sawtooth', 0.055); this.tone(75, 0.2, 'triangle', 0.045, 0.04); break;
+        case 'block': this.tone(300, 0.08, 'square', 0.03); break;
+        case 'heal': this.tone(660, 0.12, 'sine', 0.035); this.tone(880, 0.16, 'sine', 0.03, 0.08); break;
+        case 'chain': this.tone(620, 0.1, 'triangle', 0.04); this.tone(820, 0.12, 'triangle', 0.035, 0.07); break;
+        case 'zhoutian': [220, 330, 440, 660].forEach((f, i) => this.tone(f, 0.5, 'sine', 0.04, i * 0.055)); break;
+        case 'win': [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 0.3, 'triangle', 0.04, i * 0.1)); break;
+        case 'lose': [220, 185, 147, 110].forEach((f, i) => this.tone(f, 0.35, 'sine', 0.04, i * 0.12)); break;
+        case 'coin': this.tone(980, 0.07, 'square', 0.025); this.tone(1320, 0.09, 'square', 0.02, 0.06); break;
+        case 'turn': this.tone(330, 0.1, 'sine', 0.03); break;
+        case 'endturn': this.tone(280, 0.1, 'triangle', 0.03); break;
+        case 'phase': this.tone(120, 0.4, 'sawtooth', 0.05); this.tone(80, 0.5, 'sine', 0.04, 0.1); break;
+        case 'death': this.tone(160, 0.2, 'sawtooth', 0.035); break;
+        case 'start': [330, 440, 550].forEach((f, i) => this.tone(f, 0.25, 'sine', 0.035, i * 0.08)); break;
+        case 'potion': this.tone(700, 0.08, 'sine', 0.03); this.tone(900, 0.12, 'sine', 0.025, 0.06); break;
+        case 'event': this.tone(480, 0.16, 'triangle', 0.03); break;
+        case 'upgrade': [660, 990, 1320].forEach((f, i) => this.tone(f, 0.2, 'triangle', 0.03, i * 0.07)); break;
+        default: break;
+      }
+    },
+    toast(msg) {
+      const layer = document.getElementById('toast-layer');
+      const div = document.createElement('div');
+      div.className = 'toast';
+      div.textContent = msg;
+      layer.appendChild(div);
+      setTimeout(() => div.classList.add('out'), 1500);
+      setTimeout(() => div.remove(), 2100);
+    },
+
+    /* ---------------- 渲染 ---------------- */
+    render() {
+      if (!this.state && !['title', 'select', 'compendium'].includes(this.screen)) this.screen = 'title';
+      this.markSeen();
+      const app = document.getElementById('app');
+      const screenChanged = this._lastRenderedScreen !== this.screen;
+      this._lastRenderedScreen = this.screen;
+      let html = '';
+      switch (this.screen) {
+        case 'title': html = this.titleHTML(); break;
+        case 'select': html = this.selectHTML(); break;
+        case 'map': html = this.state ? this.mapHTML() : this.titleHTML(); break;
+        case 'combat': html = this.state && this.state.combat ? this.combatHTML() : this.mapHTML(); break;
+        case 'reward': html = this.state && this.state.reward ? this.rewardHTML() : this.mapHTML(); break;
+        case 'shop': html = this.state && this.state.shop ? this.shopHTML() : this.mapHTML(); break;
+        case 'rest': html = this.state ? this.restHTML() : this.mapHTML(); break;
+        case 'event': html = this.state && this.state.event ? this.eventHTML() : this.mapHTML(); break;
+        case 'treasure': html = this.state && this.state.treasure ? this.treasureHTML() : this.mapHTML(); break;
+        case 'victory': html = this.endHTML(true); break;
+        case 'gameover': html = this.endHTML(false); break;
+        case 'compendium': html = this.compendiumHTML(); break;
+        default: html = this.titleHTML(); break;
+      }
+      app.innerHTML = html + this.overlayHTML();
+      app.classList.remove('screen-enter');
+      if (screenChanged) {
+        void app.offsetWidth;
+        app.classList.add('screen-enter');
+      }
+      document.body.dataset.screen = this.screen;
+      this.afterRender();
+    },
+    afterRender() {
+      if (this.screen === 'map') {
+        const scroller = document.getElementById('map-scroll');
+        if (scroller) {
+          requestAnimationFrame(() => {
+            const cur = scroller.querySelector('.map-node.current');
+            if (cur) cur.scrollIntoView({ block: 'center', behavior: 'auto' });
+            else scroller.scrollTop = scroller.scrollHeight;
+          });
+        }
+      }
+      if (this.screen === 'combat' && this.state && this.state.combat && !this.busy && !this.finishing) {
+        const ph = this.state.combat.phase;
+        if (ph === 'won' || ph === 'lost') setTimeout(() => this.checkCombatState(), 350);
+      }
+    },
+    markSeen() {
+      const st = this.state;
+      if (!st) return;
+      const m = this.meta;
+      let changed = false;
+      const add = (arr, id) => { if (id && !arr.includes(id)) { arr.push(id); changed = true; } };
+      (st.deck || []).forEach(c => add(m.seenCards, c.id));
+      (st.relics || []).forEach(id => add(m.seenRelics, id));
+      if (st.combat) {
+        (st.combat.enemies || []).forEach(e => add(m.seenEnemies, e.id));
+        (st.combat.hand || []).forEach(c => add(m.seenCards, c.id));
+      }
+      if (st.reward) {
+        (st.reward.cards || []).forEach(c => add(m.seenCards, c.id));
+        add(m.seenRelics, st.reward.relicId);
+      }
+      if (st.shop) {
+        (st.shop.cards || []).forEach(x => add(m.seenCards, x.card.id));
+        (st.shop.relics || []).forEach(x => add(m.seenRelics, x.id));
+      }
+      if (changed) this.app.saveMeta();
+    },
+
+    /* ---------------- 标题 / 选择 ---------------- */
+    titleHTML() {
+      const has = this.hasRun && this.state;
+      const info = has ? `${this.state.characterId === 'sword' ? '剑修·凌霄' : this.state.characterId === 'alchemist' ? '丹修·青萝' : '体修·磐石'} · ${E.getActName(this.state.act)}` : '';
+      return `
+      <main class="screen title-screen">
+        <div class="title-emblem">
+          <div class="orbit orbit-1"></div>
+          <div class="orbit orbit-2"></div>
+          <div class="five-orbs">
+            ${['wood', 'fire', 'earth', 'metal', 'water'].map((id, i) => `<span class="orb orb-${id}" style="--i:${i}">${D.elements[id].glyph}</span>`).join('')}
+          </div>
+          <div class="title-seal">道</div>
+        </div>
+        <h1 class="game-logo">五行问道</h1>
+        <p class="game-sub">木生火 · 火生土 · 土生金 · 金生水 · 水生木</p>
+        <div class="title-menu">
+          ${has ? `<button class="btn btn-primary btn-lg" data-action="title-continue"><span>继续修行</span><small>${esc(info)}</small></button>` : ''}
+          <button class="btn ${has ? 'btn-ghost' : 'btn-primary btn-lg'}" data-action="title-new"><span>${has ? '另起轮回' : '开始新局'}</span>${has ? '' : '<small>三幕 · 三角色 · 五行连携</small>'}</button>
+          <div class="title-row">
+            <button class="btn btn-ghost" data-action="help">玩法</button>
+            <button class="btn btn-ghost" data-action="title-compendium">图鉴</button>
+            <button class="btn btn-ghost" data-action="settings">设置</button>
+          </div>
+        </div>
+        <div class="title-foot">
+          <span>最高天劫 ${this.meta.maxAscension}</span>
+          <span>轮回 ${this.meta.stats.runs || 0} 次 · 通关 ${this.meta.stats.wins || 0} 次</span>
+          <span>${this.soundOn ? '音效开' : '音效关'}</span>
+        </div>
+        <p class="title-credit">以五行相生为链，以相克为刃。每一步，都是道心。</p>
+      </main>`;
+    },
+    selectHTML() {
+      const chars = D.characters;
+      return `
+      <main class="screen select-screen">
+        <header class="page-head">
+          <button class="btn btn-ghost btn-sm" data-action="to-title">← 返回</button>
+          <div><h1>择一道心</h1><p>三位修士，三种活法。选定后不可更改。</p></div>
+          <span class="head-spacer"></span>
+        </header>
+        <section class="char-grid">
+          ${chars.map(ch => this.charCardHTML(ch)).join('')}
+        </section>
+        <footer class="select-foot">
+          <div class="ascension-box">
+            <span class="asc-label">天劫</span>
+            <button class="btn btn-square" data-action="asc-minus" ${this.ascension <= 0 ? 'disabled' : ''}>−</button>
+            <b class="asc-value">${this.ascension}</b>
+            <button class="btn btn-square" data-action="asc-plus" ${this.ascension >= this.meta.maxAscension ? 'disabled' : ''}>＋</button>
+            <span class="asc-desc">${this.ascension === 0 ? '无劫，寻常山门。' : `敌人生命 +${this.ascension * 4}%，伤害 +${this.ascension * 2}%，起始诅咒 ${this.ascension >= 10 ? 2 : this.ascension >= 6 ? 1 : 0} 张。`}</span>
+          </div>
+          <button class="btn btn-primary btn-lg start-btn" data-action="begin-run">踏入此道</button>
+        </footer>
+        <p class="select-tip">提示：相生顺序为 木 → 火 → 土 → 金 → 水 → 木。用克敌属性出牌，可无视护甲。</p>
+      </main>`;
+    },
+    charCardHTML(ch) {
+      const selected = this.selectedChar === ch.id;
+      const deck = ch.deck.map(d => {
+        const data = D.cardMap[d.id];
+        return `<span class="deck-chip el-${data.element}">${esc(data.name)}<b>×${d.count}</b></span>`;
+      }).join('');
+      const relic = D.relicMap[ch.relic];
+      return `
+      <button class="char-card ${selected ? 'selected' : ''}" data-action="select-char" data-char="${ch.id}" style="--accent:${ch.accent}">
+        <span class="char-choose">${selected ? '已选' : '选择'}</span>
+        <span class="char-glyph">${CHAR_GLYPHS[ch.id]}</span>
+        <span class="char-name">${esc(ch.name)}</span>
+        <span class="char-title">${esc(ch.title)}</span>
+        <span class="char-elems">${ch.elements.map(e => elemBadge(e)).join('')}</span>
+        <span class="char-hp">生命 ${ch.maxHp}</span>
+        <span class="char-style">${CHAR_STYLE[ch.id]}</span>
+        <span class="char-passive"><b>${esc(ch.passive)}</b>　${esc(ch.passiveText)}</span>
+        <span class="char-tip">${CHAR_TIPS[ch.id]}</span>
+        <span class="char-label">初始牌组</span>
+        <span class="char-deck">${deck}</span>
+        <span class="char-label relic-label">初始遗物</span>
+        <span class="char-relic">${relicChip(relic.id, { showName: true })}</span>
+        <span class="char-flavor">“${esc(ch.flavor)}”</span>
+      </button>`;
+    },
+
+    /* ---------------- HUD ---------------- */
+    hudHTML() {
+      const st = this.state;
+      const ch = E.getCharacter(st);
+      const act = E.getActName(st.act);
+      return `
+      <header class="hud">
+        <div class="hud-char">
+          <span class="hud-glyph">${CHAR_GLYPHS[ch.id]}</span>
+          <span><b>${esc(ch.name)}</b><small>${esc(act)}</small></span>
+        </div>
+        <div class="hud-hp">${hpBarHTML(st.hp, st.maxHp)}</div>
+        ${goldHTML(st.gold)}
+        <span class="hud-asc" title="天劫等级">劫 ${st.ascension}</span>
+        <div class="hud-actions">
+          <button class="btn btn-ghost btn-sm" data-action="view-deck">牌组 ${st.deck.length}</button>
+          <button class="btn btn-ghost btn-sm" data-action="view-relics">遗物 ${st.relics.length}</button>
+          <button class="btn btn-ghost btn-sm" data-action="settings">设置</button>
+        </div>
+      </header>`;
+    },
+    miniStatusHTML() {
+      return `<span class="mini-hp">${hpBarHTML(this.state.hp, this.state.maxHp)}</span>${goldHTML(this.state.gold)}`;
+    },
+
+    /* ---------------- 地图 ---------------- */
+    mapHTML() {
+      const st = this.state;
+      const map = st.map;
+      const avail = E.availableNodes(st);
+      const availIds = new Set(avail.map(n => n.id));
+      const curId = map.currentNode;
+      const pos = {};
+      const H = 1080;
+      map.byRow.forEach((row, r) => row.forEach((node, i) => {
+        const x = 500 + (i - (row.length - 1) / 2) * 235;
+        const y = 50 + (8 - r) * 112;
+        pos[node.id] = { x, y };
+      }));
+      const lines = [];
+      map.nodes.forEach(node => {
+        node.next.forEach(nid => {
+          const a = pos[node.id], b = pos[nid];
+          if (!a || !b) return;
+          const active = curId && node.id === curId;
+          lines.push(`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="${active ? 'active' : ''}" />`);
+        });
+      });
+      const cur = curId ? E.nodeById(st, curId) : null;
+      const nodeHTML = map.nodes.map(node => {
+        const p = pos[node.id];
+        const meta = E.getNodeMeta(node.type);
+        const isAvail = availIds.has(node.id);
+        const isCur = node.id === curId;
+        const visited = node.visited && !isCur;
+        const cls = ['map-node', 'type-' + node.type];
+        if (isAvail) cls.push('available');
+        if (isCur) cls.push('current');
+        if (visited) cls.push('visited');
+        if (node.type === 'boss') cls.push('boss');
+        const disabled = !isAvail;
+        return `<button class="${cls.join(' ')}" style="left:${p.x / 10}%;top:${p.y}px" data-action="node" data-id="${node.id}" ${disabled ? 'disabled' : ''} title="${esc(meta.name)}：${esc(meta.desc)}">
+          <span class="node-ring"></span>
+          <span class="node-glyph">${meta.glyph}</span>
+          ${isCur ? '<span class="you-marker">你</span>' : ''}
+          ${node.type === 'boss' ? `<span class="node-label">${esc(D.enemies[map.bossId ? D.encounters[map.act].boss.enemies[0].id : 'tai_xu'].name)}</span>` : ''}
+        </button>`;
+      }).join('');
+      return `
+      <main class="screen map-screen">
+        ${this.hudHTML()}
+        <div class="map-layout">
+          <aside class="map-side">
+            <h2>${esc(E.getActName(st.act))}</h2>
+            <p class="act-flavor">${esc(ACT_FLAVOR[st.act] || '')}</p>
+            <div class="map-legend">
+              ${['combat', 'elite', 'event', 'shop', 'rest', 'treasure', 'boss'].map(t => {
+                const m = E.getNodeMeta(t);
+                return `<span class="legend-row"><i class="legend-dot type-${t}">${m.glyph}</i>${m.name}</span>`;
+              }).join('')}
+            </div>
+            <div class="map-actions">
+              <button class="btn btn-ghost btn-sm" data-action="view-deck">查看牌组</button>
+              <button class="btn btn-ghost btn-sm" data-action="view-relics">查看遗物</button>
+              <button class="btn btn-ghost btn-sm" data-action="settings">设置</button>
+            </div>
+            <div class="map-potions">
+              <span class="char-label">丹药</span>
+              ${[0,1,2].map(i => st.potions[i] ? potionChip(st.potions[i], { big: true }) : '<span class="potion-chip empty">空</span>').join('')}
+            </div>
+            <div class="map-boss">
+              <span class="map-boss-label">幕主</span>
+              <b>${esc(D.enemies[D.encounters[st.act].boss.enemies[0].id].name)}</b>
+              ${elemBadge(D.enemies[D.encounters[st.act].boss.enemies[0].id].element)}
+            </div>
+            <div class="map-tip">
+              <b>${cur ? '去路已现' : '择路而入'}</b>
+              <span>${cur ? '点击发光的节点继续前行。' : '从山脚的三条路中选一条开始。'}</span>
+            </div>
+          </aside>
+          <section class="map-scroll" id="map-scroll">
+            <div class="map-canvas" style="height:${H}px">
+              <svg class="map-lines" viewBox="0 0 1000 ${H}" preserveAspectRatio="none">${lines.join('')}</svg>
+              ${nodeHTML}
+            </div>
+          </section>
+        </div>
+      </main>`;
+    },
+
+    /* ---------------- 战斗 ---------------- */
+    combatHTML() {
+      const st = this.state;
+      const c = st.combat;
+      const ch = E.getCharacter(st);
+      const alive = c.enemies.filter(e => e.hp > 0);
+      const targetIdx = this.targetIndex < c.enemies.length && c.enemies[this.targetIndex] && c.enemies[this.targetIndex].hp > 0 ? this.targetIndex : c.enemies.indexOf(alive[0]);
+      this.targetIndex = targetIdx >= 0 ? targetIdx : 0;
+      const enemyHTML = c.enemies.map((e, i) => this.enemyHTML(e, i, targetIdx)).join('');
+      const n = c.hand.length;
+      const mid = (n - 1) / 2;
+      const compactH = window.innerHeight <= 780;
+      const compactW = window.innerWidth <= 1060;
+      const cardW = (compactH || compactW) ? 132 : (window.innerWidth <= 1200 ? 138 : 152);
+      const avail = Math.max(320, window.innerWidth - 380);
+      const overlap = n > 1 && n * cardW > avail ? Math.min(96, Math.ceil((n * cardW - avail) / (n - 1))) : 0;
+      const hand = c.hand.map((inst, i) => {
+        return cardHTML(inst, { mode: 'hand', index: i, rot: 0, lift: 0, marginLeft: i === 0 ? 0 : -overlap });
+      }).join('');
+      const focusName = c.enemies[targetIdx] && c.enemies[targetIdx].hp > 0 ? c.enemies[targetIdx].name : '';
+      const selectedHint = this.selected != null ? `选择目标：点击敌方单位打出「${esc(cardData(c.hand[this.selected]).name)}」` : (c.phase === 'enemy' ? '敌方回合……' : (alive.length > 1 ? `当前目标：${esc(focusName)} · 点击卡牌后点敌人切换 · 数字键直接出牌` : '点击卡牌出牌 · 数字键 1–9 · E 结束回合'));
+      return `
+      <main class="screen combat-screen ${c.phase === 'enemy' ? 'enemy-phase' : ''}">
+        <header class="combat-top">
+          <div class="turn-tag">第 ${c.turn} 回合</div>
+          <div class="combat-act">${esc(E.getActName(st.act))}</div>
+          <div class="hud-actions">
+            <button class="btn btn-ghost btn-xs" data-action="view-deck">牌组</button>
+            <button class="btn btn-ghost btn-xs" data-action="view-relics">遗物</button>
+            <button class="btn btn-ghost btn-xs" data-action="settings">设置</button>
+          </div>
+        </header>
+        <section class="enemy-zone ${c.enemies.length > 1 ? 'multi' : ''}">
+          ${enemyHTML}
+        </section>
+        <section class="battle-mid">
+          <div class="player-panel" id="player-panel">
+            <div class="player-portrait"><span>${CHAR_GLYPHS[ch.id]}</span></div>
+            <div class="player-info">
+              <div class="player-name">${esc(ch.name)} <small>${esc(ch.passive)}</small></div>
+              ${hpBarHTML(st.hp, st.maxHp)}
+              <div class="player-sub">
+                ${c.block > 0 ? `<span class="block-pill" title="护甲">甲 ${c.block}</span>` : ''}
+                <span class="statuses">${statusChips(c.statuses)}</span>
+              </div>
+              <div class="relic-strip">${st.relics.map(id => relicChip(id)).join('')}</div>
+            </div>
+          </div>
+          ${this.chainHTML()}
+          <div class="energy-box" title="灵气：每回合恢复至上限">
+            <span class="energy-orb"><b>${c.energy}</b><small>/${c.maxEnergy}</small></span>
+            <span class="energy-label">灵气</span>
+          </div>
+        </section>
+        <section class="hand-zone">
+          <div class="left-tray">
+            <div class="potions">
+              ${[0, 1, 2].map(i => st.potions[i] ? `<button class="potion-btn filled" data-action="use-potion" data-index="${i}" ${c.phase !== 'player' ? 'disabled' : ''} title="${esc(potionById(st.potions[i]).name)}：${esc(potionById(st.potions[i]).desc)}">${esc(potionById(st.potions[i]).icon)}</button>` : `<span class="potion-btn empty">空</span>`).join('')}
+            </div>
+            <div class="piles">
+              <button class="pile-btn" data-action="open-piles" data-pile="draw" title="抽牌堆"><b>${c.drawPile.length}</b><span>抽</span></button>
+              <button class="pile-btn" data-action="open-piles" data-pile="discard" title="弃牌堆"><b>${c.discardPile.length}</b><span>弃</span></button>
+              <button class="pile-btn" data-action="open-piles" data-pile="exhaust" title="消耗堆"><b>${c.exhaustPile.length}</b><span>灭</span></button>
+            </div>
+          </div>
+          <div class="hand-area">
+            <div class="hand" style="--n:${n}">${hand || '<span class="empty-hand">手牌已空</span>'}</div>
+          </div>
+          <div class="combat-actions">
+            <button class="btn btn-primary end-turn" data-action="end-turn" ${c.phase !== 'player' ? 'disabled' : ''}>结束回合 <small>E</small></button>
+          </div>
+        </section>
+        <p class="combat-hint ${this.selected != null ? 'targeting' : ''}">${selectedHint}</p>
+      </main>`;
+    },
+    enemyHTML(e, i, targetIdx) {
+      const alive = e.hp > 0;
+      const intent = E.getEnemyIntent(this.state, e);
+      const weak = weakElement(e.element);
+      const targetable = this.selected != null && alive;
+      const showTarget = alive && i === targetIdx && (targetable || this.state.combat.enemies.length > 1);
+      const detail = intent ? [
+        intent.damage && intent.block ? `+${intent.block} 甲` : '',
+        statusList(intent.debuffs),
+        statusList(intent.buffs),
+        intent.heal ? `回复 ${intent.heal}` : '',
+        intent.addCards.length ? '塞入业障' : ''
+      ].filter(Boolean).join(' · ') : '';
+      return `
+      <div class="enemy-unit ${alive ? '' : 'dead'} ${targetable ? 'targetable' : ''} ${i === targetIdx && alive ? 'focused' : ''} ${showTarget ? 'show-target' : ''}" data-enemy-uid="${e.uid}" data-action="enemy" data-index="${i}">
+        <div class="intent ${intent && intent.damage ? 'intent-attack' : ''}" title="${intent ? esc(intent.name + '：' + intent.label) : ''}">
+          <span class="intent-icon">${intent ? esc(intent.icon) : '？'}</span>
+          <span class="intent-label">${intent ? esc(intent.label) : '未知'}</span>
+          ${detail ? `<span class="intent-detail">${esc(detail)}</span>` : ''}
+        </div>
+        <div class="enemy-body">
+          <div class="enemy-top">
+            <span class="enemy-name">${esc(e.name)}</span>
+            ${elemBadge(e.element)}
+            ${weak ? `<span class="weak-tag" title="相克弱点">弱 ${elem(weak).glyph}</span>` : ''}
+          </div>
+          <div class="enemy-art">${esc(e.name.slice(0, 1))}</div>
+          ${hpBarHTML(e.hp, e.maxHp, 'enemy-hp')}
+          <div class="enemy-sub">
+            ${e.block > 0 ? `<span class="block-pill">甲 ${e.block}</span>` : ''}
+            ${e.phase === 2 ? '<span class="phase-tag">狂怒</span>' : ''}
+            <span class="statuses">${statusChips(e.statuses)}</span>
+          </div>
+        </div>
+      </div>`;
+    },
+    chainHTML() {
+      const c = this.state.combat;
+      const cur = c.currentElement ? elem(c.currentElement) : null;
+      const next = cur && cur.generates ? elem(cur.generates) : null;
+      const pips = Array.from({ length: 5 }, (_, i) => `<i class="${i < c.chain ? 'on' : ''}"></i>`).join('');
+      let hint;
+      if (!cur) hint = '打出任意五行牌起手';
+      else if (next) hint = `下一张「${next.glyph}」可续链`;
+      if (this.selected != null && c.hand[this.selected]) {
+        const sd = cardData(c.hand[this.selected]);
+        if (sd.element && sd.element !== 'none' && cur && cur.generates === sd.element) hint = '此牌可续链 +1';
+        else if (sd.element && sd.element !== 'none' && cur) hint = '此牌会断链';
+      }
+      return `
+      <div class="chain-panel">
+        <div class="chain-flow">
+          <span class="chain-elem ${cur ? '' : 'empty'}" style="${cur ? `--el:${cur.color};--el-dark:${cur.dark}` : ''}">${cur ? cur.glyph : '起'}</span>
+          <span class="chain-arrow">${cur ? '生' : '→'}</span>
+          <span class="chain-elem ${next ? '' : 'empty'}" style="${next ? `--el:${next.color};--el-dark:${next.dark}` : ''}">${next ? next.glyph : '—'}</span>
+        </div>
+        <div class="chain-meta">
+          <div class="chain-pips" title="连携层数">${pips}<b>${c.chain}<small>/5</small></b></div>
+          <div class="chain-hint">${hint}</div>
+        </div>
+      </div>`;
+    },
+
+    /* ---------------- 奖励 / 商店 / 休整 ---------------- */
+    rewardHTML() {
+      const st = this.state;
+      const r = st.reward;
+      const titles = { combat: '战后所得', elite: '精英战利品', boss: '幕主遗藏' };
+      const chosen = r.selected >= 0 && r.cards[r.selected] ? cardData(r.cards[r.selected]) : null;
+      return `
+      <main class="screen panel-screen reward-screen">
+        ${this.miniHeader('战利品', E.getActName(st.act))}
+        <section class="panel reward-panel">
+          <h1>${titles[r.kind] || '战利品'}</h1>
+          <div class="reward-line"><span class="reward-coin">◈</span> 获得 <b>${r.gold}</b> 金币</div>
+          ${r.relicId ? `<div class="reward-relic">${relicChip(r.relicId, { big: true, showName: true })}<span>${esc(relicById(r.relicId).desc)}</span></div>` : ''}
+          ${r.potionId ? `<div class="reward-potion">获得丹药：${potionChip(r.potionId)} <b>${esc(potionById(r.potionId).name)}</b></div>` : ''}
+          ${r.potionFull ? '<p class="dim">丹药腰带已满，多余丹药化为 20 金币。</p>' : ''}
+          <h2 class="sub-title">${r.cardTaken ? '已收入囊中' : '选一张牌带走'}</h2>
+          <div class="card-choice-row">
+            ${r.cards.map((inst, i) => `<div class="choice-slot ${r.cardTaken && r.selected === i ? 'chosen' : ''} ${r.cardTaken && r.selected !== i ? 'faded' : ''}" ${!r.cardTaken ? `data-action="take-card" data-index="${i}"` : ''}>
+              ${cardHTML(inst, { mode: 'choice' })}
+              ${!r.cardTaken ? `<button class="btn btn-ghost btn-sm choice-btn" data-action="take-card" data-index="${i}">选此牌</button>` : ''}
+            </div>`).join('')}
+          </div>
+          ${chosen ? `<p class="chosen-note">「${esc(chosen.name)}」已加入牌组。</p>` : ''}
+          <div class="panel-actions">
+            ${!r.cardTaken ? `<button class="btn btn-ghost" data-action="skip-card">跳过选牌</button>` : `<button class="btn btn-primary" data-action="continue-reward">继续前行</button>`}
+          </div>
+        </section>
+      </main>`;
+    },
+    shopHTML() {
+      const st = this.state;
+      const shop = st.shop;
+      const cardItem = (it, i) => {
+        const p = cardData(it.card);
+        return `<div class="shop-card ${it.sold ? 'sold' : ''}">
+          ${cardHTML(it.card, { mode: 'shop' })}
+          <div class="shop-buy">
+            <span class="price">◈ ${it.price}</span>
+            <button class="btn btn-sm ${st.gold >= it.price && !it.sold ? 'btn-primary' : 'btn-ghost'}" data-action="shop-buy" data-kind="card" data-index="${i}" ${it.sold || st.gold < it.price ? 'disabled' : ''}>${it.sold ? '已售' : '买下'}</button>
+          </div>
+        </div>`;
+      };
+      return `
+      <main class="screen panel-screen shop-screen">
+        ${this.miniHeader('云游商铺', '“看一眼无妨，买不买随缘。”')}
+        <section class="panel shop-panel">
+          <div class="shop-top"><h1>云游商铺</h1><div class="shop-top-right">${goldHTML(st.gold)}<button class="btn btn-ghost btn-sm" data-action="shop-leave">离开</button></div></div>
+          <p class="shop-quote">“五行流转，万物皆可交易。只收现钱，不赊账。”</p>
+          <h2 class="sub-title">功法</h2>
+          <div class="shop-cards">${shop.cards.map(cardItem).join('')}</div>
+          <div class="shop-cols">
+            <div>
+              <h2 class="sub-title">法器</h2>
+              ${shop.relics.map((it, i) => {
+                const r = relicById(it.id);
+                return `<div class="shop-relic ${it.sold ? 'sold' : ''}">
+                  ${relicChip(it.id, { big: true })}
+                  <div class="shop-relic-info"><b>${esc(r.name)}</b><span>${esc(r.desc)}</span></div>
+                  <span class="price">◈ ${it.price}</span>
+                  <button class="btn btn-sm ${st.gold >= it.price && !it.sold ? 'btn-primary' : 'btn-ghost'}" data-action="shop-buy" data-kind="relic" data-index="${i}" ${it.sold || st.gold < it.price ? 'disabled' : ''}>${it.sold ? '已售' : '买下'}</button>
+                </div>`;
+              }).join('') || '<p class="dim">法器已售罄。</p>'}
+            </div>
+            <div>
+              <h2 class="sub-title">丹药</h2>
+              ${shop.potions.map((it, i) => {
+                const p = potionById(it.id);
+                return `<div class="shop-potion ${it.sold ? 'sold' : ''}">
+                  ${potionChip(it.id, { big: true })}
+                  <div class="shop-potion-info"><b>${esc(p.name)}</b><span>${esc(p.desc)}</span></div>
+                  <span class="price">◈ ${it.price}</span>
+                  <button class="btn btn-sm ${st.gold >= it.price && !it.sold && st.potions.length < 3 ? 'btn-primary' : 'btn-ghost'}" data-action="shop-buy" data-kind="potion" data-index="${i}" ${it.sold || st.gold < it.price || st.potions.length >= 3 ? 'disabled' : ''}>${it.sold ? '已售' : (st.potions.length >= 3 ? '腰带满' : '买下')}</button>
+                </div>`;
+              }).join('') || '<p class="dim">丹药已售罄。</p>'}
+              <div class="shop-remove">
+                <div><b>洗去旧学</b><span>移除牌组中的一张牌</span></div>
+                <span class="price">◈ ${shop.removePrice}</span>
+                <button class="btn btn-sm ${!shop.removeUsed && st.gold >= shop.removePrice ? 'btn-primary' : 'btn-ghost'}" data-action="shop-remove" ${shop.removeUsed || st.gold < shop.removePrice ? 'disabled' : ''}>${shop.removeUsed ? '已用过' : '选牌移除'}</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>`;
+    },
+    restHTML() {
+      const st = this.state;
+      const heal = Math.ceil(st.maxHp * 0.3);
+      const upgradable = st.deck.some(c => !c.up && D.cardMap[c.id].up);
+      return `
+      <main class="screen panel-screen rest-screen">
+        ${this.miniHeader('山间营地', E.getActName(st.act))}
+        <section class="panel rest-panel">
+          <h1>且歇一程</h1>
+          <p class="scene-text">篝火噼啪作响，山风把远处的妖气吹得很淡。你还有一点时间，做一件事。</p>
+          <div class="rest-choices">
+            <button class="rest-choice" data-action="rest-heal">
+              <span class="rest-glyph">息</span>
+              <b>疗伤</b>
+              <span>回复 ${heal} 点生命（最大生命的 30%）</span>
+              <small>当前 ${st.hp} / ${st.maxHp}</small>
+            </button>
+            <button class="rest-choice" data-action="rest-upgrade" ${upgradable ? '' : 'disabled'}>
+              <span class="rest-glyph">悟</span>
+              <b>参悟</b>
+              <span>升级牌组中的一张牌</span>
+              <small>${upgradable ? '选择一张未悟的牌' : '已无牌可悟'}</small>
+            </button>
+          </div>
+          <div class="panel-actions">
+            <button class="btn btn-ghost" data-action="view-deck">查看牌组</button>
+          </div>
+        </section>
+      </main>`;
+    },
+    eventHTML() {
+      const st = this.state;
+      const ev = D.events.find(e => e.id === st.event.id);
+      if (!ev) return this.mapHTML();
+      const resolved = st.event.resolved;
+      return `
+      <main class="screen panel-screen event-screen">
+        ${this.miniHeader('山野异闻', E.getActName(st.act))}
+        <section class="panel event-panel">
+          <span class="event-mark">缘</span>
+          <h1>${esc(ev.title)}</h1>
+          <p class="event-text">${esc(ev.text)}</p>
+          ${resolved ? `
+            <div class="event-result"><span>结果</span><p>${esc(st.event.resultText)}</p></div>
+            <div class="panel-actions"><button class="btn btn-primary" data-action="continue-event">继续前行</button></div>
+          ` : `
+            <div class="event-choices">
+              ${ev.choices.map((ch, i) => {
+                const need = ch.require && ch.require.gold ? ch.require.gold : 0;
+                const disabled = need > st.gold;
+                return `<button class="event-choice" data-action="event-choice" data-index="${i}" ${disabled ? 'disabled' : ''}>
+                  <span class="choice-index">${i + 1}</span>
+                  <span>${esc(ch.label)}</span>
+                  ${need ? `<small class="${disabled ? 'warn' : 'dim'}">需要 ${need} 金币${disabled ? '（不足）' : ''}</small>` : ''}
+                </button>`;
+              }).join('')}
+            </div>
+          `}
+        </section>
+      </main>`;
+    },
+    treasureHTML() {
+      const st = this.state;
+      const t = st.treasure;
+      return `
+      <main class="screen panel-screen treasure-screen">
+        ${this.miniHeader('古箱', E.getActName(st.act))}
+        <section class="panel treasure-panel">
+          <div class="chest">宝</div>
+          <h1>箱中有物</h1>
+          <div class="loot-list">
+            <div class="loot-row">◈ 金币 <b>+${t.gold}</b></div>
+            ${t.relicId ? `<div class="loot-row">${relicChip(t.relicId, { big: true, showName: true })}<b>${esc(relicById(t.relicId).name)}</b><span>${esc(relicById(t.relicId).desc)}</span></div>` : ''}
+            ${t.potionId ? `<div class="loot-row">${potionChip(t.potionId, { big: true })}<b>${esc(potionById(t.potionId).name)}</b><span>${esc(potionById(t.potionId).desc)}</span></div>` : ''}
+          </div>
+          <div class="panel-actions"><button class="btn btn-primary" data-action="treasure-continue">收好，继续前行</button></div>
+        </section>
+      </main>`;
+    },
+    miniHeader(title, sub) {
+      const st = this.state;
+      return `
+      <header class="hud mini">
+        <div class="hud-char"><span class="hud-glyph">${esc(title.slice(0, 1))}</span><span><b>${esc(E.getCharacter(st).name)}</b><small>${esc(sub || '')}</small></span></div>
+        <div class="hud-hp">${hpBarHTML(st.hp, st.maxHp)}</div>
+        ${goldHTML(st.gold)}
+        <div class="hud-actions">
+          <button class="btn btn-ghost btn-sm" data-action="view-deck">牌组</button>
+          <button class="btn btn-ghost btn-sm" data-action="view-relics">遗物</button>
+          <button class="btn btn-ghost btn-sm" data-action="settings">设置</button>
+        </div>
+      </header>`;
+    },
+
+    /* ---------------- 结束 / 图鉴 ---------------- */
+    endHTML(win) {
+      const st = this.state;
+      const s = st ? E.getRunSummary(st) : { character: '无名', floor: 0, kills: 0, deckSize: 0, gold: 0, ascension: 0 };
+      return `
+      <main class="screen end-screen ${win ? 'victory' : 'defeat'}">
+        <div class="end-glow"></div>
+        <span class="end-mark">${win ? '道' : '陨'}</span>
+        <h1>${win ? '此身合道' : '道途未竟'}</h1>
+        <p class="end-sub">${win ? '五行归元，天阙重开。你终于走到了问心之处。' : '山风收走了最后一缕气息。道还在，人再来。'}</p>
+        <div class="end-stats">
+          <span><b>${esc(s.character)}</b><small>修士</small></span>
+          <span><b>${s.floor}</b><small>层数</small></span>
+          <span><b>${s.kills}</b><small>击杀</small></span>
+          <span><b>${s.deckSize}</b><small>牌组</small></span>
+          <span><b>${s.ascension}</b><small>天劫</small></span>
+        </div>
+        ${win ? `<p class="unlock-note">当前最高天劫 ${this.meta.maxAscension}${this.meta.maxAscension >= 10 ? ' · 已至十重' : ' · 下一次，风会更冷。'}</p>` : ''}
+        <div class="end-actions">
+          <button class="btn btn-primary btn-lg" data-action="${win ? 'victory-new' : 'game-new'}">${win ? '再入轮回' : '重入轮回'}</button>
+          <button class="btn btn-ghost" data-action="${win ? 'victory-home' : 'game-home'}">返回标题</button>
+        </div>
+      </main>`;
+    },
+    compendiumHTML() {
+      const m = this.meta;
+      const tabs = [['cards', '卡牌'], ['relics', '遗物'], ['enemies', '敌人']];
+      let body = '';
+      if (this.compTab === 'cards') {
+        const allCards = D.cards.filter(c => c.rarity !== 'special');
+        body = `<div class="comp-grid">${allCards.map(c => {
+          const seen = m.seenCards.includes(c.id);
+          if (!seen) return `<div class="comp-locked"><span>？</span><small>${RARITY_LABEL[c.rarity] || ''}</small></div>`;
+          return cardHTML({ uid: 'comp_' + c.id, id: c.id, up: false }, { mode: 'compendium' });
+        }).join('')}</div>`;
+      } else if (this.compTab === 'relics') {
+        body = `<div class="comp-relics">${D.relics.filter(r => r.rarity !== 'starter').map(r => {
+          const seen = m.seenRelics.includes(r.id);
+          return `<div class="comp-relic ${seen ? '' : 'locked'}">
+            <span class="comp-relic-icon">${seen ? esc(r.name.slice(0, 1)) : '？'}</span>
+            <div><b>${seen ? esc(r.name) : '未识法器'}</b><span>${seen ? esc(r.desc) : '尚未在轮回中得见。'}</span></div>
+            <small>${RARITY_LABEL[r.rarity] || ''}</small>
+          </div>`;
+        }).join('')}</div>`;
+      } else {
+        body = `<div class="comp-enemies">${Object.values(D.enemies).map(e => {
+          const seen = m.seenEnemies.includes(e.id);
+          return `<div class="comp-enemy ${seen ? '' : 'locked'}">
+            <span class="comp-enemy-art" style="--el:${elem(e.element).color}">${seen ? esc(e.name.slice(0, 1)) : '？'}</span>
+            <div><b>${seen ? esc(e.name) : '未识之敌'}</b>${seen ? `<span>${elemBadge(e.element)} ${e.boss ? '幕主' : e.elite ? '精英' : '寻常'}</span>` : '<span>尚未交手。</span>'}</div>
+          </div>`;
+        }).join('')}</div>`;
+      }
+      return `
+      <main class="screen compendium-screen">
+        <header class="page-head">
+          <button class="btn btn-ghost btn-sm" data-action="to-title">← 返回</button>
+          <div><h1>问道图鉴</h1><p>见过的牌、拾过的器、斩过的妖。</p></div>
+          <span class="head-spacer"></span>
+        </header>
+        <div class="comp-tabs">
+          ${tabs.map(([id, name]) => `<button class="comp-tab ${this.compTab === id ? 'active' : ''}" data-action="comp-tab" data-tab="${id}">${name}</button>`).join('')}
+        </div>
+        <div class="comp-count">已识 ${this.compTab === 'cards' ? m.seenCards.filter(id => D.cardMap[id] && D.cardMap[id].rarity !== 'special').length + ' / ' + D.cards.filter(c => c.rarity !== 'special').length : this.compTab === 'relics' ? m.seenRelics.filter(id => D.relicMap[id] && D.relicMap[id].rarity !== 'starter').length + ' / ' + D.relics.filter(r => r.rarity !== 'starter').length : m.seenEnemies.length + ' / ' + Object.keys(D.enemies).length}</div>
+        <section class="comp-body">${body}</section>
+      </main>`;
+    },
+
+    /* ---------------- 覆盖层 ---------------- */
+    overlayHTML() {
+      if (!this.overlay) return '';
+      let body = '';
+      let title = '';
+      if (this.overlay === 'deck') {
+        title = `牌组 · ${this.state ? this.state.deck.length : 0} 张`;
+        body = `<div class="overlay-card-grid">${sortDeck(this.state.deck).map(inst => cardHTML(inst, { mode: 'deck' })).join('')}</div>`;
+      } else if (this.overlay === 'relics') {
+        title = '遗物';
+        const relics = this.state.relics.map(id => {
+          const r = relicById(id);
+          return `<div class="overlay-relic"><span class="relic-big">${esc(r.name.slice(0, 1))}</span><div><b>${esc(r.name)}</b><p>${esc(r.desc)}</p></div></div>`;
+        }).join('');
+        body = relics || '<p class="dim">尚未拾得遗物。</p>';
+      } else if (this.overlay === 'piles') {
+        const c = this.state.combat;
+        const map = { draw: c.drawPile, discard: c.discardPile, exhaust: c.exhaustPile };
+        const names = { draw: '抽牌堆', discard: '弃牌堆', exhaust: '消耗堆' };
+        const pile = (map[this.pile] || []).slice().sort((a, b) => (D.cardMap[a.id].name > D.cardMap[b.id].name ? 1 : -1));
+        title = `${names[this.pile]} · ${pile.length} 张`;
+        body = `<div class="overlay-card-grid">${pile.map(inst => cardHTML(inst, { mode: 'deck' })).join('') || '<p class="dim">空。</p>'}</div>`;
+      } else if (this.overlay === 'picker') {
+        title = this.picker.title;
+        const isUpgrade = this.picker.mode === 'upgrade-rest';
+        body = `<div class="overlay-card-grid">${sortDeck(this.state.deck).map(inst => {
+          const data = D.cardMap[inst.id];
+          const ok = isUpgrade ? (!inst.up && data.up) : true;
+          return `<div class="pick-wrap ${ok ? '' : 'ineligible'}">${cardHTML(inst, { mode: 'deck', pickUid: ok ? inst.uid : null, selectable: ok })}</div>`;
+        }).join('')}</div>`;
+      } else if (this.overlay === 'help') {
+        title = '玩法';
+        body = `
+          <div class="help-grid">
+            <div class="help-block"><b>灵气与手牌</b><p>每回合 3 点灵气、抽 5 张牌。打出卡牌消耗灵气；回合结束弃掉手牌。灵气不足时打不出牌，但可以先打出低费牌调整顺序。</p></div>
+            <div class="help-block"><b>相生连携</b><p>上一张牌的五行「生」出下一张，就能续上连携。顺序：木 → 火 → 土 → 金 → 水 → 木。连携每 +1，当前牌的伤害与护甲也 +1。断链会清零，但不会额外惩罚。</p></div>
+            <div class="help-block"><b>相克破防</b><p>用克敌属性攻击：木克土、土克水、水克火、火克金、金克木。相克伤害 ×1.5，并且无视护甲。保连携还是断链打弱点，是每回合最核心的取舍。</p></div>
+            <div class="help-block"><b>五行周天</b><p>连携叠到 5 层时，立即对所有敌人造成 8 点伤害、回复 1 点灵气、抽 1 张牌，然后连携归零。连携会跨回合保留。</p></div>
+            <div class="help-block"><b>状态与关键词</b><p>中毒/灼烧按层数持续掉血；虚弱降低输出，易伤放大受伤；锐气/坚韧强化攻击与护甲。「消耗」的牌本场不再回来，「贯穿」无视护甲。</p></div>
+            <div class="help-block"><b>一局的目标</b><p>沿分支地图走过三幕，击败每幕的幕主。战斗后选牌、精英掉遗物、商店删牌、休整升级——把牌组捏成能稳定续链的样子。</p></div>
+          </div>
+          <div class="help-keys"><span>1–9 出牌</span><span>E 结束回合</span><span>Esc 关闭面板</span></div>`;
+      } else if (this.overlay === 'settings') {
+        title = '设置';
+        body = `
+          <div class="settings-list">
+            <button class="settings-row" data-action="help"><span>玩法说明</span><b>五行 · 连携 · 状态</b></button>
+            <button class="settings-row" data-action="toggle-sound"><span>音效</span><b>${this.soundOn ? '开' : '关'}</b></button>
+            <div class="settings-row static"><span>操作</span><b>点击出牌 · 1–9 · E 结束回合</b></div>
+            <div class="settings-row static"><span>规则</span><b>相生续链 · 相克破甲</b></div>
+            <button class="settings-row danger" data-action="abandon-run"><span>放弃轮回</span><b>回到标题</b></button>
+            <button class="settings-row" data-action="back-title-keep"><span>返回标题</span><b>保留进度</b></button>
+          </div>
+          <p class="settings-version">五行问道 v1.0 · 本地存档</p>`;
+      }
+      return `
+      <div class="overlay" data-action="close-overlay">
+        <div class="overlay-panel" data-action="overlay-stop">
+          <header class="overlay-head"><h2>${esc(title)}</h2><button class="btn btn-ghost btn-sm" data-action="close-overlay">关闭</button></header>
+          <div class="overlay-body">${body}</div>
+        </div>
+      </div>`;
+    },
+
+    /* ---------------- 背景粒子 ---------------- */
+    initBackground() {
+      const canvas = document.getElementById('bg-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const state = { canvas, ctx, w: 0, h: 0, dpr: 1, parts: [], raf: null };
+      this.bg = state;
+      const resize = () => this.resizeBackground();
+      resize();
+      const colors = ['#5aa86e', '#d95b45', '#c6a05a', '#e8dfc8', '#5f95bd'];
+      for (let i = 0; i < 46; i++) {
+        state.parts.push({
+          x: Math.random(), y: Math.random(),
+          r: Math.random() * 2.2 + 0.6,
+          s: Math.random() * 0.00022 + 0.00006,
+          drift: (Math.random() - 0.5) * 0.00008,
+          c: colors[Math.floor(Math.random() * colors.length)],
+          a: Math.random() * 0.35 + 0.1
+        });
+      }
+      const loop = () => {
+        const { ctx: g, w, h } = state;
+        g.clearRect(0, 0, w, h);
+        state.parts.forEach(p => {
+          p.y -= p.s;
+          p.x += p.drift;
+          if (p.y < -0.03) { p.y = 1.03; p.x = Math.random(); }
+          if (p.x < -0.02) p.x = 1.02;
+          if (p.x > 1.02) p.x = -0.02;
+          g.beginPath();
+          g.arc(p.x * w, p.y * h, p.r, 0, Math.PI * 2);
+          g.fillStyle = p.c;
+          g.globalAlpha = p.a;
+          g.fill();
+        });
+        g.globalAlpha = 1;
+        state.raf = requestAnimationFrame(loop);
+      };
+      loop();
+    },
+    resizeBackground() {
+      const s = this.bg;
+      if (!s) return;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      s.w = window.innerWidth;
+      s.h = window.innerHeight;
+      s.dpr = dpr;
+      s.canvas.width = Math.floor(s.w * dpr);
+      s.canvas.height = Math.floor(s.h * dpr);
+      s.canvas.style.width = s.w + 'px';
+      s.canvas.style.height = s.h + 'px';
+      s.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+  };
+
+  window.WX_UI = UI;
+})();
