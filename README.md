@@ -9,7 +9,7 @@
 ## 立即开始
 
 1. 打开本目录。
-2. 用 Chrome、Edge 或 Safari 双击 `index.html`。
+2. 用 Chrome 或 Edge 双击 `index.html`（Safari 也可运行，但部分版本的本地存档能力可能受限）。
 3. 选择一位修士，踏入第一幕。
 
 无需安装、无需启动服务器。存档自动写入浏览器 `localStorage`，刷新或关闭后可继续。
