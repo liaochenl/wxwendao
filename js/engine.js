@@ -1,0 +1,1586 @@
+/* 《五行问道》规则引擎。纯逻辑，不依赖 DOM；浏览器挂载 WXEngine，Node 直接导出。 */
+(function (root, factory) {
+  'use strict';
+  const DATA = (typeof module !== 'undefined' && module.exports) ? require('./data.js') : root.WX_DATA;
+  const engine = factory(DATA);
+  if (typeof module !== 'undefined' && module.exports) module.exports = engine;
+  if (root) root.WXEngine = engine;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (DATA) {
+  'use strict';
+
+  const VERSION = 1;
+  const ACT_NAMES = ['', '第一幕 · 山门问道', '第二幕 · 魔窟焚心', '第三幕 · 天阙归墟'];
+  const NODE_META = {
+    combat:  { name: '战斗', glyph: '战', desc: '一场遭遇战，胜利后获得卡牌奖励。' },
+    elite:   { name: '精英', glyph: '精', desc: '强敌，胜利后获得遗物。' },
+    event:   { name: '事件', glyph: '事', desc: '未知的机缘或灾祸。' },
+    shop:    { name: '商店', glyph: '商', desc: '用金币购买卡牌、遗物与丹药。' },
+    rest:    { name: '休整', glyph: '息', desc: '回复生命或升级一张牌。' },
+    treasure:{ name: '宝箱', glyph: '宝', desc: '一件遗物或一笔金币。' },
+    boss:    { name: '幕主', glyph: '主', desc: '本幕之主。' }
+  };
+  const RARITY_NAME = { starter: '初始', common: '普通', uncommon: '罕见', rare: '稀有', curse: '诅咒', special: '特殊' };
+  const CHARACTER_IDS = DATA.characters.map(c => c.id);
+  const CURSE_IDS = ['xin_mo', 'za_nian', 'zou_huo'];
+  const START_CURSES = ['za_nian', 'xin_mo'];
+
+  let EVENTS = [];
+  function emit(ev) { EVENTS.push(ev); }
+  function clearEvents() { EVENTS = []; }
+  function result(ok, reason) { return { ok: !!ok, reason: reason || '', events: EVENTS }; }
+
+  /* ---------------- 随机 ---------------- */
+  function rand(state) {
+    state.rng = (state.rng + 0x6D2B79F5) >>> 0;
+    let t = state.rng;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  function randInt(state, min, max) { return min + Math.floor(rand(state) * (max - min + 1)); }
+  function pick(state, arr) { return arr[Math.floor(rand(state) * arr.length)]; }
+  function shuffle(state, arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rand(state) * (i + 1));
+      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  }
+  function weighted(state, list, weightFn) {
+    const total = list.reduce((s, it) => s + weightFn(it), 0);
+    let r = rand(state) * total;
+    for (const it of list) { r -= weightFn(it); if (r <= 0) return it; }
+    return list[list.length - 1];
+  }
+
+  /* ---------------- 基础 ---------------- */
+  function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
+  function emptyStatuses() {
+    const s = {};
+    Object.keys(DATA.statuses).forEach(k => { s[k] = 0; });
+    return s;
+  }
+  function newCard(state, id, up, temp) {
+    const uid = 'c' + (state.nextUid++);
+    return { uid, id, up: !!up, temp: !!temp };
+  }
+  function getCardData(inst) {
+    const base = DATA.cardMap[inst.id];
+    if (!base) return null;
+    if (!inst.up || !base.up) return Object.assign({}, base, { upgraded: false });
+    return Object.assign({}, base, {
+      name: base.name + '·悟',
+      cost: base.up.cost != null ? base.up.cost : base.cost,
+      effects: base.up.effects || base.effects,
+      text: base.up.text || base.text,
+      exhaust: base.up.exhaust != null ? base.up.exhaust : base.exhaust,
+      upgraded: true
+    });
+  }
+  function getCharacter(state) { return DATA.characters.find(c => c.id === state.characterId) || DATA.characters[0]; }
+  function hasRelic(state, id) { return state.relics.includes(id); }
+  function relicPassive(state, key) {
+    let total = 0;
+    state.relics.forEach(id => {
+      const r = DATA.relicMap[id];
+      if (r && r.passive && typeof r.passive[key] === 'number') total += r.passive[key];
+    });
+    return total;
+  }
+  function maxEnergy(state) { return 3 + relicPassive(state, 'maxEnergy'); }
+  function elementData(id) { return DATA.elements[id] || DATA.elements.none; }
+  function isCross(cardElement, enemyElement) {
+    if (!cardElement || !enemyElement) return false;
+    if (cardElement === 'none' || enemyElement === 'none') return false;
+    return elementData(cardElement).overcomes === enemyElement;
+  }
+  function aliveEnemies(state) { return state.combat ? state.combat.enemies.filter(e => e.hp > 0) : []; }
+  function firstEnemy(state) { return aliveEnemies(state)[0] || null; }
+  function enemyById(state, uid) { return state.combat ? state.combat.enemies.find(e => e.uid === uid) : null; }
+  function healPlayer(state, n) {
+    const before = state.hp;
+    state.hp = Math.min(state.maxHp, state.hp + Math.max(0, n));
+    if (state.hp !== before) emit({ t: 'heal', amount: state.hp - before, hp: state.hp });
+  }
+  function directPlayerDamage(state, n) {
+    if (n <= 0) return;
+    state.hp = Math.max(0, state.hp - n);
+    emit({ t: 'damage', target: 'player', amount: n, blocked: 0, hp: state.hp, direct: true });
+    checkEnd(state);
+  }
+  function directEnemyDamage(state, enemy, n, source) {
+    if (n <= 0 || enemy.hp <= 0) return;
+    enemy.hp = Math.max(0, enemy.hp - n);
+    emit({ t: 'damage', target: 'enemy', uid: enemy.uid, amount: n, blocked: 0, hp: enemy.hp, direct: true, source: source || 'effect' });
+    afterEnemyHpChange(state, enemy);
+  }
+  function gainGold(state, n) {
+    if (n > 0) n = Math.max(0, Math.floor(n * (1 - 0.02 * state.ascension)));
+    state.gold = Math.max(0, state.gold + n);
+    if (n !== 0) emit({ t: 'gold', amount: n, gold: state.gold });
+  }
+
+  /* ---------------- 角色创建 ---------------- */
+  function createRun(opts) {
+    opts = opts || {};
+    const character = DATA.characters.find(c => c.id === opts.characterId) || DATA.characters[0];
+    const ascension = Math.max(0, Math.min(10, (opts.ascension | 0)));
+    const seed = opts.seed != null ? (opts.seed >>> 0) : ((Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0);
+    const state = {
+      version: VERSION,
+      seed,
+      rng: seed,
+      ascension,
+      characterId: character.id,
+      hp: character.maxHp,
+      maxHp: character.maxHp,
+      gold: 99,
+      deck: [],
+      relics: character.relic ? [character.relic] : [],
+      potions: [],
+      nextUid: 1,
+      act: 1,
+      screen: 'map',
+      map: null,
+      combat: null,
+      reward: null,
+      event: null,
+      shop: null,
+      treasure: null,
+      usedEvents: [],
+      stats: { floors: 0, kills: 0, elites: 0, cardsPlayed: 0, damageDealt: 0, damageTaken: 0 },
+      victory: false,
+      startedAt: Date.now()
+    };
+    character.deck.forEach(d => {
+      for (let i = 0; i < d.count; i++) state.deck.push(newCard(state, d.id, false));
+    });
+    const curses = ascension >= 10 ? 2 : ascension >= 6 ? 1 : 0;
+    for (let i = 0; i < curses; i++) state.deck.push(newCard(state, START_CURSES[i % START_CURSES.length], false));
+    generateMap(state, 1);
+    return state;
+  }
+
+  /* ---------------- 地图 ---------------- */
+  function generateMap(state, act) {
+    const counts = [3, randInt(state, 2, 3), randInt(state, 2, 3), randInt(state, 2, 3), randInt(state, 2, 3), randInt(state, 2, 3), randInt(state, 2, 3), 2];
+    const nodes = [];
+    const byRow = [];
+    for (let row = 0; row < 8; row++) {
+      byRow[row] = [];
+      for (let col = 0; col < counts[row]; col++) {
+        const node = {
+          id: 'a' + act + 'r' + row + 'n' + col,
+          act, row, col,
+          type: 'combat',
+          next: [],
+          visited: false
+        };
+        nodes.push(node);
+        byRow[row].push(node);
+      }
+    }
+    const boss = { id: 'a' + act + 'boss', act, row: 8, col: 0, type: 'boss', next: [], visited: false };
+    nodes.push(boss);
+    byRow[8] = [boss];
+
+    // 连线：每层节点连向下一层 1-2 个邻近节点
+    for (let row = 0; row < 7; row++) {
+      const cur = byRow[row], nxt = byRow[row + 1];
+      cur.forEach((node, i) => {
+        const base = Math.floor(i * nxt.length / cur.length);
+        const targets = new Set([nxt[Math.min(nxt.length - 1, base)].id]);
+        if (rand(state) < 0.42) targets.add(nxt[Math.min(nxt.length - 1, base + 1)].id);
+        node.next = Array.from(targets);
+      });
+      // 保证下一层每个节点都有入边
+      nxt.forEach((node, j) => {
+        if (!cur.some(n => n.next.includes(node.id))) {
+          const src = cur[Math.min(cur.length - 1, Math.floor(j * cur.length / nxt.length))];
+          src.next.push(node.id);
+        }
+      });
+    }
+    byRow[7].forEach(n => { n.next = [boss.id]; });
+
+    // 类型：起点战斗、第 7 层休整、第 4 层至少一个宝箱
+    byRow[0].forEach(n => { n.type = 'combat'; });
+    byRow[7].forEach(n => { n.type = 'rest'; });
+    for (let row = 1; row <= 6; row++) {
+      byRow[row].forEach((n, idx) => {
+        if (row === 4 && idx === 0) { n.type = 'treasure'; return; }
+        const weights = {
+          combat: 46,
+          event: 17,
+          elite: row >= 2 ? (act === 1 ? 8 : act === 2 ? 11 : 14) : 0,
+          shop: 8,
+          rest: row >= 3 ? 9 : 2,
+          treasure: 6
+        };
+        const types = Object.keys(weights).filter(t => weights[t] > 0);
+        n.type = weighted(state, types, t => weights[t]);
+      });
+    }
+    // 确保每幕至少有一个商店、一个事件
+    const all = nodes.filter(n => n.row >= 1 && n.row <= 6);
+    const flexible = () => {
+      const pool = all.filter(n => n.type !== 'treasure' && n.type !== 'rest');
+      return pool.length ? pool : all;
+    };
+    if (!all.some(n => n.type === 'shop')) {
+      const pool = flexible();
+      pool[randInt(state, 0, pool.length - 1)].type = 'shop';
+    }
+    if (!all.some(n => n.type === 'event')) {
+      const pool = flexible().filter(n => n.type !== 'shop');
+      const target = pool.length ? pool : flexible();
+      target[randInt(state, 0, target.length - 1)].type = 'event';
+    }
+    if (!nodes.some(n => n.type === 'elite')) {
+      const pool = flexible().filter(n => n.type !== 'shop' && n.type !== 'event');
+      const target = pool.length ? pool : flexible();
+      target[randInt(state, 0, target.length - 1)].type = 'elite';
+    }
+
+    state.act = act;
+    state.map = {
+      act,
+      nodes,
+      byRow,
+      bossId: boss.id,
+      currentNode: null,
+      rows: 9
+    };
+    state.screen = 'map';
+    return state.map;
+  }
+
+  function nodeById(state, id) {
+    if (!state.map) return null;
+    return state.map.nodes.find(n => n.id === id) || null;
+  }
+  function currentNode(state) { return state.map && state.map.currentNode ? nodeById(state, state.map.currentNode) : null; }
+  function availableNodes(state) {
+    if (!state.map) return [];
+    const cur = currentNode(state);
+    if (!cur) return state.map.byRow[0].filter(n => !n.visited);
+    return cur.next.map(id => nodeById(state, id)).filter(n => n && !n.visited);
+  }
+  function getActName(act) { return ACT_NAMES[act] || ''; }
+  function getNodeMeta(type) { return NODE_META[type] || NODE_META.combat; }
+
+  function pickEncounter(state, act, type) {
+    const table = DATA.encounters[act];
+    if (!table) return { enemies: [{ id: 'shan_xiao' }] };
+    if (type === 'elite') return table.elite[0];
+    if (type === 'boss') return table.boss;
+    return weighted(state, table.normal, e => e.weight || 1);
+  }
+
+  function enterNode(state, nodeId) {
+    clearEvents();
+    if (!state.map || state.combat) return result(false, '当前无法前进');
+    if (state.screen !== 'map' && state.screen !== 'reward' && state.screen !== 'victory') return result(false, '请先处理当前事件');
+    const allowed = availableNodes(state);
+    const node = nodeById(state, nodeId);
+    if (!node || !allowed.some(n => n.id === nodeId)) return result(false, '无法前往该节点');
+    node.visited = true;
+    state.map.currentNode = node.id;
+    state.stats.floors++;
+    state.reward = null;
+    if (node.type === 'combat' || node.type === 'elite' || node.type === 'boss') {
+      const enc = pickEncounter(state, state.map.act, node.type);
+      if (node.type === 'elite') state.stats.elites++;
+      startCombat(state, enc, node.type);
+    } else if (node.type === 'event') {
+      enterEvent(state);
+    } else if (node.type === 'shop') {
+      generateShop(state);
+    } else if (node.type === 'rest') {
+      state.screen = 'rest';
+    } else if (node.type === 'treasure') {
+      enterTreasure(state);
+    }
+    return result(true, '', EVENTS);
+  }
+
+  /* ---------------- 战斗初始化 ---------------- */
+  function createEnemy(state, spec, hpScale) {
+    const data = DATA.enemies[spec.id];
+    const scale = (hpScale || spec.hpScale || 1) * (1 + 0.04 * state.ascension);
+    const baseHp = data.hp.length > 1 ? randInt(state, data.hp[0], data.hp[1]) : data.hp[0];
+    const hp = Math.max(1, Math.round(baseHp * scale));
+    const enemy = {
+      uid: 'e' + (state.nextUid++),
+      id: data.id,
+      name: data.name,
+      element: data.element,
+      hp, maxHp: hp,
+      block: 0,
+      statuses: emptyStatuses(),
+      patternIndex: 0,
+      intent: null,
+      phase: 1,
+      actionsPerTurn: 1,
+      damageScale: 1 + 0.02 * state.ascension,
+      rotateElement: !!data.rotateElement,
+      elite: !!data.elite,
+      boss: !!data.boss
+    };
+    setEnemyIntent(state, enemy);
+    return enemy;
+  }
+
+  function enemyPattern(enemy) {
+    const data = DATA.enemies[enemy.id];
+    if (enemy.phase === 2 && data.phase2 && data.phase2.pattern) return data.phase2.pattern;
+    return data.pattern;
+  }
+  function setEnemyIntent(state, enemy) {
+    const pattern = enemyPattern(enemy);
+    if (!pattern || !pattern.length) { enemy.intent = null; return; }
+    enemy.intent = pattern[enemy.patternIndex % pattern.length];
+  }
+  function advanceEnemyIntent(state, enemy) {
+    enemy.patternIndex++;
+    setEnemyIntent(state, enemy);
+  }
+
+  function startCombat(state, encounter, type) {
+    clearEvents();
+    const c = {
+      turn: 1,
+      phase: 'player',
+      energy: maxEnergy(state),
+      maxEnergy: maxEnergy(state),
+      block: 0,
+      statuses: emptyStatuses(),
+      hand: [],
+      drawPile: shuffle(state, state.deck.map(card => ({ uid: card.uid, id: card.id, up: card.up, temp: !!card.temp }))),
+      discardPile: [],
+      exhaustPile: [],
+      enemies: [],
+      currentElement: null,
+      chain: 0,
+      cardsPlayedThisTurn: 0,
+      firstAttackUsed: false,
+      firstCardUsed: false,
+      encounterType: type || 'combat',
+      relicUsed: {},
+      log: []
+    };
+    state.combat = c;
+    c.enemies = (encounter.enemies || []).map(spec => createEnemy(state, spec, encounter.hpScale));
+    state.screen = 'combat';
+    itemDraw(state, 5 + relicPassive(state, 'extraDraw') - relicPassive(state, 'drawPenalty'));
+    triggerRelic(state, 'combatStart');
+    emit({ t: 'combatStart', enemies: c.enemies.map(e => ({ uid: e.uid, name: e.name, element: e.element })) });
+    checkEnd(state);
+    return result(true);
+  }
+
+  /* ---------------- 抽牌 / 手牌 ---------------- */
+  function itemDraw(state, n) {
+    const c = state.combat;
+    if (!c) return 0;
+    let drawn = 0;
+    for (let i = 0; i < n; i++) {
+      if (c.hand.length >= 10) break;
+      if (!c.drawPile.length) {
+        if (!c.discardPile.length) break;
+        c.drawPile = shuffle(state, c.discardPile);
+        c.discardPile = [];
+        emit({ t: 'shuffle' });
+      }
+      const card = c.drawPile.pop();
+      c.hand.push(card);
+      drawn++;
+      emit({ t: 'draw', uid: card.uid, id: card.id });
+    }
+    return drawn;
+  }
+  function discardHand(state, keepRetain) {
+    const c = state.combat;
+    const retained = [];
+    c.hand.forEach(inst => {
+      const data = getCardData(inst);
+      if (keepRetain && data && data.retain) retained.push(inst);
+      else c.discardPile.push(inst);
+    });
+    c.hand = retained;
+  }
+
+  /* ---------------- 状态 ---------------- */
+  function addPlayerStatus(state, key, n) {
+    if (!n) return;
+    const c = state.combat;
+    c.statuses[key] = Math.max(0, (c.statuses[key] || 0) + n);
+    emit({ t: 'status', target: 'player', key, amount: n, total: c.statuses[key] });
+  }
+  function addEnemyStatus(state, enemy, key, n) {
+    if (!enemy || enemy.hp <= 0 || !n) return;
+    let amount = n;
+    if (key === 'poison' && n > 0) {
+      if (state.characterId === 'alchemist') amount += 1;
+      amount += relicPassive(state, 'poisonBonus');
+    }
+    enemy.statuses[key] = Math.max(0, (enemy.statuses[key] || 0) + amount);
+    emit({ t: 'status', target: 'enemy', uid: enemy.uid, key, amount, total: enemy.statuses[key] });
+  }
+  function cleansePlayer(state) {
+    const c = state.combat;
+    ['poison', 'burn', 'weak', 'vulnerable', 'stun'].forEach(k => { c.statuses[k] = 0; });
+    emit({ t: 'cleanse' });
+  }
+
+  /* ---------------- 护甲 / 伤害 ---------------- */
+  function gainBlock(state, base, chainBonus) {
+    const c = state.combat;
+    const amount = Math.max(0, base + (c.statuses.dexterity || 0) + (chainBonus || 0) + relicPassive(state, 'blockBonus'));
+    if (amount <= 0) return 0;
+    c.block += amount;
+    emit({ t: 'block', target: 'player', amount, total: c.block });
+    return amount;
+  }
+  function gainEnemyBlock(state, enemy, amount) {
+    if (!enemy || enemy.hp <= 0 || amount <= 0) return;
+    enemy.block += amount;
+    emit({ t: 'block', target: 'enemy', uid: enemy.uid, amount, total: enemy.block });
+  }
+
+  function calcPlayerHit(state, base, opts) {
+    const c = state.combat;
+    let dmg = base;
+    if (opts.strength) dmg += c.statuses.strength || 0;
+    if (opts.attackDamage) dmg += relicPassive(state, 'attackDamage');
+    if (opts.fireAttackDamage) dmg += relicPassive(state, 'fireAttackDamage');
+    if (opts.chainBonus) dmg += opts.chainBonus;
+    if (c.statuses.weak > 0) dmg = Math.floor(dmg * 0.75);
+    if (opts.cross) dmg = Math.floor(dmg * (1.5 + relicPassive(state, 'crossBonus')));
+    if (opts.target && opts.target.statuses.vulnerable > 0) dmg = Math.floor(dmg * 1.5);
+    return Math.max(0, dmg);
+  }
+
+  function hurtEnemy(state, enemy, base, opts) {
+    opts = opts || {};
+    if (!enemy || enemy.hp <= 0) return 0;
+    const dmg = calcPlayerHit(state, base, Object.assign({ target: enemy }, opts));
+    let blocked = 0;
+    if (!opts.pierce && !opts.cross) {
+      blocked = Math.min(enemy.block, dmg);
+      enemy.block -= blocked;
+    }
+    const loss = dmg - blocked;
+    enemy.hp = Math.max(0, enemy.hp - loss);
+    state.stats.damageDealt += loss;
+    emit({ t: 'damage', target: 'enemy', uid: enemy.uid, amount: dmg, blocked, hp: enemy.hp, cross: !!opts.cross, element: opts.element || null });
+    afterEnemyHpChange(state, enemy);
+    return loss;
+  }
+
+  function hurtPlayer(state, base, enemy, opts) {
+    opts = opts || {};
+    const c = state.combat;
+    let dmg = base;
+    if (enemy) {
+      dmg = Math.ceil(dmg * enemy.damageScale);
+      dmg += enemy.statuses.strength || 0;
+      if (enemy.statuses.weak > 0) dmg = Math.floor(dmg * 0.75);
+    }
+    if (c.statuses.vulnerable > 0) dmg = Math.floor(dmg * 1.5);
+    dmg = Math.max(0, dmg);
+    let blocked = 0;
+    if (!opts.pierce) {
+      blocked = Math.min(c.block, dmg);
+      c.block -= blocked;
+    }
+    const loss = dmg - blocked;
+    state.hp = Math.max(0, state.hp - loss);
+    state.stats.damageTaken += loss;
+    emit({ t: 'damage', target: 'player', amount: dmg, blocked, hp: state.hp, enemy: enemy ? enemy.uid : null });
+    checkEnd(state);
+    return loss;
+  }
+
+  function afterEnemyHpChange(state, enemy) {
+    if (!enemy) return;
+    if (enemy.hp <= 0) {
+      enemy.hp = 0;
+      if (!enemy.deadLogged) {
+        enemy.deadLogged = true;
+        state.stats.kills++;
+        emit({ t: 'death', target: 'enemy', uid: enemy.uid, name: enemy.name });
+      }
+      checkEnd(state);
+      return;
+    }
+    const data = DATA.enemies[enemy.id];
+    if (enemy.phase === 1 && data.phase2 && enemy.hp <= enemy.maxHp * data.phase2.hpPct) {
+      enemy.phase = 2;
+      enemy.actionsPerTurn = data.phase2.actionsPerTurn || 1;
+      if (data.phase2.strength) enemy.statuses.strength = (enemy.statuses.strength || 0) + data.phase2.strength;
+      enemy.patternIndex = 0;
+      setEnemyIntent(state, enemy);
+      emit({ t: 'phase', uid: enemy.uid, name: enemy.name, log: data.phase2.log || (enemy.name + ' 进入了第二阶段！') });
+    }
+  }
+
+  function checkEnd(state) {
+    const c = state.combat;
+    if (!c) return null;
+    if (c.phase === 'won' || c.phase === 'lost') return c.phase;
+    if (state.hp <= 0) {
+      state.hp = 0;
+      c.phase = 'lost';
+      emit({ t: 'lose' });
+      return 'lost';
+    }
+    if (c.enemies.length && c.enemies.every(e => e.hp <= 0)) {
+      c.phase = 'won';
+      emit({ t: 'win' });
+      return 'won';
+    }
+    return null;
+  }
+
+  /* ---------------- 连携 ---------------- */
+  function advanceChain(state, element) {
+    const c = state.combat;
+    if (!element || element === 'none') {
+      return { linked: false, chainBonus: 0, zhoutian: false, chain: c.chain };
+    }
+    const prev = c.currentElement;
+    let linked = false;
+    if (prev && elementData(prev).generates === element) {
+      c.chain = Math.min(5, c.chain + 1);
+      linked = true;
+    } else {
+      c.chain = 0;
+    }
+    c.currentElement = element;
+    emit({ t: 'chain', chain: c.chain, linked, element, current: c.currentElement, prev });
+    if (linked) triggerRelic(state, 'chainReached', { chain: c.chain, element });
+    return { linked, chainBonus: linked ? c.chain : 0, zhoutian: c.chain === 5, chain: c.chain };
+  }
+
+  function gainChain(state, amount, trigger) {
+    const c = state.combat;
+    c.chain = Math.min(5, Math.max(0, c.chain + amount));
+    emit({ t: 'chain', chain: c.chain, linked: amount > 0, element: null, current: c.currentElement });
+    triggerRelic(state, 'chainReached', { chain: c.chain, element: c.currentElement });
+    if (trigger && c.chain >= 5) return true;
+    return false;
+  }
+
+  function triggerZhoutian(state) {
+    const c = state.combat;
+    if (!c || c.phase !== 'player') return;
+    emit({ t: 'zhoutian', chain: c.chain });
+    aliveEnemies(state).forEach(e => directEnemyDamage(state, e, 8, 'zhoutian'));
+    c.energy += 1;
+    emit({ t: 'energy', amount: 1, energy: c.energy });
+    itemDraw(state, 1);
+    c.chain = 0;
+    emit({ t: 'chain', chain: 0, linked: false, element: null, current: c.currentElement, reset: true });
+  }
+
+  /* ---------------- 卡牌结算 ---------------- */
+  function cardNeedsTarget(data) {
+    if (!data) return false;
+    return data.effects.some(e => (e.op === 'damage' && (e.target || 'enemy') === 'enemy') ||
+      (e.op === 'status' && (e.target || 'enemy') === 'enemy') ||
+      (e.op === 'multiplyStatus' && (e.target || 'enemy') === 'enemy'));
+  }
+  function pickTarget(state, targetIndex) {
+    const alive = aliveEnemies(state);
+    if (targetIndex != null) {
+      const byIndex = state.combat.enemies[targetIndex];
+      if (byIndex && byIndex.hp > 0) return byIndex;
+    }
+    return alive[0] || null;
+  }
+  function canPlayCard(state, index) {
+    const c = state.combat;
+    if (!c || c.phase !== 'player') return { ok: false, reason: '现在不是你的回合' };
+    const inst = c.hand[index];
+    if (!inst) return { ok: false, reason: '没有这张牌' };
+    const data = getCardData(inst);
+    if (!data || data.unplayable || data.type === 'curse' || data.type === 'status') return { ok: false, reason: '这张牌无法打出' };
+    let cost = data.cost;
+    if (!c.firstCardUsed && relicPassive(state, 'firstCardDiscount')) cost = Math.max(0, cost - relicPassive(state, 'firstCardDiscount'));
+    if (cost > c.energy) return { ok: false, reason: '灵气不足' };
+    if (cardNeedsTarget(data) && !firstEnemy(state)) return { ok: false, reason: '没有目标' };
+    return { ok: true, cost };
+  }
+
+  function playCard(state, handIndex, targetIndex) {
+    clearEvents();
+    const c = state.combat;
+    if (!c || c.phase !== 'player') return result(false, '现在不是你的回合');
+    const inst = c.hand[handIndex];
+    if (!inst) return result(false, '没有这张牌');
+    const data = getCardData(inst);
+    const check = canPlayCard(state, handIndex);
+    if (!check.ok) return result(false, check.reason);
+    const cost = check.cost;
+    const target = cardNeedsTarget(data) ? pickTarget(state, targetIndex) : pickTarget(state, targetIndex);
+    if (cardNeedsTarget(data) && !target) return result(false, '没有目标');
+    c.hand.splice(handIndex, 1);
+    c.energy -= cost;
+    c.cardsPlayedThisTurn++;
+    state.stats.cardsPlayed++;
+    const isFirstAttack = !c.firstAttackUsed && data.type === 'attack';
+    if (data.type === 'attack') c.firstAttackUsed = true;
+    const wasFirstCard = !c.firstCardUsed;
+    c.firstCardUsed = true;
+    emit({ t: 'play', uid: inst.uid, id: inst.id, name: data.name, element: data.element, cost });
+    if (cost > 0) emit({ t: 'energy', amount: -cost, energy: c.energy });
+
+    const info = advanceChain(state, data.element);
+    const chainBonus = info.chainBonus;
+    resolveEffects(state, data, target, chainBonus);
+
+    if (state.characterId === 'sword' && isFirstAttack && target && target.hp > 0 && c.phase === 'player') {
+      emit({ t: 'passive', name: '剑心' });
+      hurtEnemy(state, target, 4, { pierce: false });
+    }
+    if (info.zhoutian || c.chain >= 5) triggerZhoutian(state);
+
+    if (data.exhaust) c.exhaustPile.push(inst);
+    else c.discardPile.push(inst);
+
+    triggerRelic(state, 'cardPlayed', { card: inst, data, firstCard: wasFirstCard, firstAttack: isFirstAttack });
+    checkEnd(state);
+    return result(true);
+  }
+
+  function resolveEffects(state, data, target, chainBonus) {
+    const c = state.combat;
+    for (const effect of (data.effects || [])) {
+      if (c.phase !== 'player') break;
+      if (effect.cond && !checkCond(state, effect.cond, target)) continue;
+      switch (effect.op) {
+        case 'damage': {
+          const isAll = effect.target === 'all';
+          const targets = isAll ? aliveEnemies(state) : (target && target.hp > 0 ? [target] : []);
+          const hits = effect.hits || 1;
+          const chainExtra = chainBonus || 0;
+          for (const enemy of targets) {
+            for (let h = 0; h < hits; h++) {
+              if (enemy.hp <= 0) break;
+              if (state.hp <= 0) break;
+              const perHitBase = (effect.value || 0) + (effect.perChain || 0) * c.chain;
+              const cross = isCross(data.element, enemy.element);
+              hurtEnemy(state, enemy, perHitBase, {
+                strength: data.type === 'attack',
+                attackDamage: data.type === 'attack',
+                fireAttackDamage: data.type === 'attack' && data.element === 'fire',
+                chainBonus: chainExtra,
+                pierce: !!effect.pierce,
+                cross: !!cross,
+                element: data.element
+              });
+            }
+          }
+          break;
+        }
+        case 'block':
+          gainBlock(state, effect.value || 0, chainBonus);
+          break;
+        case 'draw':
+          itemDraw(state, effect.value || 0);
+          break;
+        case 'energy':
+          c.energy += effect.value || 0;
+          emit({ t: 'energy', amount: effect.value || 0, energy: c.energy });
+          break;
+        case 'heal':
+          healPlayer(state, effect.value || 0);
+          break;
+        case 'status': {
+          const tgt = effect.target || 'enemy';
+          if (tgt === 'self') addPlayerStatus(state, effect.status, effect.value);
+          else if (tgt === 'allEnemies') aliveEnemies(state).forEach(e => addEnemyStatus(state, e, effect.status, effect.value));
+          else if (target) addEnemyStatus(state, target, effect.status, effect.value);
+          break;
+        }
+        case 'multiplyStatus':
+          if (target) {
+            target.statuses[effect.status] = Math.max(0, (target.statuses[effect.status] || 0) * (effect.factor || 2));
+            emit({ t: 'status', target: 'enemy', uid: target.uid, key: effect.status, amount: 0, total: target.statuses[effect.status] });
+          }
+          break;
+        case 'cleanse':
+          cleansePlayer(state);
+          break;
+        case 'addCard': {
+          const pile = effect.pile || 'discard';
+          for (let i = 0; i < (effect.count || 1); i++) {
+            const card = newCard(state, effect.cardId, false, true);
+            if (pile === 'hand' && c.hand.length < 10) c.hand.push(card);
+            else if (pile === 'draw') c.drawPile.push(card);
+            else c.discardPile.push(card);
+            emit({ t: 'addCard', cardId: effect.cardId, pile });
+          }
+          break;
+        }
+        case 'loseHp':
+          directPlayerDamage(state, effect.value || 0);
+          break;
+        case 'gainMaxHp':
+          state.maxHp += effect.value || 0;
+          state.hp += effect.value || 0;
+          break;
+        case 'upgradeHand': {
+          const pool = c.hand.filter(h => !h.up && !(getCardData(h) || {}).unplayable);
+          for (let i = 0; i < (effect.count || 1) && pool.length; i++) {
+            const pickCard = pool.splice(Math.floor(rand(state) * pool.length), 1)[0];
+            pickCard.up = true;
+            emit({ t: 'upgrade', uid: pickCard.uid, id: pickCard.id });
+          }
+          break;
+        }
+        case 'discardRandom': {
+          for (let i = 0; i < (effect.value || 1) && c.hand.length; i++) {
+            const idx = Math.floor(rand(state) * c.hand.length);
+            c.discardPile.push(c.hand.splice(idx, 1)[0]);
+          }
+          break;
+        }
+        case 'chain': {
+          const willTrigger = gainChain(state, effect.value || 0, !!effect.trigger);
+          if (willTrigger) triggerZhoutian(state);
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  }
+
+  function checkCond(state, cond, target) {
+    const c = state.combat;
+    if (cond.chainAtLeast != null && c.chain < cond.chainAtLeast) return false;
+    if (cond.chainBelow != null && c.chain >= cond.chainBelow) return false;
+    if (cond.enemyPoisoned && (!target || !target.statuses.poison)) return false;
+    return true;
+  }
+
+  /* ---------------- 卡牌预览 ---------------- */
+  function getPreview(state, handIndex, targetIndex) {
+    const c = state.combat;
+    if (!c) return null;
+    const inst = c.hand[handIndex];
+    if (!inst) return null;
+    const data = getCardData(inst);
+    if (!data) return null;
+    const target = pickTarget(state, targetIndex);
+    let chainAfter = c.chain;
+    let linked = false;
+    if (data.element && data.element !== 'none') {
+      if (c.currentElement && elementData(c.currentElement).generates === data.element) {
+        chainAfter = Math.min(5, c.chain + 1);
+        linked = true;
+      } else chainAfter = 0;
+    }
+    const chainBonus = linked ? chainAfter : 0;
+    let damage = null, hits = 1, block = null, cross = false, heal = null, draw = null, poison = null;
+    for (const effect of data.effects || []) {
+      if (effect.cond && !checkCond(state, effect.cond, target)) continue;
+      if (effect.op === 'damage' && damage == null) {
+        let per = (effect.value || 0) + (effect.perChain || 0) * chainAfter;
+        const tgt = effect.target === 'all' ? target : target;
+        if (tgt) cross = isCross(data.element, tgt.element);
+        per = calcPlayerHit(state, per, {
+          strength: data.type === 'attack',
+          attackDamage: data.type === 'attack',
+          fireAttackDamage: data.type === 'attack' && data.element === 'fire',
+          chainBonus,
+          cross,
+          target: tgt
+        });
+        damage = per;
+        hits = effect.hits || 1;
+      }
+      if (effect.op === 'block' && block == null) block = (effect.value || 0) + (c.statuses.dexterity || 0) + chainBonus + relicPassive(state, 'blockBonus');
+      if (effect.op === 'heal') heal = effect.value || 0;
+      if (effect.op === 'draw') draw = effect.value || 0;
+      if (effect.op === 'status' && effect.status === 'poison') poison = effect.value || 0;
+    }
+    return { damage, hits, block, cross, heal, draw, poison, chainAfter, linked, cost: canPlayCard(state, handIndex).cost };
+  }
+
+  /* ---------------- 敌人意图 / 行动 ---------------- */
+  function getEnemyIntent(state, enemy) {
+    if (!enemy) return null;
+    const data = DATA.enemies[enemy.id];
+    const move = data.moves[enemy.intent];
+    if (!move) return { label: '未知', icon: '？', damage: 0, hits: 1 };
+    let damage = 0;
+    let hits = move.hits || 1;
+    if (move.damage) {
+      damage = Math.ceil(move.damage * enemy.damageScale) + (enemy.statuses.strength || 0);
+      if (enemy.statuses.weak > 0) damage = Math.floor(damage * 0.75);
+      damage = Math.max(0, damage);
+    }
+    const icons = [];
+    if (damage) icons.push('刃');
+    if (move.block) icons.push('防');
+    if (move.debuffs) icons.push('咒');
+    if (move.buffs) icons.push('法');
+    if (move.addCards) icons.push('祟');
+    if (move.heal) icons.push('愈');
+    if (enemy.statuses.stun > 0) icons.push('定');
+    const label = damage ? ('攻击 ' + damage + (hits > 1 ? '×' + hits : '')) : (move.block ? '防御 ' + move.block : (move.name || '行动'));
+    return {
+      name: move.name,
+      label,
+      icon: icons[0] || '？',
+      icons,
+      damage, hits,
+      block: move.block || 0,
+      debuffs: move.debuffs || [],
+      buffs: move.buffs || [],
+      addCards: move.addCards || [],
+      heal: move.heal || 0,
+      intent: enemy.intent,
+      stunned: enemy.statuses.stun > 0
+    };
+  }
+
+  function performEnemyMove(state, enemy) {
+    const c = state.combat;
+    if (!enemy || enemy.hp <= 0 || c.phase !== 'enemy') return;
+    const data = DATA.enemies[enemy.id];
+    const move = data.moves[enemy.intent];
+    if (!move) { advanceEnemyIntent(state, enemy); return; }
+    emit({ t: 'enemyMove', uid: enemy.uid, name: enemy.name, move: move.name, intent: enemy.intent });
+    if (move.damage) {
+      const hits = move.hits || 1;
+      for (let h = 0; h < hits; h++) {
+        if (state.hp <= 0 || enemy.hp <= 0) break;
+        hurtPlayer(state, move.damage, enemy);
+        if (state.hp > 0 && c.statuses.thorns > 0 && enemy.hp > 0) {
+          directEnemyDamage(state, enemy, c.statuses.thorns, 'thorns');
+        }
+      }
+    }
+    if (move.block) gainEnemyBlock(state, enemy, move.block);
+    if (move.heal) {
+      const before = enemy.hp;
+      enemy.hp = Math.min(enemy.maxHp, enemy.hp + move.heal);
+      if (enemy.hp !== before) emit({ t: 'heal', target: 'enemy', uid: enemy.uid, amount: enemy.hp - before });
+    }
+    (move.debuffs || []).forEach(st => addPlayerStatus(state, st.status, st.value));
+    (move.buffs || []).forEach(st => {
+      enemy.statuses[st.status] = (enemy.statuses[st.status] || 0) + st.value;
+      emit({ t: 'status', target: 'enemy', uid: enemy.uid, key: st.status, amount: st.value, total: enemy.statuses[st.status] });
+    });
+    (move.addCards || []).forEach(add => {
+      for (let i = 0; i < (add.count || 1); i++) {
+        const card = newCard(state, add.id, false, true);
+        c.discardPile.push(card);
+        emit({ t: 'addCard', cardId: add.id, pile: 'discard', byEnemy: enemy.uid });
+      }
+    });
+    if (move.log) emit({ t: 'log', text: move.log });
+  }
+
+  function tickStartStatuses(state, entity, isPlayer) {
+    if (entity.statuses.poison > 0) {
+      const n = entity.statuses.poison;
+      entity.statuses.poison = Math.max(0, n - 1);
+      if (isPlayer) directPlayerDamage(state, n);
+      else {
+        directEnemyDamage(state, entity, n, 'poison');
+        emit({ t: 'status', target: 'enemy', uid: entity.uid, key: 'poison', amount: -1, total: entity.statuses.poison });
+      }
+    }
+    if (entity.statuses.ritual > 0) {
+      entity.statuses.strength = (entity.statuses.strength || 0) + entity.statuses.ritual;
+      emit({ t: 'status', target: isPlayer ? 'player' : 'enemy', uid: entity.uid, key: 'strength', amount: entity.statuses.ritual, total: entity.statuses.strength });
+    }
+  }
+
+  function tickEndStatuses(state, entity, isPlayer) {
+    if (entity.statuses.burn > 0) {
+      const n = entity.statuses.burn;
+      entity.statuses.burn = Math.max(0, n - 1);
+      if (isPlayer) directPlayerDamage(state, n);
+      else {
+        directEnemyDamage(state, entity, n, 'burn');
+        emit({ t: 'status', target: 'enemy', uid: entity.uid, key: 'burn', amount: -1, total: entity.statuses.burn });
+      }
+    }
+    if (entity.statuses.regen > 0) {
+      const n = entity.statuses.regen;
+      entity.statuses.regen = Math.max(0, n - 1);
+      if (isPlayer) healPlayer(state, n);
+      else {
+        entity.hp = Math.min(entity.maxHp, entity.hp + n);
+        emit({ t: 'heal', target: 'enemy', uid: entity.uid, amount: n });
+      }
+    }
+    if (entity.statuses.weak > 0) entity.statuses.weak--;
+    if (entity.statuses.vulnerable > 0) entity.statuses.vulnerable--;
+  }
+
+  function endPlayerTurn(state) {
+    clearEvents();
+    const c = state.combat;
+    if (!c || c.phase !== 'player') return result(false, '现在不是你的回合');
+    // 诅咒牌：回合结束伤害
+    c.hand.forEach(inst => {
+      const data = getCardData(inst);
+      if (data && data.curseEffect === 'endTurnDamage') directPlayerDamage(state, data.curseValue || 2);
+    });
+    if (state.hp > 0) tickEndStatuses(state, { statuses: c.statuses }, true);
+    if (state.hp > 0) discardHand(state, true);
+    if (state.hp > 0) c.phase = 'enemy';
+    emit({ t: 'endTurn' });
+    return result(state.hp > 0);
+  }
+
+  function runEnemyTurn(state) {
+    clearEvents();
+    const c = state.combat;
+    if (!c || c.phase !== 'enemy') return result(false, '现在不是敌人回合');
+    for (const enemy of c.enemies) {
+      if (c.phase === 'lost' || c.phase === 'won') break;
+      if (enemy.hp <= 0) continue;
+      enemy.block = 0;
+      tickStartStatuses(state, enemy, false);
+      if (c.phase === 'lost' || c.phase === 'won') break;
+      if (enemy.statuses.stun > 0) {
+        enemy.statuses.stun--;
+        emit({ t: 'stunned', uid: enemy.uid, name: enemy.name });
+        advanceEnemyIntent(state, enemy);
+      } else {
+        let actions = enemy.actionsPerTurn;
+        for (let a = 0; a < actions; a++) {
+          if (c.phase !== 'enemy' || enemy.hp <= 0) break;
+          performEnemyMove(state, enemy);
+          advanceEnemyIntent(state, enemy);
+          if (state.hp <= 0) break;
+        }
+      }
+      tickEndStatuses(state, enemy, false);
+      if (enemy.hp > 0 && enemy.rotateElement) {
+        const order = DATA.elementOrder;
+        const idx = order.indexOf(enemy.element);
+        enemy.element = idx < 0 ? order[0] : order[(idx + 1) % order.length];
+        emit({ t: 'elementShift', uid: enemy.uid, element: enemy.element, name: enemy.name });
+      }
+    }
+    if (c.phase === 'enemy') {
+      if (state.hp <= 0) { c.phase = 'lost'; emit({ t: 'lose' }); }
+      else if (c.enemies.every(e => e.hp <= 0)) { c.phase = 'won'; emit({ t: 'win' }); }
+      else beginNextTurn(state);
+    }
+    return result(true);
+  }
+
+  function beginNextTurn(state) {
+    const c = state.combat;
+    c.phase = 'player';
+    c.turn++;
+    c.block = state.characterId === 'monk' ? Math.min(c.block, 4) : 0;
+    c.energy = maxEnergy(state);
+    c.firstAttackUsed = false;
+    c.firstCardUsed = false;
+    c.cardsPlayedThisTurn = 0;
+    emit({ t: 'turnStart', turn: c.turn, block: c.block });
+    tickStartStatuses(state, { statuses: c.statuses }, true);
+    if (state.hp <= 0) { c.phase = 'lost'; return; }
+    triggerRelic(state, 'turnStart');
+    itemDraw(state, 5 + relicPassive(state, 'extraDraw') - relicPassive(state, 'drawPenalty'));
+    // 起始诅咒
+    c.hand.forEach(inst => {
+      const data = getCardData(inst);
+      if (data && data.curseEffect === 'turnStartDamage') directPlayerDamage(state, data.curseValue || 3);
+    });
+    checkEnd(state);
+  }
+
+  /* ---------------- 丹药 ---------------- */
+  function usePotion(state, index, targetIndex) {
+    clearEvents();
+    const c = state.combat;
+    if (!c || c.phase !== 'player') return result(false, '现在不能使用丹药');
+    const potionId = state.potions[index];
+    const potion = DATA.potionMap[potionId];
+    if (!potion) return result(false, '没有这瓶丹药');
+    const target = pickTarget(state, targetIndex);
+    if (potion.target === 'enemy' && !target) return result(false, '没有目标');
+    state.potions.splice(index, 1);
+    emit({ t: 'potion', id: potionId, name: potion.name });
+    resolveEffects(state, { element: 'none', type: 'potion', effects: potion.effects }, target, 0);
+    checkEnd(state);
+    return result(true);
+  }
+
+  /* ---------------- 战斗结束 / 奖励 ---------------- */
+  function finishCombat(state) {
+    clearEvents();
+    const c = state.combat;
+    if (!c || c.phase !== 'won') return result(false, '战斗尚未结束');
+    const type = c.encounterType;
+    // 收集牌组
+    const all = [].concat(c.drawPile, c.hand, c.discardPile, c.exhaustPile);
+    state.deck = all.filter(card => !card.temp);
+    triggerRelic(state, 'combatEnd');
+    const act = state.map ? state.map.act : 1;
+    let gold = 0;
+    let rarityBoost = 0;
+    let guaranteedRelic = false;
+    let potionChance = 0.25;
+    if (type === 'boss') {
+      gold = randInt(state, 85, 110) + act * 8;
+      guaranteedRelic = true;
+      rarityBoost = 2;
+      potionChance = 1;
+      if (act === 3) state.victory = true;
+    } else if (type === 'elite') {
+      gold = randInt(state, 30, 45) + act * 4 + relicPassive(state, 'eliteGold');
+      guaranteedRelic = true;
+      rarityBoost = 1;
+      potionChance = 0.5;
+    } else {
+      gold = randInt(state, 12, 20) + act * 2;
+    }
+    gold = Math.max(1, Math.floor(gold * (1 - 0.02 * state.ascension)));
+    state.gold += gold;
+    emit({ t: 'gold', amount: gold, gold: state.gold });
+    const cards = rollCardChoices(state, 3, rarityBoost, type === 'boss');
+    let potionId = null;
+    let potionFull = false;
+    if (rand(state) < potionChance) {
+      if (state.potions.length < 3) potionId = pick(state, DATA.potions).id;
+      else { potionFull = true; gold += 20; state.gold += 20; emit({ t: 'gold', amount: 20, gold: state.gold }); }
+    }
+    let relicId = null;
+    if (guaranteedRelic) relicId = randomRelicId(state);
+    if (relicId) {
+      state.relics.push(relicId);
+      const api = makeRelicApi(state);
+      const relic = DATA.relicMap[relicId];
+      if (relic.hooks && relic.hooks.pickup) relic.hooks.pickup(state, api);
+      emit({ t: 'relic', id: relicId });
+    }
+    if (potionId) state.potions.push(potionId);
+    state.reward = {
+      kind: type,
+      gold,
+      cards,
+      relicId,
+      potionId,
+      cardTaken: false,
+      selected: -1,
+      potionFull
+    };
+    state.screen = 'reward';
+    state.combat = null;
+    return result(true);
+  }
+
+  function randomRelicId(state, rarity) {
+    const owned = new Set(state.relics);
+    let pool = DATA.relics.filter(r => r.rarity !== 'starter' && !owned.has(r.id));
+    if (rarity) {
+      const filtered = pool.filter(r => r.rarity === rarity);
+      if (filtered.length) pool = filtered;
+    }
+    if (!pool.length) return null;
+    return pool[Math.floor(rand(state) * pool.length)].id;
+  }
+
+  function cardRewardPool(state, rarity, element) {
+    return DATA.cards.filter(c => {
+      if (!['common', 'uncommon', 'rare'].includes(c.rarity)) return false;
+      if (rarity && c.rarity !== rarity) return false;
+      if (element && c.element !== element) return false;
+      if (c.character && c.character !== state.characterId) return false;
+      return true;
+    });
+  }
+
+  function rollCardChoices(state, count, rarityBoost, guaranteeRare) {
+    const boost = rarityBoost || 0;
+    const weights = boost >= 2 ? { common: 22, uncommon: 40, rare: 38 } : boost === 1 ? { common: 40, uncommon: 40, rare: 20 } : { common: 60, uncommon: 30, rare: 10 };
+    const chosen = [];
+    const used = new Set();
+    for (let i = 0; i < count; i++) {
+      let pool = cardRewardPool(state).filter(c => !used.has(c.id));
+      if (!pool.length) break;
+      const rarity = weighted(state, ['common', 'uncommon', 'rare'], r => weights[r]);
+      let rarityPool = pool.filter(c => c.rarity === rarity);
+      if (!rarityPool.length) rarityPool = pool;
+      const card = rarityPool[Math.floor(rand(state) * rarityPool.length)];
+      used.add(card.id);
+      chosen.push(newCard(state, card.id, false, false));
+    }
+    if (guaranteeRare && chosen.length && !chosen.some(c => DATA.cardMap[c.id].rarity === 'rare')) {
+      const rarePool = cardRewardPool(state, 'rare').filter(c => !used.has(c.id));
+      if (rarePool.length) {
+        const rare = rarePool[Math.floor(rand(state) * rarePool.length)];
+        chosen[0] = newCard(state, rare.id, false, false);
+      }
+    }
+    return chosen;
+  }
+
+  function addCardToDeck(state, cardId, upgraded) {
+    const inst = newCard(state, cardId, !!upgraded, false);
+    state.deck.push(inst);
+    return inst;
+  }
+
+  function takeRewardCard(state, index) {
+    clearEvents();
+    const r = state.reward;
+    if (!r || r.cardTaken) return result(false, '已经选择过了');
+    if (index >= 0 && r.cards[index]) {
+      addCardToDeck(state, r.cards[index].id, r.cards[index].up);
+      r.cardTaken = true;
+      r.selected = index;
+      emit({ t: 'addCard', cardId: r.cards[index].id, pile: 'deck' });
+    } else {
+      r.cardTaken = true;
+      r.selected = -1;
+    }
+    return result(true);
+  }
+
+  function skipReward(state) {
+    clearEvents();
+    if (!state.reward) return result(false, '没有奖励');
+    state.reward.cardTaken = true;
+    state.reward.selected = -1;
+    return result(true);
+  }
+
+  function continueReward(state) {
+    clearEvents();
+    const r = state.reward;
+    if (!r) return result(false, '没有奖励');
+    if (!r.cardTaken) { r.cardTaken = true; r.selected = -1; }
+    const kind = r.kind;
+    state.reward = null;
+    state.combat = null;
+    // 清除本场临时牌
+    state.deck = state.deck.filter(card => !card.temp);
+    if (kind === 'boss') {
+      if (state.act >= 3) {
+        state.screen = 'victory';
+      } else {
+        nextAct(state);
+      }
+    } else {
+      state.screen = 'map';
+    }
+    return result(true);
+  }
+
+  function nextAct(state) {
+    state.act++;
+    if (state.act > 3) { state.screen = 'victory'; return; }
+    state.hp = Math.min(state.maxHp, state.hp + Math.ceil(state.maxHp * 0.25));
+    state.screen = 'map';
+    state.combat = null;
+    state.reward = null;
+    generateMap(state, state.act);
+  }
+
+  /* ---------------- 遗物 ---------------- */
+  function triggerRelic(state, hook, payload) {
+    const api = makeRelicApi(state);
+    state.relics.slice().forEach(id => {
+      const relic = DATA.relicMap[id];
+      if (relic && relic.hooks && typeof relic.hooks[hook] === 'function') {
+        try { relic.hooks[hook](state, api, payload || {}); } catch (err) { /* 单件遗物异常不影响整局 */ }
+      }
+    });
+  }
+  function makeRelicApi(state) {
+    const c = state.combat;
+    return {
+      heal(n) { healPlayer(state, n); },
+      block(n) {
+        if (!state.combat) return;
+        const amount = n + relicPassive(state, 'blockBonus');
+        state.combat.block += amount;
+        emit({ t: 'block', target: 'player', amount, total: state.combat.block, relic: true });
+      },
+      status(target, key, n) { if (target === 'player' && state.combat) addPlayerStatus(state, key, n); },
+      energy(n) { if (state.combat) { state.combat.energy += n; emit({ t: 'energy', amount: n, energy: state.combat.energy }); } },
+      draw(n) { if (state.combat) itemDraw(state, n); },
+      addCardToHand(id) { if (state.combat) { state.combat.hand.push(newCard(state, id, false, true)); emit({ t: 'addCard', cardId: id, pile: 'hand' }); } },
+      log(text) { emit({ t: 'log', text }); },
+      first(key) {
+        if (!c) return false;
+        if (c.relicUsed[key]) return false;
+        c.relicUsed[key] = true;
+        return true;
+      },
+      randomElement() { return pick(state, DATA.elementOrder); },
+      setChain(amount, element) {
+        if (!c) return;
+        c.chain = Math.max(0, Math.min(5, amount));
+        if (element) c.currentElement = element;
+        emit({ t: 'chain', chain: c.chain, linked: true, element, current: c.currentElement });
+      },
+      maxHp(n) { state.maxHp += n; state.hp += n; },
+      gold(n) { gainGold(state, n); }
+    };
+  }
+
+  /* ---------------- 商店 / 休整 / 宝箱 ---------------- */
+  function shopDiscount(state) { return 1 - relicPassive(state, 'shopDiscount'); }
+  function generateShop(state) {
+    clearEvents();
+    const act = state.map ? state.map.act : 1;
+    const stock = { cards: [], relics: [], potions: [], removePrice: 75 + act * 5, removeUsed: false };
+    const ids = new Set();
+    for (let i = 0; i < 3; i++) {
+      let pool = cardRewardPool(state).filter(c => !ids.has(c.id));
+      if (!pool.length) pool = cardRewardPool(state);
+      const rarity = weighted(state, ['common', 'uncommon', 'rare'], r => r === 'common' ? 58 : r === 'uncommon' ? 32 : 10);
+      let rp = pool.filter(c => c.rarity === rarity);
+      if (!rp.length) rp = pool;
+      const card = rp[Math.floor(rand(state) * rp.length)];
+      ids.add(card.id);
+      const base = card.rarity === 'common' ? 45 : card.rarity === 'uncommon' ? 62 : 80;
+      stock.cards.push({ card: newCard(state, card.id, false, false), price: Math.max(20, Math.floor((base + (act - 1) * 4) * shopDiscount(state))), sold: false });
+    }
+    const owned = new Set(state.relics);
+    const relicPool = DATA.relics.filter(r => r.rarity !== 'starter' && !owned.has(r.id));
+    shuffle(state, relicPool);
+    relicPool.slice(0, 2).forEach(r => {
+      const base = r.rarity === 'common' ? 135 : r.rarity === 'uncommon' ? 165 : 195;
+      stock.relics.push({ id: r.id, price: Math.floor(base * shopDiscount(state)), sold: false });
+    });
+    const potionPool = shuffle(state, DATA.potions.slice());
+    potionPool.slice(0, 3).forEach(p => {
+      stock.potions.push({ id: p.id, price: Math.floor(52 * shopDiscount(state)), sold: false });
+    });
+    state.shop = stock;
+    state.screen = 'shop';
+    return stock;
+  }
+
+  function buyItem(state, kind, index) {
+    clearEvents();
+    const shop = state.shop;
+    if (!shop) return result(false, '不在商店');
+    if (kind === 'remove') return result(false, '请选择要移除的牌');
+    const entry = kind === 'card' ? shop.cards[index] : kind === 'relic' ? shop.relics[index] : shop.potions[index];
+    if (!entry || entry.sold) return result(false, '已经售出');
+    if (state.gold < entry.price) return result(false, '金币不足');
+    if (kind === 'potion' && state.potions.length >= 3) return result(false, '丹药腰带已满');
+    state.gold -= entry.price;
+    entry.sold = true;
+    if (kind === 'card') addCardToDeck(state, entry.card.id, entry.card.up);
+    else if (kind === 'relic') {
+      state.relics.push(entry.id);
+      const api = makeRelicApi(state);
+      const relic = DATA.relicMap[entry.id];
+      if (relic.hooks && relic.hooks.pickup) relic.hooks.pickup(state, api);
+      emit({ t: 'relic', id: entry.id });
+    } else state.potions.push(entry.id);
+    emit({ t: 'buy', kind, price: entry.price, gold: state.gold });
+    return result(true);
+  }
+
+  function removeCardFromDeck(state, uid, free) {
+    clearEvents();
+    const idx = state.deck.findIndex(c => c.uid === uid);
+    if (idx < 0) return result(false, '牌组中没有这张牌');
+    if (state.deck.length <= 1) return result(false, '牌组不能少于一张牌');
+    const shop = state.shop;
+    if (!free) {
+      if (!shop || shop.removeUsed) return result(false, '本店已使用过移除服务');
+      if (state.gold < shop.removePrice) return result(false, '金币不足');
+      state.gold -= shop.removePrice;
+      shop.removeUsed = true;
+    }
+    const [card] = state.deck.splice(idx, 1);
+    emit({ t: 'removeCard', id: card.id });
+    return result(true);
+  }
+
+  function restHeal(state) {
+    clearEvents();
+    if (state.screen !== 'rest') return result(false, '不在休整点');
+    healPlayer(state, Math.ceil(state.maxHp * 0.3));
+    state.screen = 'map';
+    emit({ t: 'rest', kind: 'heal' });
+    return result(true);
+  }
+
+  function restUpgrade(state, uid) {
+    clearEvents();
+    if (state.screen !== 'rest') return result(false, '不在休整点');
+    const inst = state.deck.find(c => c.uid === uid);
+    if (!inst) return result(false, '没有这张牌');
+    const data = getCardData(inst);
+    if (inst.up || !data.up) return result(false, '这张牌无法升级');
+    inst.up = true;
+    state.screen = 'map';
+    emit({ t: 'upgrade', uid, id: inst.id });
+    return result(true);
+  }
+
+  function enterTreasure(state) {
+    clearEvents();
+    const gold = randInt(state, DATA.treasure.gold[0], DATA.treasure.gold[1]) + (state.map ? state.map.act * 4 : 0);
+    gainGold(state, gold);
+    let relicId = null;
+    if (rand(state) < DATA.treasure.relicChance) {
+      relicId = randomRelicId(state);
+      if (relicId) {
+        state.relics.push(relicId);
+        const api = makeRelicApi(state);
+        const relic = DATA.relicMap[relicId];
+        if (relic.hooks && relic.hooks.pickup) relic.hooks.pickup(state, api);
+      }
+    }
+    let potionId = null;
+    if (rand(state) < DATA.treasure.potionChance && state.potions.length < 3) {
+      potionId = pick(state, DATA.potions).id;
+      state.potions.push(potionId);
+    }
+    state.treasure = { gold, relicId, potionId };
+    state.screen = 'treasure';
+    emit({ t: 'treasure', gold, relicId, potionId });
+    return result(true);
+  }
+  function continueTreasure(state) {
+    state.treasure = null;
+    state.screen = 'map';
+    return result(true);
+  }
+
+  /* ---------------- 事件 ---------------- */
+  function enterEvent(state) {
+    const act = state.map ? state.map.act : 1;
+    let pool = DATA.events.filter(e => (!e.acts || e.acts.includes(act)) && !state.usedEvents.includes(e.id));
+    if (!pool.length) pool = DATA.events.filter(e => !e.acts || e.acts.includes(act));
+    if (!pool.length) pool = DATA.events;
+    const ev = pool[Math.floor(rand(state) * pool.length)];
+    state.usedEvents.push(ev.id);
+    state.event = { id: ev.id, resolved: false, resultText: '' };
+    state.screen = 'event';
+  }
+
+  function applyEventChoice(state, choiceIndex) {
+    clearEvents();
+    if (!state.event || state.event.resolved) return result(false, '事件已结束');
+    const evData = DATA.events.find(e => e.id === state.event.id);
+    const ev = evData;
+    const choice = ev && ev.choices[choiceIndex];
+    if (!choice) return result(false, '没有这个选项');
+    if (choice.require && choice.require.gold && state.gold < choice.require.gold) return result(false, '金币不足');
+    const notes = [];
+    applyEventEffects(state, choice.effects || [], notes);
+    let text = choice.result || '';
+    if (notes.length) text += ' ' + notes.join(' ');
+    state.event.resolved = true;
+    state.event.resultText = text;
+    state.event.choice = choiceIndex;
+    state.screen = 'event';
+    return result(true);
+  }
+
+  function applyEventEffects(state, effects, notes) {
+    effects.forEach(effect => {
+      switch (effect.op) {
+        case 'heal':
+          healPlayer(state, effect.value || 0);
+          break;
+        case 'healPct':
+          healPlayer(state, Math.ceil(state.maxHp * ((effect.value || 0) / 100)));
+          break;
+        case 'damage':
+          state.hp = Math.max(1, state.hp - (effect.value || 0));
+          notes.push('你失去了 ' + (effect.value || 0) + ' 点生命，但还撑得住。');
+          break;
+        case 'gold':
+          gainGold(state, effect.value || 0);
+          break;
+        case 'maxHp':
+          state.maxHp += effect.value || 0;
+          state.hp += effect.value || 0;
+          break;
+        case 'addRandomRelic': {
+          const id = randomRelicId(state, effect.rarity);
+          if (id) {
+            state.relics.push(id);
+            const api = makeRelicApi(state);
+            const relic = DATA.relicMap[id];
+            if (relic.hooks && relic.hooks.pickup) relic.hooks.pickup(state, api);
+            notes.push('获得遗物：' + DATA.relicMap[id].name + '。');
+          }
+          break;
+        }
+        case 'addRandomCard': {
+          const rarity = effect.rarity || null;
+          let pool = cardRewardPool(state, rarity, effect.element);
+          if (!pool.length) pool = cardRewardPool(state);
+          if (pool.length) {
+            const card = pool[Math.floor(rand(state) * pool.length)];
+            addCardToDeck(state, card.id, false);
+            notes.push('获得卡牌：' + card.name + '。');
+          }
+          break;
+        }
+        case 'addPotion': {
+          if (state.potions.length < 3) {
+            const p = pick(state, DATA.potions);
+            state.potions.push(p.id);
+            notes.push('获得丹药：' + p.name + '。');
+          } else {
+            gainGold(state, 25);
+            notes.push('丹药腰带已满，换得 25 金币。');
+          }
+          break;
+        }
+        case 'curse': {
+          const id = pick(state, CURSE_IDS);
+          addCardToDeck(state, id, false);
+          notes.push('获得诅咒：' + DATA.cardMap[id].name + '。');
+          break;
+        }
+        case 'removeRandomCard': {
+          const candidates = state.deck.map((c, i) => ({ c, i })).filter(x => DATA.cardMap[x.c.id].type !== 'curse');
+          const idx = candidates.length ? candidates[Math.floor(rand(state) * candidates.length)].i : -1;
+          if (idx >= 0 && state.deck.length > 1) {
+            const [removed] = state.deck.splice(idx, 1);
+            notes.push('移除了：' + DATA.cardMap[removed.id].name + '。');
+          }
+          break;
+        }
+        case 'upgradeRandomCards': {
+          const count = effect.count || 1;
+          let pool = state.deck.filter(c => !c.up && DATA.cardMap[c.id].up);
+          for (let i = 0; i < count && pool.length; i++) {
+            const idx = Math.floor(rand(state) * pool.length);
+            const inst = pool.splice(idx, 1)[0];
+            inst.up = true;
+            notes.push('升级了：' + DATA.cardMap[inst.id].name + '。');
+          }
+          break;
+        }
+        case 'random': {
+          const outcome = weighted(state, effect.outcomes, o => o.weight || 1);
+          notes.push(outcome.text);
+          applyEventEffects(state, outcome.effects || [], notes);
+          break;
+        }
+        default:
+          break;
+      }
+    });
+  }
+
+  function continueEvent(state) {
+    state.event = null;
+    state.screen = 'map';
+    return result(true);
+  }
+  function leaveShop(state) {
+    state.shop = null;
+    state.screen = 'map';
+    return result(true);
+  }
+  function leaveTreasure(state) { return continueTreasure(state); }
+
+  /* ---------------- 存档 ---------------- */
+  function serialize(state) {
+    const copy = Object.assign({}, state, { startedAt: state.startedAt });
+    return JSON.stringify(copy);
+  }
+  function deserialize(json) {
+    try {
+      const state = JSON.parse(json);
+      if (!state || state.version !== VERSION) return null;
+      if (!state.characterId || !state.deck || !state.map) return null;
+      if (typeof state.nextUid !== 'number') state.nextUid = 100000;
+      return state;
+    } catch (err) { return null; }
+  }
+
+  function getRunSummary(state) {
+    return {
+      character: getCharacter(state).name,
+      act: state.act,
+      floor: state.stats.floors,
+      kills: state.stats.kills,
+      gold: state.gold,
+      hp: state.hp,
+      maxHp: state.maxHp,
+      deckSize: state.deck.length,
+      ascension: state.ascension,
+      victory: !!state.victory
+    };
+  }
+
+  /* ---------------- 导出 ---------------- */
+  return {
+    VERSION,
+    ACT_NAMES,
+    NODE_META,
+    RARITY_NAME,
+    createRun,
+    generateMap,
+    nodeById,
+    availableNodes,
+    currentNode,
+    enterNode,
+    getActName,
+    getNodeMeta,
+    startCombat,
+    playCard,
+    canPlayCard,
+    getPreview,
+    endPlayerTurn,
+    runEnemyTurn,
+    usePotion,
+    finishCombat,
+    rollCardChoices,
+    addCardToDeck,
+    takeRewardCard,
+    skipReward,
+    continueReward,
+    nextAct,
+    generateShop,
+    buyItem,
+    removeCardFromDeck,
+    restHeal,
+    restUpgrade,
+    enterTreasure,
+    continueTreasure,
+    leaveTreasure,
+    enterEvent,
+    applyEventChoice,
+    continueEvent,
+    leaveShop,
+    getEnemyIntent,
+    getCardData,
+    getCharacter,
+    elementData,
+    isCross,
+    emptyStatuses,
+    serialize,
+    deserialize,
+    getRunSummary,
+    // 只读辅助
+    aliveEnemies,
+    firstEnemy,
+    enemyById,
+    maxEnergy,
+    relicPassive,
+    cardNeedsTarget,
+    pickTarget,
+    startPlayerTurnForTest: function (state) { beginNextTurn(state); }
+  };
+});
