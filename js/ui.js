@@ -873,7 +873,7 @@
         <span class="char-style">${CHAR_STYLE[ch.id]}</span>
         <span class="char-passive"><b>${esc(ch.passive)}</b>　${esc(ch.passiveText)}</span>
         <span class="char-tip">${CHAR_TIPS[ch.id]}</span>
-        <span class="char-label">初始牌组</span>
+        <span class="char-label deck-label">初始牌组</span>
         <span class="char-deck">${deck}</span>
         <span class="char-label relic-label">初始遗物</span>
         <span class="char-relic">${relicChip(relic.id, { showName: true })}</span>
@@ -1004,14 +1004,21 @@
       const mid = (n - 1) / 2;
       const compactH = window.innerHeight <= 780;
       const compactW = window.innerWidth <= 1060;
-      const cardW = (compactH || compactW) ? 132 : (window.innerWidth <= 1200 ? 138 : 152);
-      const avail = Math.max(320, window.innerWidth - 380);
-      const overlap = n > 1 && n * cardW > avail ? Math.min(96, Math.ceil((n * cardW - avail) / (n - 1))) : 0;
+      const mobile = window.innerWidth <= 600;
+      const cardW = mobile ? 116 : (compactH || compactW) ? 132 : (window.innerWidth <= 1200 ? 138 : 152);
+      const avail = mobile ? window.innerWidth : Math.max(320, window.innerWidth - 380);
+      const overlap = !mobile && n > 1 && n * cardW > avail ? Math.min(96, Math.ceil((n * cardW - avail) / (n - 1))) : 0;
       const hand = c.hand.map((inst, i) => {
         return cardHTML(inst, { mode: 'hand', index: i, rot: 0, lift: 0, marginLeft: i === 0 ? 0 : -overlap });
       }).join('');
       const focusName = c.enemies[targetIdx] && c.enemies[targetIdx].hp > 0 ? c.enemies[targetIdx].name : '';
-      const selectedHint = this.selected != null ? `选择目标：点击敌方单位打出「${esc(cardData(c.hand[this.selected]).name)}」` : (c.phase === 'enemy' ? '敌方回合……' : (alive.length > 1 ? `当前目标：${esc(focusName)} · 点击卡牌后点敌人切换 · 数字键直接出牌` : '点击卡牌出牌 · 数字键 1–9 · E 结束回合'));
+      const mobileUI = window.innerWidth <= 600;
+      const selectedHint = this.selected != null
+        ? `选择目标：点击敌方单位打出「${esc(cardData(c.hand[this.selected]).name)}」`
+        : (c.phase === 'enemy' ? '敌方回合……'
+          : (alive.length > 1
+            ? `当前目标：${esc(focusName)} · 点击卡牌后点敌人切换${mobileUI ? '' : ' · 数字键直接出牌'}`
+            : `点击卡牌出牌${mobileUI ? '' : ' · 数字键 1–9 · E 结束回合'}`));
       return `
       <main class="screen combat-screen ${c.phase === 'enemy' ? 'enemy-phase' : ''}">
         <header class="combat-top">
@@ -1423,7 +1430,7 @@
           <div class="settings-list">
             <button class="settings-row" data-action="help"><span>玩法说明</span><b>五行 · 连携 · 状态</b></button>
             <button class="settings-row" data-action="toggle-sound"><span>音效</span><b>${this.soundOn ? '开' : '关'}</b></button>
-            <div class="settings-row static"><span>操作</span><b>点击出牌 · 1–9 · E 结束回合</b></div>
+            <div class="settings-row static"><span>操作</span><b>${window.innerWidth <= 600 ? '点击出牌 · 点击结束回合' : '点击出牌 · 1–9 · E 结束回合'}</b></div>
             <div class="settings-row static"><span>规则</span><b>相生续链 · 相克破甲</b></div>
             <button class="settings-row danger" data-action="abandon-run"><span>放弃轮回</span><b>回到标题</b></button>
             <button class="settings-row" data-action="back-title-keep"><span>返回标题</span><b>保留进度</b></button>
