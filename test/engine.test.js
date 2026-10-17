@@ -508,3 +508,52 @@ test('商店价格随天劫不变、随幕数增长', () => {
   const p3 = s.shop.cards[0].price;
   assert.ok(p1 > 0 && p3 > 0);
 });
+
+test('手牌中的诅咒与火种会触发伤害', () => {
+  // 心魔：回合结束 -2
+  const a = fresh('sword');
+  const ba = battle(a, 'shan_xiao');
+  a.hp = 50;
+  ba.c.hand = [{ uid: 'x', id: 'xin_mo', up: false }];
+  E.endPlayerTurn(a);
+  assert.strictEqual(a.hp, 48);
+
+  // 火种：回合结束 -2
+  const b = fresh('sword');
+  const bb = battle(b, 'shan_xiao');
+  b.hp = 50;
+  bb.c.hand = [{ uid: 'f', id: 'huo_zhong', up: false }];
+  E.endPlayerTurn(b);
+  assert.strictEqual(b.hp, 48);
+
+  // 走火入魔：回合开始 -3
+  const c = fresh('sword');
+  const bc = battle(c, 'shan_xiao');
+  c.hp = 50;
+  bc.c.hand = [];
+  bc.c.drawPile = [{ uid: 'z', id: 'zou_huo', up: false }];
+  bc.c.discardPile = [];
+  E.startPlayerTurnForTest(c);
+  assert.strictEqual(c.hp, 47);
+});
+
+test('荆棘在敌人攻击后反伤', () => {
+  const s = fresh('monk');
+  const { c, e } = battle(s, 'shan_xiao');
+  c.statuses.thorns = 3;
+  e.intent = 'claw';
+  const before = e.hp;
+  E.endPlayerTurn(s);
+  E.runEnemyTurn(s);
+  assert.strictEqual(e.hp, before - 3);
+});
+
+test('遗物被动：攻击伤害加成', () => {
+  const s = fresh('sword');
+  s.relics = ['xuan_tie_jian'];
+  const { c, e } = battle(s, 'shan_xiao', { element: 'water' });
+  setHand(c, ['jin_ren']);
+  const before = e.hp;
+  E.playCard(s, 0, 0);
+  assert.strictEqual(before - e.hp, 7); // 6 + 玄铁剑 1
+});
