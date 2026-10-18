@@ -216,3 +216,41 @@ test('桌面奖励可单独查看升级差异，手牌提示也包含升级效�
   ui.state.combat.hand = [{ uid: 'hand-jin', id: 'jin_ren', up: false }];
   assert.match(ui.combatHTML(), /升级后（灵气 1）/);
 });
+
+test('五行卡牌使用各自纹样和边框色，升级牌有明确印记', () => {
+  const ui = makeUI();
+  ui.meta.seenCards = ['chan_si', 'chi_yan', 'yan_quan', 'jin_ren', 'liu_yun'];
+  ui.screen = 'compendium';
+  ui.compTab = 'cards';
+  const html = ui.compendiumHTML();
+  for (const element of ['wood', 'fire', 'earth', 'metal', 'water']) {
+    assert.match(html, new RegExp(`class="card el-${element}[^\"]*" style="--el:`));
+    assert.match(html, new RegExp(`class="card-art-icon motif-${element}"`));
+  }
+  ui.state.deck[0].up = true;
+  ui.overlay = 'deck';
+  assert.match(ui.overlayHTML(), /class="card-up-mark"[^>]*>悟</);
+});
+
+test('手机奖励卡也继承五行视觉强调', () => {
+  const ui = makeUI();
+  setReward(ui);
+  const html = ui.rewardHTML();
+  assert.match(html, /class="reward-option el-water/);
+  assert.match(html, /class="reward-option el-wood/);
+  assert.match(html, /class="reward-option-seal"/);
+});
+
+test('升级牌标题行留出完整牌名空间', () => {
+  const ui = makeUI();
+  ui.state.deck = [{ uid: 'up-long', id: 'bai_cao', up: true }];
+  ui.overlay = 'deck';
+  const html = ui.overlayHTML();
+  const title = html.match(/<div class="card-top">([\s\S]*?)<\/div>/)[1];
+  const art = html.match(/<div class="card-art"[^>]*>([\s\S]*?)<\/div>/)[1];
+  assert.match(title, /百草回春/);
+  assert.doesNotMatch(title, /百草回春·悟/);
+  assert.doesNotMatch(title, /card-up-mark|card-elem/);
+  assert.match(art, /card-up-mark/);
+  assert.match(art, /card-elem/);
+});

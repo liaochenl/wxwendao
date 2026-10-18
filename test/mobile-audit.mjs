@@ -220,6 +220,11 @@ const SCREENS = [
     name: 'multi',
     combat: true,
     prepare: "(() => { const st=WX_UI.state; WX_UI.overlay=null; WXEngine.startCombat(st,{enemies:[{id:'shan_xiao'},{id:'shan_xiao'},{id:'shan_xiao'}]},'combat'); WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'upgraded-hand',
+    combat: true,
+    prepare: "(() => { WX_UI.overlay=null; WX_UI.state.combat.hand=[{uid:'audit-up',id:'bai_cao',up:true}]; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
   }
 ];
 
@@ -258,6 +263,11 @@ async function auditAt(cdp, baseUrl, vp) {
     if (screen.combat) {
       if (r.endTurnOverlap) fail(`${tag}: 结束回合与手牌相交`);
       if (r.handFont != null && r.handFont < 11) fail(`${tag}: 手牌字号 ${r.handFont}px < 11px`);
+    }
+    if (screen.name === 'upgraded-hand') {
+      const title = await cdp.eval(`(() => { const el=document.querySelector('.hand .card-name');
+        return el && { text:el.textContent, full:el.scrollWidth <= el.clientWidth + 1 }; })()`);
+      if (!title || title.text !== '百草回春' || !title.full) fail(`${tag}: 升级牌完整牌名不可见`);
     }
     if (screen.name === 'status-info') {
       const info = await cdp.eval(`(() => {
@@ -342,6 +352,40 @@ async function auditAt(cdp, baseUrl, vp) {
   }
 }
 
+async function captureCardShowcase(cdp, baseUrl) {
+  const vp = { width: 1280, height: 800 };
+  await cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: vp.width, height: vp.height, screenWidth: vp.width, screenHeight: vp.height,
+    deviceScaleFactor: 1, mobile: false, scale: 1
+  });
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+  await cdp.send('Page.navigate', { url: `${baseUrl}/index.html?v=${Date.now()}` });
+  await sleep(1500);
+  const sample = await cdp.eval(`(() => {
+    localStorage.clear(); WX_UI.hasRun = false; WX_UI.beginRun();
+    WX_UI.state.deck = [
+      { uid:'sample-wood', id:'yin_du', up:false },
+      { uid:'sample-fire', id:'chi_yan', up:true },
+      { uid:'sample-earth', id:'yan_quan', up:false },
+      { uid:'sample-metal', id:'po_jun', up:false },
+      { uid:'sample-water', id:'xin_jian', up:false }
+    ];
+    WX_UI.screen = 'map'; WX_UI.overlay = 'deck'; WX_UI.render();
+    return {
+      motifs:[...document.querySelectorAll('.overlay-card-grid .card-art-icon')].map(el => el.classList[1]),
+      rareBorders:[...document.querySelectorAll('.overlay-card-grid .card.rarity-rare .card-inner')].map(el => getComputedStyle(el).borderTopColor)
+    };
+  })()`);
+  const expected = ['motif-wood', 'motif-fire', 'motif-earth', 'motif-metal', 'motif-water'];
+  if (sample.motifs.length !== 5 || expected.some(name => !sample.motifs.includes(name))) fail('五行卡面样板缺失');
+  if (sample.rareBorders.length !== 2 || sample.rareBorders[0] === sample.rareBorders[1]) fail('稀有牌未保留五行边框色');
+  await sleep(350);
+  const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  fs.mkdirSync(path.join(ROOT, 'docs', 'screenshots'), { recursive: true });
+  fs.writeFileSync(path.join(ROOT, 'docs', 'screenshots', 'card-ui-five-elements.png'), Buffer.from(data, 'base64'));
+  console.log('CHECK 五行卡面样板@1280: ' + sample.motifs.join(', '));
+}
+
 let server, chrome, cdp;
 try {
   server = await startServer();
@@ -356,6 +400,7 @@ try {
   await cdp.send('Runtime.enable');
 
   for (const vp of viewports) await auditAt(cdp, baseUrl, vp);
+  await captureCardShowcase(cdp, baseUrl);
 } finally {
   try { cdp && cdp.close(); } catch {}
   try { chrome && chrome.child.kill('SIGKILL'); } catch {}
