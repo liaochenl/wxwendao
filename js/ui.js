@@ -18,6 +18,14 @@
     alchemist: '叠毒之后靠灼烧与回春拖长战线，别急着和敌人换血。',
     monk: '留甲反伤，用土生金接攻击；护甲保留让你更敢卖血。'
   };
+  const CARD_MOTIFS = {
+    wood: '<path d="M49 70V19M49 47C32 45 22 36 18 25M49 38C64 35 75 25 79 13M49 58C66 57 77 48 82 38"/><path d="M18 25c4-12 14-15 20-11-1 10-9 15-20 11Zm61-12c-12-3-19 2-20 12 10 4 18-1 20-12Zm3 25c-11-4-19 0-22 9 9 6 18 2 22-9Z"/>',
+    fire: '<path d="M49 72C27 69 21 54 29 40c1 11 8 12 10 9-5-13 5-22 12-39 4 14 1 20 10 28 3-7 4-12 3-18 20 22 17 48-15 52Z"/><path d="M50 67c-8-2-11-9-7-16 1 5 4 6 6 3 0-5 4-10 7-14 0 7 7 12 4 20-2 5-5 7-10 7Z"/>',
+    earth: '<path d="M9 69 33 32l12 16L60 17l31 52H9Z"/><path d="m24 46 9-14 7 9m10-12 10-12 11 19M13 74h74"/>',
+    metal: '<path d="m50 9 8 13-4 36-4 7-4-7-4-36 8-13ZM29 56h42M42 56l-6 9m22-9 6 9M50 65v13M39 78h22"/><path d="m24 25 11-8m30 0 11 8M20 40h13m34 0h13"/>',
+    water: '<path d="M50 11c-9 13-20 24-20 38a20 20 0 0 0 40 0C70 35 59 24 50 11Z"/><path d="M21 61c9-5 17-5 26 0s17 5 26 0m-59 11c12-6 22-6 34 0s22 6 38 0"/>',
+    none: '<circle cx="50" cy="43" r="25"/><path d="M50 11v64M18 43h64M27 20l46 46M73 20 27 66"/>'
+  };
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -63,6 +71,10 @@
   function relicById(id) { return D.relicMap[id]; }
   function potionById(id) { return D.potionMap[id]; }
   function cardData(inst) { return E.getCardData(inst); }
+  function cardArt(element) {
+    const motif = CARD_MOTIFS[element] || CARD_MOTIFS.none;
+    return `<svg class="card-art-icon motif-${element}" viewBox="0 0 100 85" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${motif}</svg>`;
+  }
 
   function cardHTML(inst, opts) {
     opts = opts || {};
@@ -71,6 +83,7 @@
     const mode = opts.mode || 'static';
     const el = elem(data.element);
     const upgraded = !!inst.up;
+    const faceName = D.cardMap[inst.id] ? D.cardMap[inst.id].name : data.name;
     const isHand = mode === 'hand';
     const canPlay = isHand ? E.canPlayCard(UI.state, opts.index) : null;
     const cost = canPlay && canPlay.ok ? canPlay.cost : data.cost;
@@ -98,7 +111,7 @@
     if (opts.sold) classes.push('sold');
     if (opts.selectable) classes.push('selectable');
     if (opts.selected) classes.push('picked');
-    const style = isHand ? `--rot:${opts.rot || 0}deg;--lift:${opts.lift || 0}px;margin-left:${opts.marginLeft || 0}px` : '';
+    const style = `--el:${el.color};--el-dark:${el.dark};${isHand ? `--rot:${opts.rot || 0}deg;--lift:${opts.lift || 0}px;margin-left:${opts.marginLeft || 0}px` : ''}`;
     const tag = opts.tag || (isHand || opts.inspect ? 'button' : 'div');
     const actionAttr = isHand ? `data-action="play-card" data-index="${opts.index}"` :
       (opts.pickUid ? `data-action="pick-card" data-uid="${esc(opts.pickUid)}"` :
@@ -110,17 +123,18 @@
       <div class="card-inner">
         <div class="card-top">
           <span class="card-cost ${discounted ? 'discounted' : ''}">${cost}</span>
-          <span class="card-name">${esc(data.name)}</span>
-          <span class="card-elem" style="--el:${el.color}">${esc(el.glyph)}</span>
+          <span class="card-name">${esc(faceName)}</span>
         </div>
         <div class="card-art" style="--el:${el.color};--el-dark:${el.dark}">
-          <span class="card-watermark">${esc(el.glyph)}</span>
+          ${upgraded ? '<span class="card-up-mark" aria-label="已升级">悟</span>' : ''}
+          <span class="card-elem" style="--el:${el.color}">${esc(el.glyph)}</span>
+          ${cardArt(data.element)}
           <span class="card-type">${TYPE_NAMES[data.type] || ''} · ${RARITY_LABEL[data.rarity] || ''}</span>
         </div>
         <div class="card-text">${formatText(data.text)}</div>
         <div class="card-live">${live.join('')}</div>
         <div class="card-foot">
-          <span>${data.exhaust ? '消耗' : ''}${data.retain ? ' 保留' : ''}</span>
+          <span>${data.exhaust ? '消耗' : ''}${data.retain ? ' 保留' : ''}${!data.exhaust && !data.retain ? el.name + '行' : ''}</span>
           <span class="card-rarity">${RARITY_LABEL[data.rarity] || ''}</span>
         </div>
       </div>`;
@@ -1242,8 +1256,9 @@
         const data = cardData(inst);
         const tag = r.cardTaken ? 'div' : 'button';
         const traits = [data.exhaust ? '消耗' : '', data.retain ? '保留' : '', inst.up ? '已悟' : ''].filter(Boolean);
-        return `<${tag} class="reward-option ${r.cardTaken && r.selected === i ? 'chosen' : ''} ${r.cardTaken && r.selected !== i ? 'faded' : ''}" ${r.cardTaken ? '' : `type="button" data-action="take-card" data-index="${i}" data-confirm="1"`}>
-          <span class="reward-option-top"><span class="reward-option-cost">${data.cost}</span><span class="reward-option-name">${esc(data.name)}</span>${elemBadge(data.element, elem(data.element).name + '行')}</span>
+        const el = elem(data.element);
+        return `<${tag} class="reward-option el-${data.element} ${r.cardTaken && r.selected === i ? 'chosen' : ''} ${r.cardTaken && r.selected !== i ? 'faded' : ''}" style="--el:${el.color};--el-dark:${el.dark}" ${r.cardTaken ? '' : `type="button" data-action="take-card" data-index="${i}" data-confirm="1"`}>
+          <span class="reward-option-top"><span class="reward-option-cost">${data.cost}</span><span class="reward-option-name">${esc(data.name)}</span><span class="reward-option-seal">${esc(el.glyph)}</span></span>
           <span class="reward-option-meta">${TYPE_NAMES[data.type] || ''} · ${RARITY_LABEL[data.rarity] || ''}${traits.length ? ` · ${traits.join(' · ')}` : ''}</span>
           <span class="reward-option-text">${esc(data.text)}</span>
           <span class="reward-option-cta">${r.cardTaken ? r.selected === i ? '已领取' : '' : '查看详情并领取 →'}</span>
@@ -1509,7 +1524,7 @@
             p.linked ? `连携 ${p.chainAfter}` : ''].filter(Boolean) : [];
           if (values.length) preview = `<div class="detail-note">${values.map(esc).join(' · ')}</div>`;
         }
-        body = `<div class="card-current-label">${other ? d.up ? '已升级 · 当前效果' : '升级前 · 当前效果' : '当前效果'}</div>
+        body = `<div class="card-current-label" style="--el:${elem(data.element).color}">${other ? d.up ? '已升级 · 当前效果' : '升级前 · 当前效果' : '当前效果'}</div>
           <div class="detail-meta">${elemBadge(data.element, elem(data.element).name + '行')}<span>${TYPE_NAMES[data.type] || ''}</span><span>${RARITY_LABEL[data.rarity] || ''}</span><span>灵气 ${data.cost}</span>${d.up ? '<span>已悟</span>' : ''}</div>
           <p class="card-detail-text">${formatText(data.text)}</p>
           ${traits.length ? `<p class="detail-note">关键词：${traits.join(' · ')}</p>` : ''}${preview}
