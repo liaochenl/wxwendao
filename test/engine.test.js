@@ -117,6 +117,84 @@ test('调整后的升级牌费用、伤害与说明保持一致', () => {
   }
 });
 
+test('高费单体攻击有足够回报，五雷正法保持贯穿定位', () => {
+  for (const [id, cost, baseDamage, upgradedDamage] of [
+    ['duan_yue', 2, 14, 19], ['wu_lei', 3, 30, 38]
+  ]) {
+    for (const [up, expected] of [[false, baseDamage], [true, upgradedDamage]]) {
+      const s = fresh('sword');
+      const { c, e } = battle(s, 'shan_xiao', { block: id === 'wu_lei' ? 50 : 0 });
+      c.energy = cost;
+      setHand(c, [id], up);
+      const hp = e.hp;
+      const result = E.playCard(s, 0, 0);
+      assert.ok(result.ok, id);
+      assert.equal(hp - e.hp, expected, `${id} ${up ? '已悟' : '基础'}`);
+      assert.equal(E.getCardData({ id, up }).cost, cost);
+      assert.match(E.getCardData({ id, up }).text, new RegExp(String(expected)));
+      if (id === 'wu_lei') assert.equal(e.block, 50);
+    }
+  }
+});
+
+test('两费持续效果牌兼顾当回合防御与后续收益', () => {
+  const fire = fresh('alchemist');
+  const f = battle(fire);
+  f.c.energy = 2;
+  setHand(f.c, ['huo_qiang']);
+  assert.ok(E.playCard(fire, 0, 0).ok);
+  assert.equal(f.e.statuses.burn, 4);
+  assert.equal(f.c.block, 7);
+
+  const wood = fresh('monk');
+  const w = battle(wood);
+  w.c.energy = 2;
+  setHand(w.c, ['jing_ji'], true);
+  assert.ok(E.playCard(wood, 0, 0).ok);
+  assert.equal(w.c.block, 12);
+  assert.equal(w.c.statuses.thorns, 6);
+});
+
+test('剑修初始防牌能在前期承担基础防御', () => {
+  for (const [up, expected] of [[false, 6], [true, 9]]) {
+    const s = fresh('sword');
+    const { c } = battle(s);
+    c.energy = 1;
+    setHand(c, ['liu_yun'], up);
+    assert.ok(E.playCard(s, 0, 0).ok);
+    assert.equal(c.block, expected);
+    assert.match(E.getCardData({ id: 'liu_yun', up }).text, new RegExp(String(expected)));
+  }
+});
+
+test('万剑归宗两费提供四段伤害，并体现剑修逐段增伤', () => {
+  for (const [up, expected] of [[false, 20], [true, 24]]) {
+    const s = E.createRun({ characterId: 'sword', seed: 7 });
+    const { c, e } = battle(s);
+    c.energy = 2;
+    setHand(c, ['wan_jian'], up);
+    const hp = e.hp;
+    assert.ok(E.playCard(s, 0, 0).ok);
+    assert.equal(hp - e.hp, expected);
+    assert.match(E.getCardData({ id: 'wan_jian', up }).text, /4 段 [45] 点伤害/);
+  }
+});
+
+test('普通战后奖励更容易出现角色专属牌，仍不重复且不串角色', () => {
+  for (const characterId of ['sword', 'alchemist', 'monk']) {
+    let seen = 0;
+    for (let seed = 1; seed <= 1000; seed++) {
+      const s = E.createRun({ characterId, seed });
+      const offers = E.rollCardChoices(s, 3, 0, false);
+      assert.equal(new Set(offers.map(card => card.id)).size, offers.length);
+      assert.ok(offers.every(card => !DATA.cardMap[card.id].character || DATA.cardMap[card.id].character === characterId));
+      if (offers.some(card => DATA.cardMap[card.id].character === characterId)) seen++;
+    }
+    assert.ok(seen >= 180, `${characterId} 只有 ${seen}/1000 次奖励出现专属牌`);
+    assert.ok(seen <= 300, `${characterId} 有 ${seen}/1000 次奖励出现专属牌，专属权重过高`);
+  }
+});
+
 test('引毒诀消耗自身并翻倍目标已有中毒', () => {
   assert.ok(DATA.cardMap.yin_du);
   const s = fresh('alchemist');
@@ -170,6 +248,90 @@ test('火祭以生命换取灵气且只使用一次', () => {
   assert.equal(s.hp, hp - 3);
   assert.equal(c.energy, 1);
   assert.equal(c.exhaustPile.length, 1);
+});
+
+test('调息在两层连携后净赚灵气，并补充手牌', () => {
+  for (const [up, chain, expectedEnergy, expectedDraw] of [
+    [false, 0, 1, 1], [false, 2, 2, 1], [true, 2, 2, 2]
+  ]) {
+    const s = fresh('sword');
+    const { c } = battle(s);
+    c.energy = 1;
+    c.chain = chain;
+    c.currentElement = 'water';
+    setHand(c, ['tiao_xi'], up);
+    c.drawPile = [card('draw-a', 'jin_ren'), card('draw-b', 'liu_yun')];
+    assert.ok(E.playCard(s, 0, 0).ok);
+    assert.equal(c.energy, expectedEnergy);
+    assert.equal(c.hand.length, expectedDraw);
+    assert.equal(c.chain, chain);
+    assert.equal(E.getCardData({ id: 'tiao_xi', up }).exhaust, !up);
+    assert.equal((up ? c.discardPile : c.exhaustPile)[0].id, 'tiao_xi');
+  }
+});
+
+test('两张未升级调息不会互相抽回', () => {
+  const s = fresh('sword');
+  const { c } = battle(s);
+  c.energy = 1;
+  c.chain = 2;
+  c.currentElement = 'water';
+  c.hand = [card('a', 'tiao_xi')];
+  c.discardPile = [card('b', 'tiao_xi')];
+  assert.ok(E.playCard(s, 0, 0).ok);
+  assert.equal(c.hand.length, 1);
+  assert.ok(E.playCard(s, 0, 0).ok);
+  assert.equal(c.hand.length, 0);
+  assert.equal(c.energy, 3);
+  assert.equal(c.exhaustPile.length, 2);
+});
+
+test('两张升级调息可由玩家主动交替打出并持续回灵', () => {
+  const s = fresh('sword');
+  const { c } = battle(s);
+  c.energy = 1;
+  c.chain = 2;
+  c.currentElement = 'water';
+  c.hand = [{ ...card('a', 'tiao_xi'), up: true }];
+  c.discardPile = [{ ...card('b', 'tiao_xi'), up: true }];
+  for (let i = 0; i < 8; i++) {
+    assert.ok(E.playCard(s, 0, 0).ok);
+    assert.equal(c.hand.length, 1);
+    assert.equal(c.energy, i + 2);
+    assert.equal(c.chain, 2);
+    assert.equal(c.exhaustPile.length, 0);
+  }
+  assert.match(E.getCardData({ id: 'tiao_xi', up: true }).text, /不再消耗/);
+});
+
+test('归元以两费换取三点灵气，升级后多抽一张', () => {
+  for (const [up, expectedDraw] of [[false, 2], [true, 3]]) {
+    const s = fresh('sword');
+    const { c } = battle(s);
+    c.energy = 2;
+    setHand(c, ['gui_yuan'], up);
+    c.drawPile = [card('draw-a', 'jin_ren'), card('draw-b', 'liu_yun'), card('draw-c', 'duan_yue')];
+    assert.ok(E.playCard(s, 0, 0).ok);
+    assert.equal(c.energy, 3);
+    assert.equal(c.hand.length, expectedDraw);
+    assert.equal(c.exhaustPile[0].id, 'gui_yuan');
+    assert.match(E.getCardData({ id: 'gui_yuan', up }).text, /3 点灵气/);
+  }
+});
+
+test('聚气丹炉在偶数回合补充灵气', () => {
+  const s = fresh('sword');
+  s.relics.push('ju_qi_lu');
+  s.maxHp = 999;
+  s.hp = 999;
+  E.startCombat(s, { enemies: [{ id: 'shan_xiao' }] });
+  const c = s.combat;
+  for (const [turn, expected] of [[2, 4], [3, 3], [4, 4]]) {
+    E.endPlayerTurn(s);
+    E.runEnemyTurn(s);
+    assert.equal(c.turn, turn);
+    assert.equal(c.energy, expected);
+  }
 });
 
 /* ---------- data ---------- */

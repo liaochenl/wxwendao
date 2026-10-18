@@ -876,6 +876,80 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .comp-inspect { width: 100%; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .comp-inspect:hover { border-color: var(--gold); }
 
+/* 角色、法器与丹药共用的图鉴视觉语言。 */
+.char-sigil { width: 68%; height: 68%; display: inline-grid; place-items: center; color: inherit; filter: drop-shadow(0 0 9px currentColor); }
+.char-sigil svg { width: 100%; height: 100%; display: block; }
+.char-glyph .char-sigil { width: 76%; height: 76%; }
+.player-portrait > span { display: contents; }
+.player-portrait .char-sigil { width: 80%; height: 80%; }
+.comp-relic-icon .char-sigil { width: 36px; height: 36px; color: var(--gold); }
+.entity-hero { --accent: var(--gold); display: flex; align-items: center; gap: 18px; min-height: 116px; margin-bottom: 16px; padding: 14px 18px; border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line)); border-radius: 12px; background: radial-gradient(circle at 18% 50%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 54%), rgba(255, 255, 255, 0.02); }
+.entity-hero .char-sigil { flex: 0 0 84px; width: 84px; height: 84px; color: var(--accent); }
+.entity-hero div { display: grid; gap: 7px; min-width: 0; }
+.entity-hero b { color: var(--accent); font: 18px var(--serif); letter-spacing: 0.12em; }
+.entity-hero div span { color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+.relic-emblem { --relic-ink: #d4bb80; position: relative; width: 25px; height: 25px; flex: 0 0 auto; display: inline-grid; place-items: center; border: 1px solid var(--relic-ink); border-radius: 8px; color: var(--relic-ink); background: radial-gradient(circle at 45% 35%, color-mix(in srgb, var(--relic-ink) 25%, transparent), #15191c 76%); box-shadow: inset 0 0 0 2px #101418, 0 0 10px color-mix(in srgb, var(--relic-ink) 16%, transparent); transform: rotate(45deg); }
+.relic-emblem::before { content: ''; position: absolute; inset: 3px; border: 1px solid color-mix(in srgb, var(--relic-ink) 42%, transparent); border-radius: 5px; }
+.relic-emblem-core { transform: rotate(-45deg); font: 14px var(--serif); text-shadow: 0 0 8px currentColor; }
+.relic-starter { --relic-ink: #aeb9b6; }
+.relic-common { --relic-ink: #c6a580; }
+.relic-uncommon { --relic-ink: #83b9a1; }
+.relic-rare { --relic-ink: #e5c56d; }
+.relic-chip .relic-emblem { width: 19px; height: 19px; border-radius: 6px; }
+.relic-chip .relic-emblem-core { font-size: 11px; }
+.relic-chip.big .relic-emblem { width: 28px; height: 28px; }
+.comp-relic-icon .relic-emblem { width: 29px; height: 29px; }
+.overlay-relic > .relic-emblem { width: 38px; height: 38px; margin: 5px; }
+.entity-showcase { min-height: 112px; display: flex; align-items: center; justify-content: center; gap: 25px; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 12px; background: radial-gradient(ellipse at center, rgba(216, 185, 119, 0.11), transparent 65%), #11171b; }
+.entity-showcase > span:last-child { color: var(--muted); font: 15px var(--serif); letter-spacing: 0.12em; }
+.entity-showcase .relic-emblem { width: 58px; height: 58px; border-radius: 13px; }
+.entity-showcase .relic-emblem-core { font-size: 27px; }
+
+.potion-vessel { --potion-color: #79c49e; width: 27px; height: 32px; position: relative; display: inline-grid; place-items: center; flex: 0 0 auto; filter: drop-shadow(0 2px 5px color-mix(in srgb, var(--potion-color) 28%, transparent)); }
+.potion-vessel svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.vessel-stop { fill: #b89e70; stroke: #e5d4aa; stroke-width: 1.5; }
+.vessel-glass { fill: color-mix(in srgb, var(--potion-color) 15%, #18262d); stroke: #b9d2ce; stroke-width: 1.8; }
+.vessel-liquid { fill: var(--potion-color); opacity: 0.82; }
+.vessel-shine { fill: none; stroke: #fff9df; stroke-width: 1.6; stroke-linecap: round; opacity: 0.73; }
+.potion-rune { position: absolute; left: 0; right: 0; bottom: 5px; text-align: center; color: #141a19; font: bold 11px var(--serif); text-shadow: 0 1px 1px #ffffff88; }
+.potion-heal { --potion-color: #cf6477; }
+.potion-fire { --potion-color: #ec804f; }
+.potion-block { --potion-color: #80b5d1; }
+.potion-energy { --potion-color: #e5c66c; }
+.potion-draw { --potion-color: #9aa9e2; }
+.potion-cleanse { --potion-color: #a6d7c4; }
+.potion-strength { --potion-color: #cd8d71; }
+.potion-chain { --potion-color: #9cca85; }
+.comp-relic-icon .potion-vessel { width: 30px; height: 37px; }
+.comp-relic .potion-rune { color: #141a19; font: bold 11px var(--serif); }
+.comp-relic .relic-emblem-core { color: var(--relic-ink); font: 15px var(--serif); }
+.potion-btn .potion-vessel { width: 29px; height: 35px; }
+.potion-chip .potion-vessel { width: 23px; height: 29px; }
+.potion-chip.big .potion-vessel { width: 30px; height: 36px; }
+.entity-showcase .potion-vessel { width: 58px; height: 72px; }
+.entity-showcase .potion-rune { bottom: 10px; font-size: 22px; }
+
+/* 异数与禁制以独立纹样区分，同时保留纸面文字对比度。 */
+.card.card-special .card-inner { border-color: #b58e51; background: radial-gradient(circle at 80% 12%, #fff7d7, transparent 43%), linear-gradient(160deg, #fbf0d4, #e5d2ac 78%, #d5b985); }
+.card.card-special .card-rarity { color: #8f532b; }
+.card.card-special .card-art { border-color: #d9aa65; background: radial-gradient(circle at 50% 42%, #8d6a3e77, transparent 64%), linear-gradient(150deg, #24242b, #151a1d); }
+.card-id-jian-yi .card-art-icon { color: #f6df9d; filter: drop-shadow(0 0 8px #efd18b); }
+.card-id-huo-zhong .card-art-icon { color: #ffac71; filter: drop-shadow(0 0 9px #d46230); }
+.card-id-huo-zhong .card-art { background: radial-gradient(circle at 50% 65%, #9e442d99, transparent 65%), linear-gradient(150deg, #342321, #17191d); }
+.card.card-curse .card-inner { border-color: #775778; background: linear-gradient(160deg, #e7dcd7, #cbbdb9 75%, #baa4a6); }
+.card.card-curse .card-art { border-color: #845c7e; background: radial-gradient(circle at center, #673f6688, transparent 66%), #171822; }
+.card.card-curse .card-art-icon { color: #dda9c7; filter: drop-shadow(0 0 8px #8b547b); }
+.card.card-curse .card-rarity { color: #6f3d5c; }
+@media (hover: hover) and (pointer: fine) {
+  .char-card:hover .char-sigil, .comp-inspect:hover .char-sigil { transform: scale(1.06); }
+  .card.card-special:hover .card-art-icon, .card.card-special:focus-visible .card-art-icon { animation: sigilGlow 1.6s ease-in-out infinite alternate; }
+  .relic-chip:hover .relic-emblem, .comp-inspect:hover .relic-emblem { filter: brightness(1.3); }
+  .potion-btn.filled:hover .potion-vessel, .comp-inspect:hover .potion-vessel { transform: translateY(-2px); }
+}
+.char-sigil, .potion-vessel, .relic-emblem { transition: transform 0.2s ease, filter 0.2s ease; }
+@keyframes sigilGlow { to { filter: drop-shadow(0 0 16px currentColor); transform: scale(1.08); } }
+
 /* ---------------- 覆盖层 ---------------- */
 .overlay {
   position: fixed; inset: 0; z-index: 70; background: rgba(4, 6, 8, 0.76);
@@ -1219,4 +1293,8 @@ body.zhoutian-flash::after {
   .settings-row { min-height: 48px; }
   .help-grid { grid-template-columns: 1fr; }
   .help-keys { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
