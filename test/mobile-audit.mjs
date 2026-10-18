@@ -479,6 +479,128 @@ async function captureCardShowcase(cdp, baseUrl) {
   console.log('CHECK 五行卡面样板@1280: ' + sample.motifs.join(', '));
 }
 
+async function auditShortCombat(cdp, baseUrl) {
+  await cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: 800, height: 412, screenWidth: 800, screenHeight: 412,
+    deviceScaleFactor: 2, mobile: false, scale: 1
+  });
+  await cdp.send('Page.navigate', { url: `${baseUrl}/index.html?v=${Date.now()}` });
+  await sleep(900);
+  await cdp.eval(`(() => {
+    localStorage.clear(); WX_UI.hasRun=false; WX_UI.beginRun();
+    WXEngine.startCombat(WX_UI.state,{enemies:[{id:'jin_jia_shi_jiang'}]},'elite');
+    WX_UI.screen='combat'; WX_UI.render(); return 1;
+  })()`);
+  await sleep(350);
+  const layout = await cdp.eval(`(() => {
+    const enemy=document.querySelector('.enemy-unit').getBoundingClientRect();
+    const mid=document.querySelector('.battle-mid').getBoundingClientRect();
+    const art=document.querySelector('.enemy-art-figure');
+    const frame=document.querySelector('.enemy-art').getBoundingClientRect();
+    return { enemyBottom:enemy.bottom, midTop:mid.top, enemyLeft:enemy.left, enemyRight:enemy.right,
+      fit:getComputedStyle(art).objectFit, loaded:art.complete && art.naturalWidth>0,
+      artWidth:frame.width, artHeight:frame.height,
+      scrollWidth:document.documentElement.scrollWidth, viewport:innerWidth };
+  })()`);
+  if (!layout.loaded || layout.fit !== 'contain' || layout.enemyBottom > layout.midTop + 1 ||
+      layout.artWidth < 100 || Math.abs(layout.artWidth - layout.artHeight) > 1 ||
+      layout.enemyLeft < -1 || layout.enemyRight > layout.viewport + 1 || layout.scrollWidth > layout.viewport + 1) {
+    fail(`高缩放短视口战斗怪物图片被裁切或面板重叠 ${JSON.stringify(layout)}`);
+  }
+  const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  fs.writeFileSync(path.join(ROOT, 'docs', 'screenshots', 'monster-short-viewport.png'), Buffer.from(data, 'base64'));
+  console.log('CHECK 怪物立绘@800×412（双倍像素）: ' + JSON.stringify(layout));
+
+  await cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: 1100, height: 550, screenWidth: 1100, screenHeight: 550,
+    deviceScaleFactor: 1, mobile: false, scale: 1
+  });
+  await cdp.send('Page.navigate', { url: `${baseUrl}/index.html?v=${Date.now()}` });
+  await sleep(900);
+  await cdp.eval(`(() => {
+    localStorage.clear(); WX_UI.hasRun=false; WX_UI.beginRun();
+    WXEngine.startCombat(WX_UI.state,{enemies:[{id:'jin_jia_shi_jiang'}]},'elite');
+    WX_UI.screen='combat'; WX_UI.render(); return 1;
+  })()`);
+  const short = await cdp.eval(`(() => ({
+    endTurnBottom:document.querySelector('.end-turn').getBoundingClientRect().bottom,
+    scrollHeight:document.documentElement.scrollHeight,
+    enemyBottom:document.querySelector('.enemy-unit').getBoundingClientRect().bottom,
+    midTop:document.querySelector('.battle-mid').getBoundingClientRect().top
+  }))()`);
+  if (short.endTurnBottom > short.scrollHeight + 1 || short.enemyBottom > short.midTop + 1) {
+    fail(`矮屏桌面战斗按钮不可滚动到达或面板重叠 ${JSON.stringify(short)}`);
+  }
+  console.log('CHECK 怪物战斗@1100×550: ' + JSON.stringify(short));
+}
+
+async function auditCombatEffects(cdp, baseUrl) {
+  for (const width of [393, 1280]) {
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width, height: 852, screenWidth: width, screenHeight: 852,
+      deviceScaleFactor: 1, mobile: false, scale: 1
+    });
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+    await cdp.send('Page.navigate', { url: `${baseUrl}/index.html?v=${Date.now()}` });
+    await sleep(900);
+    const started = await cdp.eval(`(() => {
+      localStorage.clear(); WX_UI.hasRun=false; WX_UI.beginRun();
+      WXEngine.startCombat(WX_UI.state,{enemies:[{id:'shan_xiao'}]},'combat');
+      WX_UI.screen='combat'; WX_UI.overlay=null;
+      const combat=WX_UI.state.combat;
+      combat.hand=[{uid:'audit-attack',id:'po_jun',up:false}];
+      combat.energy=10; combat.enemies[0].hp=1000; combat.enemies[0].maxHp=1000;
+      WX_UI.render();
+      const card=document.querySelector('.hand .card');
+      if (!card) return { error:'missing hand card' };
+      const overlay=document.createElement('div'); overlay.className='overlay'; document.body.appendChild(overlay);
+      const overlayZ=Number(getComputedStyle(overlay).zIndex); overlay.remove();
+      const before=combat.hand.length;
+      window.__fxPlay=WX_UI.playCard(0,0);
+      const ghost=document.querySelector('.fx-card-ghost');
+      return { before, after:combat.hand.length, ghost:!!ghost,
+        pointer:getComputedStyle(document.getElementById('fx-layer')).pointerEvents,
+        fxZ:Number(getComputedStyle(document.getElementById('fx-layer')).zIndex),
+        overlayZ };
+    })()`);
+    if (started.error || !started.ghost || started.after !== started.before - 1 || started.pointer !== 'none' || started.fxZ >= started.overlayZ) {
+      fail(`出牌特效@${width}: 快照、即时结算或遮挡层级异常 ${JSON.stringify(started)}`);
+    }
+    await sleep(1500);
+    const settled = await cdp.eval(`(() => ({ busy:WX_UI.busy, ghost:document.querySelectorAll('.fx-card-ghost').length,
+      temporary:document.querySelectorAll('#fx-layer .fx-particle,#fx-layer .fx-ring,#fx-layer .fx-slash').length,
+      hand:WX_UI.state.combat.hand.length }))()`);
+    if (settled.busy || settled.ghost || settled.temporary || settled.hand) fail(`出牌特效@${width}: 动画未清理或忙碌状态未解除 ${JSON.stringify(settled)}`);
+    for (const element of ['wood','fire','earth','metal','water']) {
+      const burst = await cdp.eval(`(() => {
+        window.__fxBurst=WXEffects.elementBurst({element:'${element}',x:innerWidth/2,y:innerHeight/2});
+        return { particles:document.querySelectorAll('#fx-layer .fx-particle').length,
+          distinct:document.querySelectorAll('#fx-layer .fx-element-${element}').length };
+      })()`);
+      if (!burst.distinct || burst.particles > 12) fail(`五行特效@${width}/${element}: 粒子形态或数量异常 ${JSON.stringify(burst)}`);
+      await sleep(400);
+      const leftover = await cdp.eval(`(() => document.querySelectorAll('#fx-layer .fx-particle,#fx-layer .fx-ring,#fx-layer .fx-slash').length)()`);
+      if (leftover) fail(`五行特效@${width}/${element}: 节点未清理 ${leftover}`);
+    }
+    const zhou = await cdp.eval(`(() => { window.__fxZhou=WXEffects.zhoutian();
+      return { ring:document.querySelectorAll('.fx-zhoutian-ring').length,
+        particles:document.querySelectorAll('#fx-layer .fx-particle').length }; })()`);
+    if (zhou.ring !== 1 || zhou.particles > 30) fail(`周天特效@${width}: 环或粒子异常 ${JSON.stringify(zhou)}`);
+    await sleep(750);
+    if (await cdp.eval(`(() => document.querySelectorAll('.fx-zhoutian-ring,.fx-zhoutian-wave,#fx-layer .fx-particle').length)()`)) fail(`周天特效@${width}: 节点未清理`);
+    console.log(`CHECK 出牌特效@${width}: 飞牌、五行、周天、清理和层级`);
+  }
+  await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  const reduced = await cdp.eval(`(() => { WXEffects.elementBurst({element:'fire',x:100,y:100});
+    WXEffects.zhoutian(); WX_UI.floatAt(document.querySelector('.enemy-unit'), '-12', 'fx-damage');
+    return { particles:document.querySelectorAll('#fx-layer .fx-particle').length,
+      ring:document.querySelectorAll('.fx-zhoutian-ring').length,
+      clone:WXEffects.captureCard(document.querySelector('.hand .card')),
+      floatOpacity:Number(getComputedStyle(document.querySelector('.float-text')).opacity) }; })()`);
+  if (reduced.particles || reduced.ring || reduced.clone || reduced.floatOpacity < .5) fail(`减少动态效果下粒子、飞牌或必要飘字异常 ${JSON.stringify(reduced)}`);
+  console.log('CHECK 减少动态效果: 粒子与飞牌已关闭');
+}
+
 let server, chrome, cdp;
 try {
   server = await startServer();
@@ -492,8 +614,12 @@ try {
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
 
-  for (const vp of viewports) await auditAt(cdp, baseUrl, vp);
-  await captureCardShowcase(cdp, baseUrl);
+  if (!process.env.AUDIT_EFFECTS_ONLY) {
+    for (const vp of viewports) await auditAt(cdp, baseUrl, vp);
+    await captureCardShowcase(cdp, baseUrl);
+    await auditShortCombat(cdp, baseUrl);
+  }
+  await auditCombatEffects(cdp, baseUrl);
 } finally {
   try { cdp && cdp.close(); } catch {}
   try { chrome && chrome.child.kill('SIGKILL'); } catch {}

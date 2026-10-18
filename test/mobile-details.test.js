@@ -6,13 +6,14 @@ const path = require('node:path');
 const D = require('../js/data.js');
 const E = require('../js/engine.js');
 
-function makeUI(width = 393) {
+function makeUI(width = 393, effects = null) {
   const listeners = {};
-  const window = { WX_DATA: D, WXEngine: E, innerWidth: width, innerHeight: 852, addEventListener: (name, fn) => { listeners[name] = fn; } };
-  const document = { getElementById: () => ({ addEventListener() {} }) };
+  const window = { WX_DATA: D, WXEngine: E, WXEffects: effects, innerWidth: width, innerHeight: 852, addEventListener: (name, fn) => { listeners[name] = fn; } };
+  const document = { getElementById: () => ({ addEventListener() {} }), querySelector: () => null };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../js/ui.js'), 'utf8'), { window, document, clearTimeout() {}, setTimeout(fn) { fn(); return 1; } });
   const ui = window.WX_UI;
   ui._testWindow = window;
+  ui._testDocument = document;
   ui._testListeners = listeners;
   ui.render = () => {};
   ui.sfx = () => {};
@@ -27,6 +28,28 @@ function makeUI(width = 393) {
   ui.state.potions = ['heal'];
   return ui;
 }
+
+test('出牌前复制卡牌，视觉失败也会完成规则结算并解除忙碌状态', async () => {
+  const order = [];
+  const effects = {
+    captureCard(card) { order.push('capture'); assert.ok(card); return { ghost: { remove() {} } }; },
+    async playCardFlight() { order.push('flight'); throw new Error('animation unavailable'); },
+    clear() { order.push('clear'); }
+  };
+  const ui = makeUI(393, effects);
+  ui._testDocument.querySelector = selector => selector.includes('.hand .card') ? { classList: { add() {} }, getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }) } : null;
+  ui.fx = async () => { order.push('events'); };
+  ui.commit = () => { order.push('commit'); };
+  ui.checkCombatState = () => {};
+  const before = ui.state.combat.hand.length;
+  await ui.playCard(0, 0);
+  assert.equal(order[0], 'capture');
+  assert.ok(order.includes('flight'));
+  assert.ok(order.includes('events'));
+  assert.ok(order.includes('commit'));
+  assert.equal(ui.busy, false);
+  assert.equal(ui.state.combat.hand.length, before - 1);
+});
 
 function setReward(ui) {
   ui.state.reward = {
@@ -162,6 +185,14 @@ test('三幕怪物立绘在战斗、已解锁图鉴和详情中显示，未解�
   assert.match(compendium, /src="assets\/monsters\/01\/shan_xiao.webp"/);
   assert.doesNotMatch(compendium, /src="assets\/monsters\/03\/tai_xu.webp"/);
   assert.match(compendium, /未识之敌/);
+});
+
+test('怪物无护甲与状态时不预留空状态栏，受状态影响时仍显示层数', () => {
+  const ui = makeUI();
+  const enemy = ui.state.combat.enemies[0];
+  assert.doesNotMatch(ui.enemyHTML(enemy, 0, 0), /class="enemy-sub"/);
+  enemy.statuses.weak = 2;
+  assert.match(ui.enemyHTML(enemy, 0, 0), /class="enemy-sub"[\s\S]*虚弱 2 层/);
 });
 
 test('敌人详情显示招式附加的业障，关闭卡牌详情返回原面板', () => {
