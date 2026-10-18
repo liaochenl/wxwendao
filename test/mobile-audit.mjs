@@ -152,17 +152,32 @@ const SCREENS = [
     prepare: "(() => { const st=WX_UI.state; WXEngine.startCombat(st,{enemies:[{id:'shan_xiao'}]},'combat'); WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
   },
   {
+    name: 'card-detail',
+    combat: true,
+    prepare: "(() => { document.querySelector('.hand .card').click(); return 1; })()"
+  },
+  {
+    name: 'potion-detail',
+    combat: true,
+    prepare: "(() => { WX_UI.overlay=null; WX_UI.state.potions=['heal']; WX_UI.render(); document.querySelector('.potion-btn.filled').click(); return 1; })()"
+  },
+  {
     name: 'reward',
     prepare: `(() => {
       const st = WX_UI.state;
+      WX_UI.overlay = null;
       st.combat = null;
       st.reward = { kind:'combat', gold:15, cards: WXEngine.rollCardChoices(st,3,0,false), relicId:null, potionId:null, cardTaken:false, selected:-1, potionFull:false };
       WX_UI.screen = 'reward'; WX_UI.render(); return 1;
     })()`
   },
   {
+    name: 'reward-detail',
+    prepare: "(() => { document.querySelector('.choice-slot .card').click(); return 1; })()"
+  },
+  {
     name: 'shop',
-    prepare: "(() => { const st=WX_UI.state; WXEngine.generateShop(st); WX_UI.screen='shop'; WX_UI.render(); return 1; })()"
+    prepare: "(() => { const st=WX_UI.state; WX_UI.overlay=null; WXEngine.generateShop(st); WX_UI.screen='shop'; WX_UI.render(); return 1; })()"
   },
   {
     name: 'settings',
@@ -186,6 +201,7 @@ const SCREENS = [
 ];
 
 const viewports = [
+  { width: 360, height: 640 },
   { width: 393, height: 852 },
   { width: 430, height: 932 }
 ];
@@ -220,8 +236,26 @@ async function auditAt(cdp, baseUrl, vp) {
       if (r.endTurnOverlap) fail(`${tag}: 结束回合与手牌相交`);
       if (r.handFont != null && r.handFont < 11) fail(`${tag}: 手牌字号 ${r.handFont}px < 11px`);
     }
+    if (screen.name.endsWith('-detail')) {
+      const detail = await cdp.eval(`(() => {
+        const panel = document.querySelector('.detail-panel');
+        const body = document.querySelector('.detail-body');
+        const confirm = document.querySelector('[data-action="confirm-detail"]');
+        if (!panel || !body || !confirm) return null;
+        const p = panel.getBoundingClientRect(), c = confirm.getBoundingClientRect();
+        return { top:p.top, bottom:p.bottom, left:p.left, right:p.right,
+                 confirmTop:c.top, confirmBottom:c.bottom,
+                 text:body.innerText };
+      })()`);
+      if (!detail) fail(`${tag}: 详情或确认按钮缺失`);
+      else {
+        if (detail.top < -1 || detail.bottom > vp.height + 1 || detail.left < -1 || detail.right > vp.width + 1) fail(`${tag}: 详情面板出屏`);
+        if (detail.confirmTop < 0 || detail.confirmBottom > vp.height) fail(`${tag}: 确认按钮出屏`);
+        if (!detail.text.trim()) fail(`${tag}: 详情内容为空`);
+      }
+    }
 
-    if (vp.width === 393) {
+    if (vp.width === 393 && !screen.name.endsWith('-detail')) {
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       fs.mkdirSync(SHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(SHOT_DIR, `after-${screen.name}-393.png`), Buffer.from(data, 'base64'));

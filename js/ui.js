@@ -99,8 +99,10 @@
     if (opts.selectable) classes.push('selectable');
     if (opts.selected) classes.push('picked');
     const style = isHand ? `--rot:${opts.rot || 0}deg;--lift:${opts.lift || 0}px;margin-left:${opts.marginLeft || 0}px` : '';
-    const tag = opts.tag || (isHand ? 'button' : 'div');
-    const actionAttr = isHand ? `data-action="play-card" data-index="${opts.index}"` : (opts.pickUid ? `data-action="pick-card" data-uid="${esc(opts.pickUid)}"` : '');
+    const tag = opts.tag || (isHand || opts.inspect ? 'button' : 'div');
+    const actionAttr = isHand ? `data-action="play-card" data-index="${opts.index}"` :
+      (opts.pickUid ? `data-action="pick-card" data-uid="${esc(opts.pickUid)}"` :
+        (opts.inspect ? `data-action="inspect-card" data-id="${esc(inst.id)}" data-up="${upgraded ? '1' : '0'}"` : ''));
     const tooltip = `${data.name}（${TYPE_NAMES[data.type] || ''}·${RARITY_LABEL[data.rarity] || ''}）\n${data.text}${upgraded ? '\n（已悟）' : ''}`;
     const inner = `
       <div class="card-inner">
@@ -130,13 +132,15 @@
     opts = opts || {};
     const r = relicById(id);
     if (!r) return '';
-    return `<span class="relic-chip ${opts.big ? 'big' : ''}" title="${esc(r.name)}：${esc(r.desc)}"><i>${esc(r.name.slice(0, 1))}</i>${opts.showName ? `<span>${esc(r.name)}</span>` : ''}</span>`;
+    const tag = opts.inspect ? 'button' : 'span';
+    return `<${tag} class="relic-chip ${opts.big ? 'big' : ''}" ${opts.inspect ? `type="button" data-action="inspect-relic" data-id="${esc(id)}"` : ''} title="${esc(r.name)}：${esc(r.desc)}"><i>${esc(r.name.slice(0, 1))}</i>${opts.showName ? `<span>${esc(r.name)}</span>` : ''}</${tag}>`;
   }
   function potionChip(id, opts) {
     opts = opts || {};
     const p = potionById(id);
     if (!p) return '';
-    return `<span class="potion-chip" title="${esc(p.name)}：${esc(p.desc)}">${esc(p.icon)}</span>`;
+    const tag = opts.inspect ? 'button' : 'span';
+    return `<${tag} class="potion-chip ${opts.big ? 'big' : ''}" ${opts.inspect ? `type="button" data-action="inspect-potion" data-id="${esc(id)}"` : ''} title="${esc(p.name)}：${esc(p.desc)}">${esc(p.icon)}</${tag}>`;
   }
   function hpBarHTML(cur, max, cls) {
     return `<span class="hpbar ${cls || ''}"><span class="hpbar-fill" style="width:${hpPct(cur, max)}%"></span><span class="hpbar-text">${cur} / ${max}</span></span>`;
@@ -161,6 +165,8 @@
       this.busy = false;
       this.finishing = false;
       this.overlay = null;
+      this.detail = null;
+      this.detailReturn = null;
       this.picker = null;
       this.pile = null;
       this.compTab = 'cards';
@@ -208,15 +214,30 @@
         case 'to-title': this.screen = 'title'; this.render(); break;
         case 'comp-tab': this.compTab = el.dataset.tab; this.render(); break;
         case 'node': this.enterNode(el.dataset.id); break;
-        case 'play-card': this.onCardClick(Number(el.dataset.index)); break;
+        case 'play-card':
+          if (window.innerWidth <= 600) this.inspectHandCard(Number(el.dataset.index));
+          else this.onCardClick(Number(el.dataset.index));
+          break;
         case 'enemy': this.onEnemyClick(Number(el.dataset.index)); break;
         case 'end-turn': this.endTurn(); break;
-        case 'use-potion': this.usePotion(Number(el.dataset.index)); break;
+        case 'use-potion':
+          if (window.innerWidth <= 600) this.inspectPotionSlot(Number(el.dataset.index));
+          else this.usePotion(Number(el.dataset.index));
+          break;
+        case 'inspect-card': this.openDetail({ kind: 'card', id: el.dataset.id, up: el.dataset.up === '1' }); break;
+        case 'inspect-character': this.openDetail({ kind: 'character', id: el.dataset.char || (this.state && this.state.characterId) }); break;
+        case 'inspect-enemy': this.openDetail({ kind: 'enemy', id: el.dataset.id, index: idx }); break;
+        case 'inspect-relic': this.openDetail({ kind: 'relic', id: el.dataset.id }); break;
+        case 'inspect-potion': this.openDetail({ kind: 'potion', id: el.dataset.id }); break;
+        case 'confirm-detail': this.confirmDetail(); break;
         case 'view-deck': this.overlay = 'deck'; this.render(); break;
         case 'view-relics': this.overlay = 'relics'; this.render(); break;
         case 'open-piles': this.pile = el.dataset.pile; this.overlay = 'piles'; this.render(); break;
-        case 'close-overlay': this.overlay = null; this.picker = null; this.render(); break;
-        case 'take-card': this.takeRewardCard(Number(el.dataset.index)); break;
+        case 'close-overlay': this.closeOverlay(); break;
+        case 'take-card':
+          if (window.innerWidth <= 600) this.inspectRewardCard(Number(el.dataset.index));
+          else this.takeRewardCard(Number(el.dataset.index));
+          break;
         case 'skip-card': this.skipReward(); break;
         case 'continue-reward': this.continueReward(); break;
         case 'shop-buy': this.buy(el.dataset.kind, Number(el.dataset.index)); break;
@@ -227,7 +248,10 @@
         case 'event-choice': this.applyEvent(Number(el.dataset.index)); break;
         case 'continue-event': this.continueEvent(); break;
         case 'treasure-continue': this.continueTreasure(); break;
-        case 'pick-card': this.pickCard(el.dataset.uid); break;
+        case 'pick-card':
+          if (window.innerWidth <= 600) this.inspectPickerCard(el.dataset.uid);
+          else this.pickCard(el.dataset.uid);
+          break;
         case 'settings': this.overlay = 'settings'; this.render(); break;
         case 'help': this.overlay = 'help'; this.render(); break;
         case 'toggle-sound': this.toggleSound(); break;
@@ -244,7 +268,7 @@
 
     handleKey(ev) {
       if (ev.key === 'Escape') {
-        if (this.overlay) { this.overlay = null; this.picker = null; this.render(); }
+        if (this.overlay) this.closeOverlay();
         else if (this.screen === 'combat' && this.selected != null) { this.selected = null; this.render(); }
         return;
       }
@@ -334,6 +358,55 @@
       this.targetIndex = index;
       this.toast('已锁定目标：' + enemy.name);
       this.render();
+    },
+    openDetail(detail) {
+      if (!detail || !detail.id) return;
+      this.detailReturn = this.overlay && this.overlay !== 'detail' ? this.overlay : null;
+      this.detail = detail;
+      this.overlay = 'detail';
+      this.render();
+    },
+    closeOverlay() {
+      if (this.overlay === 'detail') {
+        this.overlay = this.detailReturn;
+        this.detailReturn = null;
+        this.detail = null;
+      } else {
+        this.overlay = null;
+        this.picker = null;
+      }
+      this.render();
+    },
+    inspectHandCard(index) {
+      const c = this.state && this.state.combat;
+      if (!c || this.busy || c.phase !== 'player' || !c.hand[index]) return;
+      const inst = c.hand[index];
+      this.openDetail({ kind: 'card', id: inst.id, up: !!inst.up, action: 'play-card', index, uid: inst.uid });
+    },
+    inspectPotionSlot(index) {
+      const st = this.state;
+      if (!st || !st.combat || st.combat.phase !== 'player' || this.busy || !st.potions[index]) return;
+      this.openDetail({ kind: 'potion', id: st.potions[index], action: 'use-potion', index });
+    },
+    inspectRewardCard(index) {
+      const r = this.state && this.state.reward;
+      if (!r || r.cardTaken || !r.cards[index]) return;
+      const inst = r.cards[index];
+      this.openDetail({ kind: 'card', id: inst.id, up: !!inst.up, action: 'take-card', index });
+    },
+    inspectPickerCard(uid) {
+      const inst = this.state && this.state.deck.find(c => String(c.uid) === String(uid));
+      if (!inst || !this.picker) return;
+      this.openDetail({ kind: 'card', id: inst.id, up: !!inst.up, action: 'pick-card', uid });
+    },
+    confirmDetail() {
+      const d = this.detail;
+      if (!d || this.overlay !== 'detail') return;
+      this.closeOverlay();
+      if (d.action === 'use-potion' && this.state && this.state.potions[d.index] === d.id) this.usePotion(d.index);
+      else if (d.action === 'take-card' && this.state && this.state.reward && !this.state.reward.cardTaken && this.state.reward.cards[d.index] && this.state.reward.cards[d.index].id === d.id) this.takeRewardCard(d.index);
+      else if (d.action === 'play-card' && this.state && this.state.combat && this.state.combat.hand[d.index] && this.state.combat.hand[d.index].uid === d.uid) this.onCardClick(d.index);
+      else if (d.action === 'pick-card' && this.picker && this.state && this.state.deck.some(c => String(c.uid) === String(d.uid))) this.pickCard(d.uid);
     },
     async playCard(index, target) {
       if (this.busy) return;
@@ -863,6 +936,7 @@
       }).join('');
       const relic = D.relicMap[ch.relic];
       return `
+      <div class="char-entry">
       <button class="char-card ${selected ? 'selected' : ''}" data-action="select-char" data-char="${ch.id}" style="--accent:${ch.accent}">
         <span class="char-choose">${selected ? '已选' : '选择'}</span>
         <span class="char-glyph">${CHAR_GLYPHS[ch.id]}</span>
@@ -878,7 +952,9 @@
         <span class="char-label relic-label">初始遗物</span>
         <span class="char-relic">${relicChip(relic.id, { showName: true })}</span>
         <span class="char-flavor">“${esc(ch.flavor)}”</span>
-      </button>`;
+      </button>
+      <button class="btn btn-ghost btn-sm char-detail-btn" data-action="inspect-character" data-char="${ch.id}">查看角色详情</button>
+      </div>`;
     },
 
     /* ---------------- HUD ---------------- */
@@ -888,10 +964,10 @@
       const act = E.getActName(st.act);
       return `
       <header class="hud">
-        <div class="hud-char">
+        <button class="hud-char inspect-hud-char" data-action="inspect-character" title="查看角色详情">
           <span class="hud-glyph">${CHAR_GLYPHS[ch.id]}</span>
           <span><b>${esc(ch.name)}</b><small>${esc(act)}</small></span>
-        </div>
+        </button>
         <div class="hud-hp">${hpBarHTML(st.hp, st.maxHp)}</div>
         ${goldHTML(st.gold)}
         <span class="hud-asc" title="天劫等级">劫 ${st.ascension}</span>
@@ -969,7 +1045,7 @@
             </div>
             <div class="map-potions">
               <span class="char-label">丹药</span>
-              ${[0,1,2].map(i => st.potions[i] ? potionChip(st.potions[i], { big: true }) : '<span class="potion-chip empty">空</span>').join('')}
+              ${[0,1,2].map(i => st.potions[i] ? potionChip(st.potions[i], { big: true, inspect: true }) : '<span class="potion-chip empty">空</span>').join('')}
             </div>
             <div class="map-boss">
               <span class="map-boss-label">幕主</span>
@@ -1017,8 +1093,8 @@
         ? `选择目标：点击敌方单位打出「${esc(cardData(c.hand[this.selected]).name)}」`
         : (c.phase === 'enemy' ? '敌方回合……'
           : (alive.length > 1
-            ? `当前目标：${esc(focusName)} · 点击卡牌后点敌人切换${mobileUI ? '' : ' · 数字键直接出牌'}`
-            : `点击卡牌出牌${mobileUI ? '' : ' · 数字键 1–9 · E 结束回合'}`));
+            ? (mobileUI ? `当前目标：${esc(focusName)} · 点按手牌查看详情，确认后选敌人` : `当前目标：${esc(focusName)} · 点击卡牌后点敌人切换 · 数字键直接出牌`)
+            : `${mobileUI ? '点按手牌查看详情并确认出牌' : '点击卡牌出牌 · 数字键 1–9 · E 结束回合'}`));
       return `
       <main class="screen combat-screen ${c.phase === 'enemy' ? 'enemy-phase' : ''}">
         <header class="combat-top">
@@ -1043,8 +1119,9 @@
                 ${c.block > 0 ? `<span class="block-pill" title="护甲">甲 ${c.block}</span>` : ''}
                 <span class="statuses">${statusChips(c.statuses)}</span>
               </div>
-              <div class="relic-strip">${st.relics.map(id => relicChip(id)).join('')}</div>
+              <div class="relic-strip">${st.relics.map(id => relicChip(id, { inspect: true })).join('')}</div>
             </div>
+            <button class="entity-info player-info-btn" data-action="inspect-character" data-char="${ch.id}" aria-label="查看${esc(ch.name)}详情">详情</button>
           </div>
           ${this.chainHTML()}
           <div class="energy-box" title="灵气：每回合恢复至上限">
@@ -1088,6 +1165,7 @@
       ].filter(Boolean).join(' · ') : '';
       return `
       <div class="enemy-unit ${alive ? '' : 'dead'} ${targetable ? 'targetable' : ''} ${i === targetIdx && alive ? 'focused' : ''} ${showTarget ? 'show-target' : ''}" data-enemy-uid="${e.uid}" data-action="enemy" data-index="${i}">
+        ${alive ? `<button class="entity-info enemy-info-btn" data-action="inspect-enemy" data-id="${esc(e.id)}" data-index="${i}" aria-label="查看${esc(e.name)}详情">详情</button>` : ''}
         <div class="intent ${intent && intent.damage ? 'intent-attack' : ''}" title="${intent ? esc(intent.name + '：' + intent.label) : ''}">
           <span class="intent-icon">${intent ? esc(intent.icon) : '？'}</span>
           <span class="intent-label">${intent ? esc(intent.label) : '未知'}</span>
@@ -1151,7 +1229,7 @@
           ${r.relicId ? `<div class="reward-relic">${relicChip(r.relicId, { big: true, showName: true })}<span>${esc(relicById(r.relicId).desc)}</span></div>` : ''}
           ${r.potionId ? `<div class="reward-potion">获得丹药：${potionChip(r.potionId)} <b>${esc(potionById(r.potionId).name)}</b></div>` : ''}
           ${r.potionFull ? '<p class="dim">丹药腰带已满，多余丹药化为 20 金币。</p>' : ''}
-          <h2 class="sub-title">${r.cardTaken ? '已收入囊中' : '选一张牌带走'}</h2>
+          <h2 class="sub-title">${r.cardTaken ? '已收入囊中' : window.innerWidth <= 600 ? '点按卡牌查看详情，确认后领取' : '选一张牌带走'}</h2>
           <div class="card-choice-row">
             ${r.cards.map((inst, i) => `<div class="choice-slot ${r.cardTaken && r.selected === i ? 'chosen' : ''} ${r.cardTaken && r.selected !== i ? 'faded' : ''}" ${!r.cardTaken ? `data-action="take-card" data-index="${i}"` : ''}>
               ${cardHTML(inst, { mode: 'choice' })}
@@ -1171,7 +1249,7 @@
       const cardItem = (it, i) => {
         const p = cardData(it.card);
         return `<div class="shop-card ${it.sold ? 'sold' : ''}">
-          ${cardHTML(it.card, { mode: 'shop' })}
+          ${cardHTML(it.card, { mode: 'shop', inspect: true })}
           <div class="shop-buy">
             <span class="price">◈ ${it.price}</span>
             <button class="btn btn-sm ${st.gold >= it.price && !it.sold ? 'btn-primary' : 'btn-ghost'}" data-action="shop-buy" data-kind="card" data-index="${i}" ${it.sold || st.gold < it.price ? 'disabled' : ''}>${it.sold ? '已售' : '买下'}</button>
@@ -1303,7 +1381,7 @@
       const st = this.state;
       return `
       <header class="hud mini">
-        <div class="hud-char"><span class="hud-glyph">${esc(title.slice(0, 1))}</span><span><b>${esc(E.getCharacter(st).name)}</b><small>${esc(sub || '')}</small></span></div>
+        <button class="hud-char inspect-hud-char" data-action="inspect-character" title="查看角色详情"><span class="hud-glyph">${esc(title.slice(0, 1))}</span><span><b>${esc(E.getCharacter(st).name)}</b><small>${esc(sub || '')}</small></span></button>
         <div class="hud-hp">${hpBarHTML(st.hp, st.maxHp)}</div>
         ${goldHTML(st.gold)}
         <div class="hud-actions">
@@ -1340,56 +1418,135 @@
     },
     compendiumHTML() {
       const m = this.meta;
-      const tabs = [['cards', '卡牌'], ['relics', '遗物'], ['enemies', '敌人']];
+      const tabs = [['cards', '卡牌'], ['characters', '角色'], ['relics', '遗物'], ['enemies', '敌人'], ['potions', '丹药']];
       let body = '';
       if (this.compTab === 'cards') {
         const allCards = D.cards.filter(c => c.rarity !== 'special');
         body = `<div class="comp-grid">${allCards.map(c => {
           const seen = m.seenCards.includes(c.id);
           if (!seen) return `<div class="comp-locked"><span>？</span><small>${RARITY_LABEL[c.rarity] || ''}</small></div>`;
-          return cardHTML({ uid: 'comp_' + c.id, id: c.id, up: false }, { mode: 'compendium' });
+          return cardHTML({ uid: 'comp_' + c.id, id: c.id, up: false }, { mode: 'compendium', inspect: true });
         }).join('')}</div>`;
+      } else if (this.compTab === 'characters') {
+        body = `<div class="comp-relics">${D.characters.map(ch => `<button class="comp-relic comp-inspect" data-action="inspect-character" data-char="${esc(ch.id)}"><span class="comp-relic-icon">${CHAR_GLYPHS[ch.id]}</span><span><b>${esc(ch.name)}</b><span>${esc(ch.passive)} · ${esc(CHAR_STYLE[ch.id])}</span></span></button>`).join('')}</div>`;
       } else if (this.compTab === 'relics') {
         body = `<div class="comp-relics">${D.relics.filter(r => r.rarity !== 'starter').map(r => {
           const seen = m.seenRelics.includes(r.id);
-          return `<div class="comp-relic ${seen ? '' : 'locked'}">
+          return `<${seen ? 'button' : 'div'} class="comp-relic ${seen ? 'comp-inspect' : 'locked'}" ${seen ? `data-action="inspect-relic" data-id="${esc(r.id)}"` : ''}>
             <span class="comp-relic-icon">${seen ? esc(r.name.slice(0, 1)) : '？'}</span>
             <div><b>${seen ? esc(r.name) : '未识法器'}</b><span>${seen ? esc(r.desc) : '尚未在轮回中得见。'}</span></div>
             <small>${RARITY_LABEL[r.rarity] || ''}</small>
-          </div>`;
+          </${seen ? 'button' : 'div'}>`;
         }).join('')}</div>`;
-      } else {
+      } else if (this.compTab === 'enemies') {
         body = `<div class="comp-enemies">${Object.values(D.enemies).map(e => {
           const seen = m.seenEnemies.includes(e.id);
-          return `<div class="comp-enemy ${seen ? '' : 'locked'}">
+          return `<${seen ? 'button' : 'div'} class="comp-enemy ${seen ? 'comp-inspect' : 'locked'}" ${seen ? `data-action="inspect-enemy" data-id="${esc(e.id)}"` : ''}>
             <span class="comp-enemy-art" style="--el:${elem(e.element).color}">${seen ? esc(e.name.slice(0, 1)) : '？'}</span>
             <div><b>${seen ? esc(e.name) : '未识之敌'}</b>${seen ? `<span>${elemBadge(e.element)} ${e.boss ? '幕主' : e.elite ? '精英' : '寻常'}</span>` : '<span>尚未交手。</span>'}</div>
-          </div>`;
+          </${seen ? 'button' : 'div'}>`;
         }).join('')}</div>`;
+      } else if (this.compTab === 'potions') {
+        body = `<div class="comp-relics">${D.potions.map(p => `<button class="comp-relic comp-inspect" data-action="inspect-potion" data-id="${esc(p.id)}"><span class="comp-relic-icon">${esc(p.icon)}</span><span><b>${esc(p.name)}</b><span>${esc(p.desc)}</span></span></button>`).join('')}</div>`;
       }
       return `
       <main class="screen compendium-screen">
         <header class="page-head">
           <button class="btn btn-ghost btn-sm" data-action="to-title">← 返回</button>
-          <div><h1>问道图鉴</h1><p>见过的牌、拾过的器、斩过的妖。</p></div>
+          <div><h1>问道图鉴</h1><p>卡牌、修士、法器、妖敌与丹药。</p></div>
           <span class="head-spacer"></span>
         </header>
         <div class="comp-tabs">
           ${tabs.map(([id, name]) => `<button class="comp-tab ${this.compTab === id ? 'active' : ''}" data-action="comp-tab" data-tab="${id}">${name}</button>`).join('')}
         </div>
-        <div class="comp-count">已识 ${this.compTab === 'cards' ? m.seenCards.filter(id => D.cardMap[id] && D.cardMap[id].rarity !== 'special').length + ' / ' + D.cards.filter(c => c.rarity !== 'special').length : this.compTab === 'relics' ? m.seenRelics.filter(id => D.relicMap[id] && D.relicMap[id].rarity !== 'starter').length + ' / ' + D.relics.filter(r => r.rarity !== 'starter').length : m.seenEnemies.length + ' / ' + Object.keys(D.enemies).length}</div>
+        <div class="comp-count">${this.compTab === 'cards' ? `已识 ${m.seenCards.filter(id => D.cardMap[id] && D.cardMap[id].rarity !== 'special').length} / ${D.cards.filter(c => c.rarity !== 'special').length}` : this.compTab === 'relics' ? `已识 ${m.seenRelics.filter(id => D.relicMap[id] && D.relicMap[id].rarity !== 'starter').length} / ${D.relics.filter(r => r.rarity !== 'starter').length}` : this.compTab === 'enemies' ? `已识 ${m.seenEnemies.length} / ${Object.keys(D.enemies).length}` : this.compTab === 'characters' ? `${D.characters.length} 位修士` : `${D.potions.length} 种丹药`}</div>
         <section class="comp-body">${body}</section>
       </main>`;
     },
 
     /* ---------------- 覆盖层 ---------------- */
+    detailHTML() {
+      const d = this.detail;
+      if (!d) return '';
+      let title = '';
+      let body = '';
+      let confirm = '';
+      if (d.kind === 'card') {
+        const data = cardData({ id: d.id, up: !!d.up });
+        if (!data) return '';
+        title = data.name;
+        const traits = [data.exhaust ? '消耗' : '', data.retain ? '保留' : ''].filter(Boolean);
+        let preview = '';
+        if (d.action === 'play-card' && this.state && this.state.combat) {
+          const p = E.getPreview(this.state, d.index, this.targetIndex);
+          const values = p ? [p.damage != null ? `预计伤害 ${p.damage}${p.hits > 1 ? ' × ' + p.hits : ''}` : '',
+            p.block != null ? `预计护甲 ${p.block}` : '', p.cross ? '克制破防' : '',
+            p.linked ? `连携 ${p.chainAfter}` : ''].filter(Boolean) : [];
+          if (values.length) preview = `<div class="detail-note">${values.map(esc).join(' · ')}</div>`;
+        }
+        body = `<div class="detail-meta">${elemBadge(data.element, elem(data.element).name + '行')}<span>${TYPE_NAMES[data.type] || ''}</span><span>${RARITY_LABEL[data.rarity] || ''}</span><span>灵气 ${data.cost}</span>${d.up ? '<span>已悟</span>' : ''}</div>
+          <p class="card-detail-text">${formatText(data.text)}</p>
+          ${traits.length ? `<p class="detail-note">关键词：${traits.join(' · ')}</p>` : ''}${preview}`;
+        if (d.action === 'take-card') confirm = '确认领取';
+        if (d.action === 'pick-card') confirm = this.picker && this.picker.mode === 'remove-shop' ? '确认移除' : '确认参悟';
+        if (d.action === 'play-card') {
+          const can = E.canPlayCard(this.state, d.index);
+          confirm = can.ok ? (E.cardNeedsTarget(data) && E.aliveEnemies(this.state).length > 1 ? '选择目标' : '确认出牌') : '';
+          if (!can.ok) body += `<p class="detail-note">${esc(can.reason || '当前无法打出')}</p>`;
+        }
+      } else if (d.kind === 'potion') {
+        const p = potionById(d.id);
+        if (!p) return '';
+        title = p.name;
+        const enemy = this.state && this.state.combat && this.state.combat.enemies[this.targetIndex];
+        body = `<div class="detail-glyph">${esc(p.icon)}</div><p class="detail-text">${formatText(p.desc)}</p>
+          <p class="detail-note">${p.target === 'enemy' ? `目标：${esc(enemy && enemy.hp > 0 ? enemy.name : '当前敌人')}` : '作用于自身'}</p>`;
+        if (d.action === 'use-potion') confirm = '确认使用';
+      } else if (d.kind === 'relic') {
+        const r = relicById(d.id);
+        if (!r) return '';
+        title = r.name;
+        body = `<div class="detail-glyph">${esc(r.name.slice(0, 1))}</div><div class="detail-meta"><span>${RARITY_LABEL[r.rarity] || '法器'}</span></div><p class="detail-text">${formatText(r.desc)}</p>`;
+      } else if (d.kind === 'character') {
+        const ch = D.characters.find(x => x.id === d.id);
+        if (!ch) return '';
+        title = ch.name;
+        const relic = relicById(ch.relic);
+        body = `<div class="detail-meta">${ch.elements.map(id => elemBadge(id, elem(id).name + '行')).join('')}<span>生命 ${ch.maxHp}</span></div>
+          <p class="detail-text">${esc(ch.title)} · ${esc(CHAR_STYLE[ch.id])}</p>
+          <h3>${esc(ch.passive)}</h3><p class="detail-text">${formatText(ch.passiveText)}</p>
+          <h3>初始牌组</h3><div class="detail-list">${ch.deck.map(x => `<span>${esc(D.cardMap[x.id].name)} × ${x.count}</span>`).join('')}</div>
+          <h3>初始遗物 · ${esc(relic.name)}</h3><p class="detail-text">${formatText(relic.desc)}</p>
+          <p class="detail-note">${esc(CHAR_TIPS[ch.id])}</p>`;
+      } else if (d.kind === 'enemy') {
+        const e = D.enemies[d.id];
+        if (!e) return '';
+        title = e.name;
+        const live = this.state && this.state.combat && this.state.combat.enemies[d.index] && this.state.combat.enemies[d.index].id === d.id ? this.state.combat.enemies[d.index] : null;
+        const weak = weakElement(e.element);
+        const intent = live ? E.getEnemyIntent(this.state, live) : null;
+        body = `<div class="detail-meta">${elemBadge(e.element, elem(e.element).name + '行')}<span>${e.boss ? '幕主' : e.elite ? '精英' : '寻常敌人'}</span>${live ? `<span>生命 ${live.hp} / ${live.maxHp}</span><span>护甲 ${live.block}</span>` : ''}</div>
+          <p class="detail-note">${weak ? `弱点：${elem(weak).name}行攻击可破甲并增伤` : '无五行弱点'}</p>
+          ${intent ? `<h3>当前意图 · ${esc(intent.name)}</h3><p class="detail-text">${esc(intent.label)}</p>` : ''}
+          <h3>招式</h3><div class="detail-list">${Object.values(e.moves).map(m => `<span><b>${esc(m.name)}</b>　${esc([m.damage ? `伤害 ${m.damage}${m.hits > 1 ? ' × ' + m.hits : ''}` : '', m.block ? `护甲 ${m.block}` : '', m.heal ? `回复 ${m.heal}` : '', statusList(m.debuffs), statusList(m.buffs), ...(m.addCards || []).map(x => `塞入 ${x.count || 1} 张${D.cardMap[x.id] ? D.cardMap[x.id].name : '业障'}`)].filter(Boolean).join(' · ') || '特殊效果')}</span>`).join('')}</div>
+          ${live ? `<h3>当前状态</h3><div class="detail-list">${Object.keys(D.statuses).filter(k => live.statuses && live.statuses[k] > 0).map(k => `<span>${esc(D.statuses[k].name)} ${live.statuses[k]}：${esc(D.statuses[k].desc)}</span>`).join('') || '<span>无</span>'}</div>` : ''}`;
+      }
+      return `<div class="overlay detail-overlay" data-action="close-overlay">
+        <div class="overlay-panel detail-panel" role="dialog" aria-modal="true" aria-label="${esc(title)}详情" data-action="overlay-stop">
+          <header class="overlay-head"><h2>${esc(title)}</h2><button class="btn btn-ghost btn-sm" data-action="close-overlay">关闭</button></header>
+          <div class="overlay-body detail-body">${body}</div>
+          ${confirm ? `<footer class="detail-actions"><button class="btn btn-ghost" data-action="close-overlay">取消</button><button class="btn btn-primary" data-action="confirm-detail">${confirm}</button></footer>` : ''}
+        </div>
+      </div>`;
+    },
     overlayHTML() {
       if (!this.overlay) return '';
+      if (this.overlay === 'detail') return this.detailHTML();
       let body = '';
       let title = '';
       if (this.overlay === 'deck') {
         title = `牌组 · ${this.state ? this.state.deck.length : 0} 张`;
-        body = `<div class="overlay-card-grid">${sortDeck(this.state.deck).map(inst => cardHTML(inst, { mode: 'deck' })).join('')}</div>`;
+        body = `<div class="overlay-card-grid">${sortDeck(this.state.deck).map(inst => cardHTML(inst, { mode: 'deck', inspect: true })).join('')}</div>`;
       } else if (this.overlay === 'relics') {
         title = '遗物';
         const relics = this.state.relics.map(id => {
@@ -1403,7 +1560,7 @@
         const names = { draw: '抽牌堆', discard: '弃牌堆', exhaust: '消耗堆' };
         const pile = (map[this.pile] || []).slice().sort((a, b) => (D.cardMap[a.id].name > D.cardMap[b.id].name ? 1 : -1));
         title = `${names[this.pile]} · ${pile.length} 张`;
-        body = `<div class="overlay-card-grid">${pile.map(inst => cardHTML(inst, { mode: 'deck' })).join('') || '<p class="dim">空。</p>'}</div>`;
+        body = `<div class="overlay-card-grid">${pile.map(inst => cardHTML(inst, { mode: 'deck', inspect: true })).join('') || '<p class="dim">空。</p>'}</div>`;
       } else if (this.overlay === 'picker') {
         title = this.picker.title;
         const isUpgrade = this.picker.mode === 'upgrade-rest';
