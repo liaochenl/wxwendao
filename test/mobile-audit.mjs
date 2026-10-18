@@ -162,6 +162,21 @@ const SCREENS = [
     prepare: "(() => { WX_UI.overlay=null; WX_UI.state.potions=['heal']; WX_UI.render(); document.querySelector('.potion-btn.filled').click(); return 1; })()"
   },
   {
+    name: 'status',
+    combat: true,
+    prepare: "(() => { WX_UI.overlay=null; WX_UI.state.combat.statuses.poison=2; WX_UI.state.combat.enemies[0].statuses.weak=1; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'status-info',
+    combat: true,
+    prepare: "(() => { document.querySelector('.player-sub .status-chip').click(); return 1; })()"
+  },
+  {
+    name: 'enemy-status-info',
+    combat: true,
+    prepare: "(() => { WX_UI.overlay=null; WX_UI.render(); window.__enemyClicks=0; const original=WX_UI.onEnemyClick; WX_UI.onEnemyClick=()=>{ window.__enemyClicks++; }; document.querySelector('.enemy-sub .status-chip').click(); WX_UI.onEnemyClick=original; return 1; })()"
+  },
+  {
     name: 'reward',
     prepare: `(() => {
       const st = WX_UI.state;
@@ -173,7 +188,7 @@ const SCREENS = [
   },
   {
     name: 'reward-detail',
-    prepare: "(() => { document.querySelector('.choice-slot .card').click(); return 1; })()"
+    prepare: "(() => { document.querySelector('.reward-option').click(); return 1; })()"
   },
   {
     name: 'shop',
@@ -236,6 +251,58 @@ async function auditAt(cdp, baseUrl, vp) {
       if (r.endTurnOverlap) fail(`${tag}: 结束回合与手牌相交`);
       if (r.handFont != null && r.handFont < 11) fail(`${tag}: 手牌字号 ${r.handFont}px < 11px`);
     }
+    if (screen.name === 'status-info') {
+      const info = await cdp.eval(`(() => {
+        const panel = document.querySelector('.detail-panel');
+        const text = panel && panel.querySelector('.detail-body')?.innerText || '';
+        return { open: !!panel, full: text.includes('当前 2 层') && text.includes('无视护甲') };
+      })()`);
+      if (!info.open || !info.full) fail(`${tag}: 状态详情未显示当前层数和完整说明`);
+    }
+    if (screen.name === 'enemy-status-info') {
+      const info = await cdp.eval(`(() => ({ enemyClicks:window.__enemyClicks,
+        text:document.querySelector('.detail-panel .detail-body')?.innerText || '' }))()`);
+      if (info.enemyClicks || !info.text.includes('当前 1 层') || !info.text.includes('伤害降低 25%')) {
+        fail(`${tag}: 点击敌人状态时误选目标或未显示状态详情`);
+      }
+    }
+    if (screen.name === 'reward') {
+      const options = await cdp.eval(`(() => {
+        const rows = [...document.querySelectorAll('.reward-option')];
+        return rows.map((row, i) => {
+          const box = row.getBoundingClientRect();
+          const text = row.querySelector('.reward-option-text');
+          const expected = WXEngine.getCardData(WX_UI.state.reward.cards[i]);
+          return { x:box.x, y:box.y, right:box.right, width:box.width,
+                   complete:!!expected && !!text && text.textContent === expected.text,
+                   clipped:!!text && text.scrollHeight > text.clientHeight + 1 };
+        });
+      })()`);
+      if (options.length !== 3) fail(`${tag}: 奖励选项不是三张`);
+      for (let i = 0; i < options.length; i++) {
+        const o = options[i];
+        if (!o.complete || o.clipped) fail(`${tag}: 第 ${i + 1} 张牌效果缺失或被裁剪`);
+        if (o.x < -1 || o.right > vp.width + 1) fail(`${tag}: 第 ${i + 1} 张牌超出屏幕`);
+        if (i && (o.y <= options[i - 1].y || Math.abs(o.width - options[i - 1].width) > 1)) fail(`${tag}: 奖励卡牌未等宽纵向排列`);
+      }
+      if (vp.width === 393) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width: 700, height: vp.height, screenWidth: 700, screenHeight: vp.height,
+          deviceScaleFactor: 1, mobile: false, scale: 1
+        });
+        await sleep(300);
+        const wide = await cdp.eval(`(() => ({ cards:document.querySelectorAll('.choice-slot .card').length,
+          mobileOptions:document.querySelectorAll('.reward-option').length }))()`);
+        if (wide.cards !== 3 || wide.mobileOptions) fail(`${tag}: 扩宽后未切换到桌面奖励布局`);
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width: vp.width, height: vp.height, screenWidth: vp.width, screenHeight: vp.height,
+          deviceScaleFactor: 1, mobile: false, scale: 1
+        });
+        await sleep(300);
+        const narrow = await cdp.eval(`(() => document.querySelectorAll('.reward-option').length)()`);
+        if (narrow !== 3) fail(`${tag}: 缩回手机宽度后未恢复纵向奖励布局`);
+      }
+    }
     if (screen.name.endsWith('-detail')) {
       const detail = await cdp.eval(`(() => {
         const panel = document.querySelector('.detail-panel');
@@ -255,7 +322,7 @@ async function auditAt(cdp, baseUrl, vp) {
       }
     }
 
-    if (vp.width === 393 && !screen.name.endsWith('-detail')) {
+    if (vp.width === 393 && !screen.name.endsWith('-detail') && !screen.name.endsWith('-info')) {
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       fs.mkdirSync(SHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(SHOT_DIR, `after-${screen.name}-393.png`), Buffer.from(data, 'base64'));
