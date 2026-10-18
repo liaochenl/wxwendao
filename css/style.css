@@ -107,6 +107,7 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 }
 .hud.mini { margin-bottom: 18px; }
 .hud-char { display: flex; align-items: center; gap: 10px; min-width: 190px; }
+.inspect-hud-char { border: 0; background: transparent; color: inherit; text-align: left; padding: 0; cursor: pointer; font: inherit; min-height: 44px; }
 .hud-glyph {
   width: 38px; height: 38px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid rgba(216, 185, 119, 0.4); color: var(--gold); font-family: var(--serif); font-size: 18px;
@@ -165,6 +166,7 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
   background: rgba(216, 185, 119, 0.06); border-radius: 6px; padding: 2px 6px; cursor: help;
   color: var(--gold); font-size: 11px;
 }
+.relic-chip[data-action], .potion-chip[data-action] { font: inherit; cursor: pointer; min-width: 44px; min-height: 44px; justify-content: center; }
 .relic-chip i {
   font-style: normal; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;
   border-radius: 50%; border: 1px solid rgba(216, 185, 119, 0.4); font-family: var(--serif); font-size: 10px;
@@ -237,6 +239,9 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .page-head p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
 .head-spacer { flex: 1; }
 .char-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; flex: 1; }
+.char-entry { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.char-entry .char-card { width: 100%; flex: 1; }
+.char-detail-btn { width: 100%; }
 .char-card {
   position: relative; text-align: left; cursor: pointer; color: var(--text);
   border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px 16px;
@@ -399,6 +404,9 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
   width: 248px; display: flex; flex-direction: column; align-items: center;
   transition: 0.2s; cursor: pointer; position: relative; padding-top: 46px;
 }
+.entity-info { min-width: 44px; min-height: 44px; border: 1px solid var(--line); border-radius: 8px; background: rgba(216, 185, 119, 0.08); color: var(--gold); cursor: pointer; font-size: 11px; }
+.enemy-info-btn { display: none; order: 3; width: 100%; margin-top: 4px; }
+.player-info-btn { display: none; flex: 0 0 44px; }
 .enemy-unit.dead { opacity: 0.28; filter: grayscale(1); pointer-events: none; }
 .enemy-unit.targetable { cursor: crosshair; }
 .enemy-unit.targetable:not(.focused) .enemy-body { border-color: rgba(216, 185, 119, 0.2); }
@@ -807,6 +815,8 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .comp-enemy-art { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--serif); font-size: 24px; color: var(--el, var(--gold)); border: 1px solid var(--line); background: rgba(0, 0, 0, 0.25); }
 .comp-enemy b { display: block; font-family: var(--serif); font-size: 14px; }
 .comp-enemy span { color: var(--muted); font-size: 11px; }
+.comp-inspect { width: 100%; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.comp-inspect:hover { border-color: var(--gold); }
 
 /* ---------------- 覆盖层 ---------------- */
 .overlay {
@@ -824,6 +834,24 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .overlay-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--line); }
 .overlay-head h2 { margin: 0; font-size: 18px; letter-spacing: 0.12em; color: var(--gold); }
 .overlay-body { padding: 18px 20px 22px; overflow-y: auto; scrollbar-width: thin; }
+.detail-panel { width: min(520px, 94vw); max-height: min(88svh, 760px); }
+.detail-body { min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: 20px 24px; }
+.detail-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.detail-meta > span:not(.elem-badge) { border: 1px solid var(--line); border-radius: 14px; padding: 3px 10px; }
+.detail-glyph { width: 58px; height: 58px; display: grid; place-items: center; margin-bottom: 12px; border: 1px solid var(--line-strong); border-radius: 12px; color: var(--gold); font: 28px var(--serif); }
+.detail-text, .card-detail-text { margin: 14px 0; color: var(--text); font-size: 16px; line-height: 1.75; white-space: normal; }
+.card-detail-text { font-size: 18px; color: #eee3ce; }
+.detail-body h3 { margin: 18px 0 5px; color: var(--gold); font: 15px var(--serif); }
+.detail-note { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.detail-list { display: grid; gap: 8px; color: #d2c8b6; font-size: 13px; line-height: 1.6; }
+.detail-list > span { display: block; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; }
+.detail-actions { display: flex; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); }
+.detail-actions .btn { flex: 1; }
+.detail-body .kw-debuff { color: #eea49a; }
+.detail-body .kw-block { color: #9ac9e6; }
+.detail-body .kw-energy, .detail-body .kw-buff { color: #a9ddb7; }
+.detail-body .kw-chain { color: #e5c47e; }
+.detail-body .kw-muted { color: #c3b8a5; }
 .overlay-card-grid { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; }
 .overlay-card-grid .card { cursor: default; }
 .overlay-relic { display: flex; gap: 14px; padding: 12px 4px; border-bottom: 1px solid var(--line); align-items: flex-start; }
@@ -994,6 +1022,9 @@ body.zhoutian-flash::after {
   .overlay {
     padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
   }
+  .detail-panel { width: 100%; max-height: calc(100svh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+  .detail-body { padding: 16px; }
+  .detail-actions { padding: 12px 14px max(12px, env(safe-area-inset-bottom)); }
   .title-menu .btn, .title-row .btn { min-height: 44px; }
 }
 
@@ -1011,6 +1042,7 @@ body.zhoutian-flash::after {
   .enemy-unit { width: 300px; padding-top: 40px; }
   .enemy-zone.multi { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; scroll-snap-type: x proximity; }
   .enemy-zone.multi .enemy-unit { width: 165px; scroll-snap-align: center; }
+  .enemy-info-btn { display: block; }
   .intent { min-width: 130px; font-size: 11px; }
   .intent-detail { font-size: 10px; }
   .enemy-art { height: 48px; font-size: 34px; }
@@ -1020,6 +1052,7 @@ body.zhoutian-flash::after {
   .battle-mid { display: grid; grid-template-columns: minmax(0, 1fr) auto;
                 grid-template-areas: "player player" "chain energy"; gap: 8px; padding: 6px 0 4px; }
   .player-panel { grid-area: player; width: 100%; padding: 6px 10px; gap: 8px; }
+  .player-info-btn { display: block; }
   .player-portrait { width: 40px; height: 40px; flex-basis: 40px; font-size: 20px; }
   .player-name { font-size: 14px; }
   .player-sub { min-height: 16px; }
@@ -1124,8 +1157,8 @@ body.zhoutian-flash::after {
   .overlay-body { padding: 12px 14px 16px; }
   .overlay-card-grid { gap: 10px; }
   .overlay-card-grid .card { width: 132px; height: 186px; }
-  .comp-tabs { overflow-x: auto; padding-bottom: 4px; }
-  .comp-tab { flex: 0 0 auto; min-height: 44px; }
+  .comp-tabs { flex-wrap: wrap; overflow: visible; padding-bottom: 4px; }
+  .comp-tab { flex: 0 0 auto; min-height: 44px; padding: 8px 14px; }
   .comp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .comp-body { max-height: calc(100svh - 230px); }
   .settings-row { min-height: 48px; }
