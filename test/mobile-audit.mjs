@@ -158,6 +158,11 @@ const SCREENS = [
     prepare: "(() => { document.querySelector('.hand .card').click(); return 1; })()"
   },
   {
+    name: 'earth-card-detail',
+    combat: true,
+    prepare: "(() => { WX_UI.overlay=null; WX_UI.state.combat.hand=[{uid:'audit-earth',id:'shan_yue',up:false}]; WX_UI.render(); document.querySelector('.hand .card').click(); return 1; })()"
+  },
+  {
     name: 'potion-detail',
     combat: true,
     prepare: "(() => { WX_UI.overlay=null; WX_UI.state.potions=['heal']; WX_UI.render(); document.querySelector('.potion-btn.filled').click(); return 1; })()"
@@ -299,6 +304,13 @@ async function auditAt(cdp, baseUrl, vp) {
       })()`);
       if (!info.open || !info.full) fail(`${tag}: 状态详情未显示当前层数和完整说明`);
     }
+    if (screen.name === 'earth-card-detail') {
+      const badge = await cdp.eval(`(() => {
+        const el = document.querySelector('.detail-meta .elem-badge');
+        return el && { text:el.textContent, title:el.title, overflow:el.scrollWidth > el.clientWidth + 1 };
+      })()`);
+      if (!badge || badge.text !== '土' || badge.title !== '土行' || badge.overflow) fail(`${tag}: 土行徽章文字错误或溢出`);
+    }
     if (screen.name === 'enemy-status-info') {
       const info = await cdp.eval(`(() => ({ enemyClicks:window.__enemyClicks,
         text:document.querySelector('.detail-panel .detail-body')?.innerText || '' }))()`);
@@ -365,7 +377,7 @@ async function auditAt(cdp, baseUrl, vp) {
       }
     }
 
-    if (vp.width === 393 && (!screen.name.endsWith('-detail') || screen.name === 'upgrade-detail') && !screen.name.endsWith('-info')) {
+    if (vp.width === 393 && (!screen.name.endsWith('-detail') || screen.name === 'upgrade-detail' || screen.name === 'earth-card-detail') && !screen.name.endsWith('-info')) {
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       fs.mkdirSync(SHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(SHOT_DIR, `after-${screen.name}-393.png`), Buffer.from(data, 'base64'));

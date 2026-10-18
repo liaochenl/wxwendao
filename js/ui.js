@@ -63,9 +63,9 @@
   }
 
   function elem(id) { return D.elements[id] || D.elements.none; }
-  function elemBadge(id, label) {
+  function elemBadge(id) {
     const el = elem(id);
-    return `<span class="elem-badge" style="--el:${el.color};--el-dark:${el.dark}" title="${esc(el.name)}行">${esc(label || el.glyph)}</span>`;
+    return `<span class="elem-badge" style="--el:${el.color};--el-dark:${el.dark}" title="${esc(el.name)}行" aria-label="${esc(el.name)}行">${esc(el.glyph)}</span>`;
   }
   function statusChips(statuses, owner, index) {
     if (!statuses) return '';
@@ -1556,7 +1556,7 @@
           if (values.length) preview = `<div class="detail-note">${values.map(esc).join(' · ')}</div>`;
         }
         body = `<div class="card-current-label" style="--el:${elem(data.element).color}">${other ? d.up ? '已升级 · 当前效果' : '升级前 · 当前效果' : '当前效果'}</div>
-          <div class="detail-meta">${elemBadge(data.element, elem(data.element).name + '行')}<span>${TYPE_NAMES[data.type] || ''}</span><span>${RARITY_LABEL[data.rarity] || ''}</span><span>灵气 ${data.cost}</span>${d.up ? '<span>已悟</span>' : ''}</div>
+          <div class="detail-meta">${elemBadge(data.element)}<span>${TYPE_NAMES[data.type] || ''}</span><span>${RARITY_LABEL[data.rarity] || ''}</span><span>灵气 ${data.cost}</span>${d.up ? '<span>已悟</span>' : ''}</div>
           <p class="card-detail-text">${formatText(data.text)}</p>
           ${traits.length ? `<p class="detail-note">关键词：${traits.join(' · ')}</p>` : ''}${preview}
           ${other ? `<section class="card-upgrade-preview" aria-label="${d.up ? '升级前' : '升级后'}效果">
@@ -1595,7 +1595,7 @@
         title = ch.name;
         const relic = relicById(ch.relic);
         body = `<div class="entity-hero entity-hero-${ch.id}" style="--accent:${ch.accent}">${characterSigil(ch.id)}<div><b>${esc(ch.title)}</b><span>“${esc(ch.flavor)}”</span></div></div>
-          <div class="detail-meta">${ch.elements.map(id => elemBadge(id, elem(id).name + '行')).join('')}<span>生命 ${ch.maxHp}</span></div>
+          <div class="detail-meta">${ch.elements.map(id => elemBadge(id)).join('')}<span>生命 ${ch.maxHp}</span></div>
           <p class="detail-text">${esc(ch.title)} · ${esc(CHAR_STYLE[ch.id])}</p>
           <h3>${esc(ch.passive)}</h3><p class="detail-text">${formatText(ch.passiveText)}</p>
           <h3>初始牌组</h3><div class="detail-list">${ch.deck.map(x => `<span>${esc(D.cardMap[x.id].name)} × ${x.count}</span>`).join('')}</div>
@@ -1608,7 +1608,7 @@
         const live = this.state && this.state.combat && this.state.combat.enemies[d.index] && this.state.combat.enemies[d.index].id === d.id ? this.state.combat.enemies[d.index] : null;
         const weak = weakElement(e.element);
         const intent = live ? E.getEnemyIntent(this.state, live) : null;
-        body = `<div class="detail-meta">${elemBadge(e.element, elem(e.element).name + '行')}<span>${e.boss ? '幕主' : e.elite ? '精英' : '寻常敌人'}</span>${live ? `<span>生命 ${live.hp} / ${live.maxHp}</span><span>护甲 ${live.block}</span>` : ''}</div>
+        body = `<div class="detail-meta">${elemBadge(e.element)}<span>${e.boss ? '幕主' : e.elite ? '精英' : '寻常敌人'}</span>${live ? `<span>生命 ${live.hp} / ${live.maxHp}</span><span>护甲 ${live.block}</span>` : ''}</div>
           <p class="detail-note">${weak ? `弱点：${elem(weak).name}行攻击可破甲并增伤` : '无五行弱点'}</p>
           ${intent ? `<h3>当前意图 · ${esc(intent.name)}</h3><p class="detail-text">${esc(intent.label)}</p>` : ''}
           <h3>招式</h3><div class="detail-list">${Object.values(e.moves).map(m => `<span><b>${esc(m.name)}</b>　${esc([m.damage ? `伤害 ${m.damage}${m.hits > 1 ? ' × ' + m.hits : ''}` : '', m.block ? `护甲 ${m.block}` : '', m.heal ? `回复 ${m.heal}` : '', statusList(m.debuffs), statusList(m.buffs), ...(m.addCards || []).map(x => `塞入 ${x.count || 1} 张${D.cardMap[x.id] ? D.cardMap[x.id].name : '业障'}`)].filter(Boolean).join(' · ') || '特殊效果')}</span>`).join('')}</div>
