@@ -149,6 +149,9 @@
     { id: 'mu_ling', name: '木灵生长', element: 'wood', cost: 1, type: 'skill', rarity: 'uncommon', text: '获得 2 层回春，抽 1 张牌。',
       effects: [{ op: 'status', status: 'regen', value: 2, target: 'self' }, { op: 'draw', value: 1 }],
       up: { effects: [{ op: 'status', status: 'regen', value: 3, target: 'self' }, { op: 'draw', value: 2 }], text: '获得 3 层回春，抽 2 张牌。' } },
+    { id: 'yin_du', name: '引毒诀', element: 'wood', cost: 1, type: 'skill', rarity: 'rare', exhaust: true, text: '使目标已有中毒层数翻倍。消耗。',
+      effects: [{ op: 'multiplyStatus', status: 'poison', factor: 2, target: 'enemy' }],
+      up: { effects: [{ op: 'multiplyStatus', status: 'poison', factor: 2, target: 'enemy' }, { op: 'draw', value: 1 }], text: '使目标已有中毒层数翻倍，抽 1 张牌。消耗。' } },
 
     /* ===== 火 ===== */
     { id: 'lie_yan', name: '烈焰掌', element: 'fire', cost: 1, type: 'attack', rarity: 'common', text: '造成 8 点伤害，失去 2 点生命。',
@@ -172,6 +175,9 @@
     { id: 'lie_huo', name: '烈火燎原', element: 'fire', cost: 2, type: 'attack', rarity: 'uncommon', text: '对所有敌人造成 7 点伤害并施加 2 层灼烧。',
       effects: [{ op: 'damage', value: 7, target: 'all' }, { op: 'status', status: 'burn', value: 2, target: 'allEnemies' }],
       up: { effects: [{ op: 'damage', value: 10, target: 'all' }, { op: 'status', status: 'burn', value: 3, target: 'allEnemies' }], text: '对所有敌人造成 10 点伤害并施加 3 层灼烧。' } },
+    { id: 'huo_ji', name: '火祭', element: 'fire', cost: 0, type: 'skill', rarity: 'uncommon', exhaust: true, text: '失去 3 点生命，获得 1 点灵气。消耗。',
+      effects: [{ op: 'loseHp', value: 3 }, { op: 'energy', value: 1 }],
+      up: { effects: [{ op: 'loseHp', value: 2 }, { op: 'energy', value: 1 }], text: '失去 2 点生命，获得 1 点灵气。消耗。' } },
 
     /* ===== 土 ===== */
     { id: 'ni_zhuan', name: '泥沼', element: 'earth', cost: 1, type: 'skill', rarity: 'common', text: '施加 2 层虚弱，获得 4 点护甲。',
@@ -198,6 +204,9 @@
     { id: 'tu_dun', name: '土遁', element: 'earth', cost: 0, type: 'skill', rarity: 'uncommon', exhaust: true, text: '获得 5 点护甲。消耗。',
       effects: [{ op: 'block', value: 5 }],
       up: { effects: [{ op: 'block', value: 8 }], text: '获得 8 点护甲。消耗。' } },
+    { id: 'shan_shou', name: '山河守', element: 'earth', cost: 1, type: 'skill', rarity: 'uncommon', retain: true, text: '获得 7 点护甲。保留。',
+      effects: [{ op: 'block', value: 7 }],
+      up: { effects: [{ op: 'block', value: 10 }], text: '获得 10 点护甲。保留。' } },
 
     /* ===== 金 ===== */
     { id: 'mai_chong', name: '脉冲剑', element: 'metal', cost: 0, type: 'attack', rarity: 'uncommon', exhaust: true, text: '造成 4 点伤害，抽 1 张牌。消耗。',
@@ -224,6 +233,9 @@
     { id: 'she_ji', name: '射日', element: 'metal', cost: 2, type: 'attack', rarity: 'uncommon', text: '造成 11 点伤害。若连携达到 3，抽 2 张牌。',
       effects: [{ op: 'damage', value: 11 }, { op: 'draw', value: 2, cond: { chainAtLeast: 3 } }],
       up: { effects: [{ op: 'damage', value: 15 }, { op: 'draw', value: 2, cond: { chainAtLeast: 3 } }], text: '造成 15 点伤害。若连携达到 3，抽 2 张牌。' } },
+    { id: 'lin_zhen', name: '临阵悟道', element: 'metal', cost: 1, type: 'skill', rarity: 'uncommon', exhaust: true, text: '随机参悟手中 1 张未悟卡牌，仅本场战斗有效。消耗。',
+      effects: [{ op: 'upgradeHand', count: 1 }],
+      up: { effects: [{ op: 'upgradeHand', count: 2 }], text: '随机参悟手中 2 张未悟卡牌，仅本场战斗有效。消耗。' } },
 
     /* ===== 水 ===== */
     { id: 'shui_dun', name: '水盾', element: 'water', cost: 1, type: 'skill', rarity: 'common', text: '获得 8 点护甲。',

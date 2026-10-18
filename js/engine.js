@@ -706,8 +706,10 @@
         }
         case 'multiplyStatus':
           if (target) {
-            target.statuses[effect.status] = Math.max(0, (target.statuses[effect.status] || 0) * (effect.factor || 2));
-            emit({ t: 'status', target: 'enemy', uid: target.uid, key: effect.status, amount: 0, total: target.statuses[effect.status] });
+            const before = target.statuses[effect.status] || 0;
+            target.statuses[effect.status] = Math.max(0, before * (effect.factor || 2));
+            const gained = target.statuses[effect.status] - before;
+            if (gained) emit({ t: 'status', target: 'enemy', uid: target.uid, key: effect.status, amount: gained, total: target.statuses[effect.status] });
           }
           break;
         case 'cleanse':

@@ -117,6 +117,61 @@ test('调整后的升级牌费用、伤害与说明保持一致', () => {
   }
 });
 
+test('引毒诀消耗自身并翻倍目标已有中毒', () => {
+  assert.ok(DATA.cardMap.yin_du);
+  const s = fresh('alchemist');
+  const { c, e } = battle(s);
+  c.energy = 1;
+  e.statuses.poison = 3;
+  setHand(c, ['yin_du']);
+  const result = E.playCard(s, 0, 0);
+  assert.ok(result.ok);
+  assert.equal(e.statuses.poison, 6);
+  assert.ok(result.events.some(ev => ev.t === 'status' && ev.key === 'poison' && ev.amount === 3 && ev.total === 6));
+  assert.equal(c.exhaustPile.length, 1);
+  e.statuses.poison = 0;
+  c.energy = 1;
+  setHand(c, ['yin_du']);
+  const noPoison = E.playCard(s, 0, 0);
+  assert.ok(noPoison.ok);
+  assert.equal(noPoison.events.some(ev => ev.t === 'status' && ev.key === 'poison'), false);
+});
+
+test('山河守可留在手中等待需要防御的回合', () => {
+  assert.ok(DATA.cardMap.shan_shou);
+  const s = fresh('monk');
+  const { c } = battle(s);
+  setHand(c, ['shan_shou']);
+  assert.ok(E.endPlayerTurn(s).ok);
+  assert.equal(c.hand.length, 1);
+  assert.equal(c.hand[0].id, 'shan_shou');
+});
+
+test('临阵悟道仅升级本场战斗的手牌', () => {
+  assert.ok(DATA.cardMap.lin_zhen);
+  const s = fresh('sword');
+  const { c } = battle(s);
+  c.energy = 1;
+  setHand(c, ['jin_ren', 'lin_zhen']);
+  assert.ok(E.playCard(s, 1, 0).ok);
+  assert.equal(c.hand[0].up, true);
+  assert.ok(s.deck.filter(x => x.id === 'jin_ren').every(x => !x.up));
+  assert.equal(c.exhaustPile.length, 1);
+});
+
+test('火祭以生命换取灵气且只使用一次', () => {
+  assert.ok(DATA.cardMap.huo_ji);
+  const s = fresh('alchemist');
+  const { c } = battle(s);
+  c.energy = 0;
+  setHand(c, ['huo_ji']);
+  const hp = s.hp;
+  assert.ok(E.playCard(s, 0, 0).ok);
+  assert.equal(s.hp, hp - 3);
+  assert.equal(c.energy, 1);
+  assert.equal(c.exhaustPile.length, 1);
+});
+
 /* ---------- data ---------- */
 test('数据完整性：id、元素、升级、效果', () => {
   const ids = new Set();

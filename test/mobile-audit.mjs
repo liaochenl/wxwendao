@@ -191,6 +191,14 @@ const SCREENS = [
     prepare: "(() => { document.querySelector('.reward-option').click(); return 1; })()"
   },
   {
+    name: 'upgrade-picker',
+    prepare: "(() => { WX_UI.overlay='picker'; WX_UI.picker={mode:'upgrade-rest',title:'选择一张牌参悟'}; WX_UI.state.screen='rest'; WX_UI.screen='rest'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'upgrade-detail',
+    prepare: "(() => { document.querySelector('.pick-wrap:not(.ineligible) .card').click(); return 1; })()"
+  },
+  {
     name: 'shop',
     prepare: "(() => { const st=WX_UI.state; WX_UI.overlay=null; WXEngine.generateShop(st); WX_UI.screen='shop'; WX_UI.render(); return 1; })()"
   },
@@ -319,10 +327,13 @@ async function auditAt(cdp, baseUrl, vp) {
         if (detail.top < -1 || detail.bottom > vp.height + 1 || detail.left < -1 || detail.right > vp.width + 1) fail(`${tag}: 详情面板出屏`);
         if (detail.confirmTop < 0 || detail.confirmBottom > vp.height) fail(`${tag}: 确认按钮出屏`);
         if (!detail.text.trim()) fail(`${tag}: 详情内容为空`);
+        if (screen.name === 'upgrade-detail' && (!detail.text.includes('升级后') || !detail.text.includes('升级前'))) {
+          fail(`${tag}: 参悟详情未显示升级前后效果`);
+        }
       }
     }
 
-    if (vp.width === 393 && !screen.name.endsWith('-detail') && !screen.name.endsWith('-info')) {
+    if (vp.width === 393 && (!screen.name.endsWith('-detail') || screen.name === 'upgrade-detail') && !screen.name.endsWith('-info')) {
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       fs.mkdirSync(SHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(SHOT_DIR, `after-${screen.name}-393.png`), Buffer.from(data, 'base64'));

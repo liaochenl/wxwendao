@@ -103,7 +103,9 @@
     const actionAttr = isHand ? `data-action="play-card" data-index="${opts.index}"` :
       (opts.pickUid ? `data-action="pick-card" data-uid="${esc(opts.pickUid)}"` :
         (opts.inspect ? `data-action="inspect-card" data-id="${esc(inst.id)}" data-up="${upgraded ? '1' : '0'}"` : ''));
-    const tooltip = `${data.name}（${TYPE_NAMES[data.type] || ''}·${RARITY_LABEL[data.rarity] || ''}）\n${data.text}${upgraded ? '\n（已悟）' : ''}`;
+    const other = data.up ? cardData({ id: inst.id, up: !upgraded }) : null;
+    const upgradeHint = other ? `${upgraded ? '升级前' : '升级后'}（灵气 ${other.cost}）：${other.text}` : '';
+    const tooltip = `${data.name}（${TYPE_NAMES[data.type] || ''}·${RARITY_LABEL[data.rarity] || ''}）\n${data.text}${upgraded ? '\n（已悟）' : ''}${upgradeHint ? '\n' + upgradeHint : ''}`;
     const inner = `
       <div class="card-inner">
         <div class="card-top">
@@ -123,7 +125,7 @@
         </div>
       </div>`;
     if (tag === 'button') {
-      return `<button type="button" class="${classes.join(' ')}" style="${style}" ${actionAttr} title="${esc(tooltip)}">${inner}</button>`;
+      return `<button type="button" class="${classes.join(' ')}" style="${style}" ${actionAttr} title="${esc(tooltip)}" aria-label="${esc(tooltip)}" ${isHand && upgradeHint ? `data-upgrade-preview="${esc(upgradeHint)}"` : ''}>${inner}</button>`;
     }
     return `<div class="${classes.join(' ')}" style="${style}" ${actionAttr} title="${esc(tooltip)}">${inner}</div>`;
   }
@@ -260,7 +262,7 @@
         case 'continue-event': this.continueEvent(); break;
         case 'treasure-continue': this.continueTreasure(); break;
         case 'pick-card':
-          if (window.innerWidth <= 600) this.inspectPickerCard(el.dataset.uid);
+          if (window.innerWidth <= 600 || (this.picker && this.picker.mode === 'upgrade-rest')) this.inspectPickerCard(el.dataset.uid);
           else this.pickCard(el.dataset.uid);
           break;
         case 'settings': this.overlay = 'settings'; this.render(); break;
@@ -1235,7 +1237,7 @@
       const choices = r.cards.map((inst, i) => {
         if (!mobile) return `<div class="choice-slot ${r.cardTaken && r.selected === i ? 'chosen' : ''} ${r.cardTaken && r.selected !== i ? 'faded' : ''}" ${!r.cardTaken ? `data-action="take-card" data-index="${i}"` : ''}>
           ${cardHTML(inst, { mode: 'choice' })}
-          ${!r.cardTaken ? `<button class="btn btn-ghost btn-sm choice-btn" data-action="take-card" data-index="${i}">选此牌</button>` : ''}
+          ${!r.cardTaken ? `<button class="btn btn-ghost btn-sm choice-btn" data-action="inspect-card" data-id="${esc(inst.id)}" data-up="${inst.up ? '1' : '0'}">查看效果与升级</button><button class="btn btn-ghost btn-sm choice-btn" data-action="take-card" data-index="${i}">选此牌</button>` : ''}
         </div>`;
         const data = cardData(inst);
         const tag = r.cardTaken ? 'div' : 'button';
@@ -1496,6 +1498,7 @@
       if (d.kind === 'card') {
         const data = cardData({ id: d.id, up: !!d.up });
         if (!data) return '';
+        const other = data.up ? cardData({ id: d.id, up: !d.up }) : null;
         title = data.name;
         const traits = [data.exhaust ? '消耗' : '', data.retain ? '保留' : ''].filter(Boolean);
         let preview = '';
@@ -1506,9 +1509,15 @@
             p.linked ? `连携 ${p.chainAfter}` : ''].filter(Boolean) : [];
           if (values.length) preview = `<div class="detail-note">${values.map(esc).join(' · ')}</div>`;
         }
-        body = `<div class="detail-meta">${elemBadge(data.element, elem(data.element).name + '行')}<span>${TYPE_NAMES[data.type] || ''}</span><span>${RARITY_LABEL[data.rarity] || ''}</span><span>灵气 ${data.cost}</span>${d.up ? '<span>已悟</span>' : ''}</div>
+        body = `<div class="card-current-label">${other ? d.up ? '已升级 · 当前效果' : '升级前 · 当前效果' : '当前效果'}</div>
+          <div class="detail-meta">${elemBadge(data.element, elem(data.element).name + '行')}<span>${TYPE_NAMES[data.type] || ''}</span><span>${RARITY_LABEL[data.rarity] || ''}</span><span>灵气 ${data.cost}</span>${d.up ? '<span>已悟</span>' : ''}</div>
           <p class="card-detail-text">${formatText(data.text)}</p>
-          ${traits.length ? `<p class="detail-note">关键词：${traits.join(' · ')}</p>` : ''}${preview}`;
+          ${traits.length ? `<p class="detail-note">关键词：${traits.join(' · ')}</p>` : ''}${preview}
+          ${other ? `<section class="card-upgrade-preview" aria-label="${d.up ? '升级前' : '升级后'}效果">
+            <div class="card-upgrade-head"><b>${d.up ? '升级前' : '升级后'}</b><span>灵气 ${other.cost}</span></div>
+            <p class="card-upgrade-text">${formatText(other.text)}</p>
+            ${other.exhaust || other.retain ? `<small>${[other.exhaust ? '消耗' : '', other.retain ? '保留' : ''].filter(Boolean).join(' · ')}</small>` : ''}
+          </section>` : ''}`;
         if (d.action === 'take-card') confirm = '确认领取';
         if (d.action === 'pick-card') confirm = this.picker && this.picker.mode === 'remove-shop' ? '确认移除' : '确认参悟';
         if (d.action === 'play-card') {
