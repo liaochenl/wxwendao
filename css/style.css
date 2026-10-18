@@ -148,9 +148,9 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 }
 .statuses { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 .status-chip {
-  display: inline-flex; gap: 3px; align-items: center; padding: 1px 6px; border-radius: 10px;
+  display: inline-flex; gap: 3px; align-items: center; justify-content: center; padding: 1px 6px; border-radius: 10px;
   border: 1px solid rgba(232, 223, 200, 0.16); font-size: 10px; background: rgba(0, 0, 0, 0.25);
-  color: #d8d1c2;
+  color: #d8d1c2; cursor: pointer;
 }
 .status-chip b { font-size: 10px; color: #fff0cf; }
 .status-chip.debuff { border-color: rgba(207, 91, 73, 0.36); color: #e2a397; }
@@ -661,6 +661,26 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .choice-slot.chosen .card-inner { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(216, 185, 119, 0.5); }
 .choice-slot.faded { opacity: 0.28; filter: grayscale(0.6); }
 .choice-btn { width: 100%; }
+.reward-option-list { display: flex; flex-direction: column; gap: 10px; }
+.reward-option {
+  display: flex; flex-direction: column; gap: 6px; width: 100%; min-height: 112px;
+  border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px 14px;
+  background: rgba(236, 226, 203, 0.04); color: var(--text); text-align: left;
+  font: inherit; cursor: pointer;
+}
+.reward-option-top { display: flex; align-items: center; gap: 9px; }
+.reward-option-cost {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 28px; height: 28px; border: 1px solid var(--gold-2); border-radius: 50%;
+  color: var(--gold); font-family: var(--serif); font-size: 16px;
+}
+.reward-option-name { flex: 1; min-width: 0; color: #f1e8d4; font-family: var(--serif); font-size: 17px; font-weight: 600; }
+.reward-option-meta { color: var(--gold); font-size: 11px; }
+.reward-option-text { color: var(--text); font-size: 13px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
+.reward-option-cta { align-self: flex-end; color: var(--gold); font-size: 11px; }
+.reward-option.chosen { border-color: var(--gold); background: rgba(216, 185, 119, 0.1); cursor: default; }
+.reward-option.faded { opacity: 0.4; cursor: default; }
+@media (hover: hover) and (pointer: fine) { .reward-option:hover:not(.chosen):not(.faded) { border-color: var(--gold); background: rgba(216, 185, 119, 0.08); } }
 .chosen-note { text-align: center; color: var(--gold); font-size: 12px; letter-spacing: 0.08em; margin-top: 14px; }
 .dim { color: var(--muted); }
 
@@ -1119,20 +1139,11 @@ body.zhoutian-flash::after {
 }
 
 @media (max-width: 600px) {
+  .status-chip { min-width: 44px; min-height: 44px; touch-action: manipulation; }
   /* 奖励 / 商店 / 休整 / 事件 / 结算 */
   .panel { padding: 16px 14px; }
   .panel h1 { font-size: 24px; }
-  .reward-panel .card-choice-row { display: grid; grid-template-columns: repeat(3, 104px); justify-content: center; gap: 8px; }
-  .card-choice-row .card { width: 104px; height: 152px; }
-  .card-choice-row .card-art { height: 38px; margin: 3px 0 2px; }
-  .card-choice-row .card-watermark { font-size: 28px; }
-  .card-choice-row .card-top { align-items: flex-start; min-height: 28px; }
-  .card-choice-row .card-name { font-size: 11px; letter-spacing: 0; line-height: 1.2;
-    white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-  .card-choice-row .card-text { font-size: 10.5px; line-height: 1.3; }
-  .card-choice-row .card-type, .card-choice-row .card-foot { font-size: 7.5px; }
-  .choice-slot { min-width: 0; }
-  .choice-btn { min-height: 44px; font-size: 12px; padding: 6px 2px; white-space: nowrap; }
+  .reward-option-list { gap: 9px; }
   .chosen-note { font-size: 11px; }
 
   .shop-panel { padding: 14px; }

@@ -38,6 +38,85 @@ function setHand(c, ids, up) {
 }
 function card(uid, id) { return { uid, id, up: false, temp: false }; }
 
+test('落石在同费初始牌之上提供更高的直接伤害', () => {
+  const base = DATA.cardMap.duan_yue.effects[0].value;
+  const s = fresh('sword');
+  const { c, e } = battle(s);
+  c.energy = 2;
+  setHand(c, ['luo_shi']);
+  const hp = e.hp;
+  assert.ok(E.playCard(s, 0, 0).ok);
+  assert.ok(hp - e.hp > base);
+  assert.match(DATA.cardMap.luo_shi.text, new RegExp(String(hp - e.hp)));
+});
+
+test('木灵生长可用一费补充回春并替换手牌', () => {
+  const s = fresh('sword');
+  const { c } = battle(s);
+  c.energy = 1;
+  setHand(c, ['mu_ling']);
+  c.drawPile = [card('drawn', 'jin_ren')];
+  assert.ok(E.canPlayCard(s, 0).ok);
+  assert.ok(E.playCard(s, 0, 0).ok);
+  assert.equal(c.statuses.regen, 2);
+  assert.equal(c.hand.length, 1);
+});
+
+test('万木朝春在两费时治疗、净化并抽牌', () => {
+  const s = fresh('sword');
+  const { c } = battle(s);
+  c.energy = 2;
+  c.statuses.poison = 3;
+  s.hp -= 20;
+  const hp = s.hp;
+  setHand(c, ['wan_mu']);
+  c.drawPile = [card('a', 'jin_ren'), card('b', 'liu_yun')];
+  assert.ok(E.playCard(s, 0, 0).ok);
+  assert.equal(s.hp, hp + 12);
+  assert.equal(c.statuses.poison, 0);
+  assert.equal(c.hand.length, 2);
+});
+
+test('射日达到三层连携时兼具伤害与两张抽牌', () => {
+  const s = fresh('sword');
+  const { c, e } = battle(s);
+  c.energy = 2;
+  c.chain = 2;
+  c.currentElement = 'earth';
+  setHand(c, ['she_ji']);
+  c.drawPile = [card('a', 'jin_ren'), card('b', 'liu_yun')];
+  const hp = e.hp;
+  assert.ok(E.playCard(s, 0, 0).ok);
+  assert.ok(hp - e.hp >= 14);
+  assert.equal(c.hand.length, 2);
+});
+
+test('破釜沉舟以单次高伤害弥补消耗与无属性', () => {
+  const s = fresh('sword');
+  const { c, e } = battle(s);
+  c.energy = 2;
+  setHand(c, ['po_fu']);
+  const hp = e.hp;
+  assert.ok(E.playCard(s, 0, 0).ok);
+  assert.ok(hp - e.hp >= 26);
+  assert.equal(c.exhaustPile.length, 1);
+});
+
+test('调整后的升级牌费用、伤害与说明保持一致', () => {
+  for (const [id, baseValue, upgradedValue] of [['luo_shi', 16, 21], ['she_ji', 11, 15], ['po_fu', 26, 34]]) {
+    const base = E.getCardData({ id, up: false });
+    const upgraded = E.getCardData({ id, up: true });
+    assert.equal(base.effects[0].value, baseValue, id);
+    assert.equal(upgraded.effects[0].value, upgradedValue, id);
+    assert.ok(base.text.includes(String(baseValue)), id);
+    assert.ok(upgraded.text.includes(String(upgradedValue)), id);
+  }
+  for (const id of ['mu_ling', 'wan_mu']) {
+    assert.equal(E.getCardData({ id, up: false }).cost, id === 'mu_ling' ? 1 : 2);
+    assert.equal(E.getCardData({ id, up: true }).cost, id === 'mu_ling' ? 1 : 2);
+  }
+});
+
 /* ---------- data ---------- */
 test('数据完整性：id、元素、升级、效果', () => {
   const ids = new Set();

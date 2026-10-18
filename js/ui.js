@@ -50,11 +50,11 @@
     const el = elem(id);
     return `<span class="elem-badge" style="--el:${el.color};--el-dark:${el.dark}" title="${esc(el.name)}行">${esc(label || el.glyph)}</span>`;
   }
-  function statusChips(statuses, who) {
+  function statusChips(statuses, owner, index) {
     if (!statuses) return '';
     return Object.keys(D.statuses).filter(k => statuses[k] > 0).map(k => {
       const s = D.statuses[k];
-      return `<span class="status-chip ${s.debuff ? 'debuff' : 'buff'}" title="${esc(s.name)}：${esc(s.desc)}">${esc(s.glyph)}<b>${statuses[k]}</b></span>`;
+      return `<button type="button" class="status-chip ${s.debuff ? 'debuff' : 'buff'}" data-action="inspect-status" data-status="${k}" data-owner="${owner}" ${owner === 'enemy' ? `data-index="${index}"` : ''} title="${esc(s.name)}：${esc(s.desc)}" aria-label="${esc(s.name)} ${statuses[k]} 层：${esc(s.desc)}">${esc(s.glyph)}<b>${statuses[k]}</b></button>`;
     }).join('');
   }
   function weakElement(enemyElem) {
@@ -193,7 +193,7 @@
         this.resizeBackground();
         clearTimeout(this._resizeTimer);
         this._resizeTimer = setTimeout(() => {
-          if (!this.busy && this.state && this.screen === 'combat') this.render();
+          if (!this.busy && this.state && (this.screen === 'combat' || this.screen === 'reward')) this.render();
         }, 160);
       });
     },
@@ -229,13 +229,24 @@
         case 'inspect-enemy': this.openDetail({ kind: 'enemy', id: el.dataset.id, index: idx }); break;
         case 'inspect-relic': this.openDetail({ kind: 'relic', id: el.dataset.id }); break;
         case 'inspect-potion': this.openDetail({ kind: 'potion', id: el.dataset.id }); break;
+        case 'inspect-status': {
+          const key = el.dataset.status;
+          const owner = el.dataset.owner;
+          const index = owner === 'enemy' ? Number(el.dataset.index) : null;
+          const c = this.state && this.state.combat;
+          const entity = c && (owner === 'player' ? c : owner === 'enemy' ? c.enemies[index] : null);
+          if (D.statuses[key] && entity && entity.statuses && entity.statuses[key] > 0) {
+            this.openDetail({ kind: 'status', id: key, count: entity.statuses[key], ownerName: owner === 'player' ? '自身' : entity.name });
+          }
+          break;
+        }
         case 'confirm-detail': this.confirmDetail(); break;
         case 'view-deck': this.overlay = 'deck'; this.render(); break;
         case 'view-relics': this.overlay = 'relics'; this.render(); break;
         case 'open-piles': this.pile = el.dataset.pile; this.overlay = 'piles'; this.render(); break;
         case 'close-overlay': this.closeOverlay(); break;
         case 'take-card':
-          if (window.innerWidth <= 600) this.inspectRewardCard(Number(el.dataset.index));
+          if (window.innerWidth <= 600 || el.dataset.confirm === '1') this.inspectRewardCard(Number(el.dataset.index));
           else this.takeRewardCard(Number(el.dataset.index));
           break;
         case 'skip-card': this.skipReward(); break;
@@ -1117,7 +1128,7 @@
               ${hpBarHTML(st.hp, st.maxHp)}
               <div class="player-sub">
                 ${c.block > 0 ? `<span class="block-pill" title="护甲">甲 ${c.block}</span>` : ''}
-                <span class="statuses">${statusChips(c.statuses)}</span>
+                <span class="statuses">${statusChips(c.statuses, 'player')}</span>
               </div>
               <div class="relic-strip">${st.relics.map(id => relicChip(id, { inspect: true })).join('')}</div>
             </div>
@@ -1182,7 +1193,7 @@
           <div class="enemy-sub">
             ${e.block > 0 ? `<span class="block-pill">甲 ${e.block}</span>` : ''}
             ${e.phase === 2 ? '<span class="phase-tag">狂怒</span>' : ''}
-            <span class="statuses">${statusChips(e.statuses)}</span>
+            <span class="statuses">${statusChips(e.statuses, 'enemy', i)}</span>
           </div>
         </div>
       </div>`;
@@ -1218,8 +1229,24 @@
     rewardHTML() {
       const st = this.state;
       const r = st.reward;
+      const mobile = window.innerWidth <= 600;
       const titles = { combat: '战后所得', elite: '精英战利品', boss: '幕主遗藏' };
       const chosen = r.selected >= 0 && r.cards[r.selected] ? cardData(r.cards[r.selected]) : null;
+      const choices = r.cards.map((inst, i) => {
+        if (!mobile) return `<div class="choice-slot ${r.cardTaken && r.selected === i ? 'chosen' : ''} ${r.cardTaken && r.selected !== i ? 'faded' : ''}" ${!r.cardTaken ? `data-action="take-card" data-index="${i}"` : ''}>
+          ${cardHTML(inst, { mode: 'choice' })}
+          ${!r.cardTaken ? `<button class="btn btn-ghost btn-sm choice-btn" data-action="take-card" data-index="${i}">选此牌</button>` : ''}
+        </div>`;
+        const data = cardData(inst);
+        const tag = r.cardTaken ? 'div' : 'button';
+        const traits = [data.exhaust ? '消耗' : '', data.retain ? '保留' : '', inst.up ? '已悟' : ''].filter(Boolean);
+        return `<${tag} class="reward-option ${r.cardTaken && r.selected === i ? 'chosen' : ''} ${r.cardTaken && r.selected !== i ? 'faded' : ''}" ${r.cardTaken ? '' : `type="button" data-action="take-card" data-index="${i}" data-confirm="1"`}>
+          <span class="reward-option-top"><span class="reward-option-cost">${data.cost}</span><span class="reward-option-name">${esc(data.name)}</span>${elemBadge(data.element, elem(data.element).name + '行')}</span>
+          <span class="reward-option-meta">${TYPE_NAMES[data.type] || ''} · ${RARITY_LABEL[data.rarity] || ''}${traits.length ? ` · ${traits.join(' · ')}` : ''}</span>
+          <span class="reward-option-text">${esc(data.text)}</span>
+          <span class="reward-option-cta">${r.cardTaken ? r.selected === i ? '已领取' : '' : '查看详情并领取 →'}</span>
+        </${tag}>`;
+      }).join('');
       return `
       <main class="screen panel-screen reward-screen">
         ${this.miniHeader('战利品', E.getActName(st.act))}
@@ -1229,13 +1256,8 @@
           ${r.relicId ? `<div class="reward-relic">${relicChip(r.relicId, { big: true, showName: true })}<span>${esc(relicById(r.relicId).desc)}</span></div>` : ''}
           ${r.potionId ? `<div class="reward-potion">获得丹药：${potionChip(r.potionId)} <b>${esc(potionById(r.potionId).name)}</b></div>` : ''}
           ${r.potionFull ? '<p class="dim">丹药腰带已满，多余丹药化为 20 金币。</p>' : ''}
-          <h2 class="sub-title">${r.cardTaken ? '已收入囊中' : window.innerWidth <= 600 ? '点按卡牌查看详情，确认后领取' : '选一张牌带走'}</h2>
-          <div class="card-choice-row">
-            ${r.cards.map((inst, i) => `<div class="choice-slot ${r.cardTaken && r.selected === i ? 'chosen' : ''} ${r.cardTaken && r.selected !== i ? 'faded' : ''}" ${!r.cardTaken ? `data-action="take-card" data-index="${i}"` : ''}>
-              ${cardHTML(inst, { mode: 'choice' })}
-              ${!r.cardTaken ? `<button class="btn btn-ghost btn-sm choice-btn" data-action="take-card" data-index="${i}">选此牌</button>` : ''}
-            </div>`).join('')}
-          </div>
+          <h2 class="sub-title">${r.cardTaken ? '已收入囊中' : mobile ? '三选一 · 点按查看详情并确认领取' : '选一张牌带走'}</h2>
+          <div class="${mobile ? 'reward-option-list' : 'card-choice-row'}">${choices}</div>
           ${chosen ? `<p class="chosen-note">「${esc(chosen.name)}」已加入牌组。</p>` : ''}
           <div class="panel-actions">
             ${!r.cardTaken ? `<button class="btn btn-ghost" data-action="skip-card">跳过选牌</button>` : `<button class="btn btn-primary" data-action="continue-reward">继续前行</button>`}
@@ -1507,6 +1529,11 @@
         if (!r) return '';
         title = r.name;
         body = `<div class="detail-glyph">${esc(r.name.slice(0, 1))}</div><div class="detail-meta"><span>${RARITY_LABEL[r.rarity] || '法器'}</span></div><p class="detail-text">${formatText(r.desc)}</p>`;
+      } else if (d.kind === 'status') {
+        const status = D.statuses[d.id];
+        if (!status) return '';
+        title = status.name;
+        body = `<div class="detail-glyph">${esc(status.glyph)}</div><div class="detail-meta"><span>${status.debuff ? '负面状态' : '增益状态'}</span><span>${esc(d.ownerName)} · 当前 ${d.count} 层</span></div><p class="detail-text">${formatText(status.desc)}</p>`;
       } else if (d.kind === 'character') {
         const ch = D.characters.find(x => x.id === d.id);
         if (!ch) return '';
