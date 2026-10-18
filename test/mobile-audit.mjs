@@ -17,6 +17,7 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
   '.png': 'image/png',
+  '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.json': 'application/json; charset=utf-8'
 };
@@ -260,6 +261,27 @@ async function auditAt(cdp, baseUrl, vp) {
     if (screen.name === 'map' && r.hudActionsRight != null && r.hudActionsRight > r.vw + 1) {
       fail(`${tag}: HUD 操作区出屏 right=${Math.round(r.hudActionsRight)} > ${r.vw}`);
     }
+    if (screen.name === 'select') {
+      const hero = await cdp.eval(`(() => {
+        const image = document.querySelector('.char-card.selected .char-portrait');
+        const button = document.querySelector('.select-mobile-action .start-btn');
+        const box = button?.getBoundingClientRect();
+        return { loaded: !!image && image.complete && image.naturalWidth > 0,
+          startVisible: !!box && box.top >= 0 && box.bottom <= innerHeight,
+          selected: document.querySelectorAll('.char-card.selected').length };
+      })()`);
+      if (!hero.loaded) fail(`${tag}: 已选修士立绘未加载`);
+      if (!hero.startVisible) fail(`${tag}: 开始按钮未在首屏完整显示`);
+      if (hero.selected !== 1) fail(`${tag}: 已选修士数量异常`);
+      const changed = await cdp.eval(`(() => {
+        document.querySelector('.char-card[data-char="alchemist"]')?.click();
+        const chosen = document.querySelector('.char-card.selected');
+        const label = document.querySelector('.select-mobile-action .start-btn')?.textContent || '';
+        document.querySelector('.char-card[data-char="sword"]')?.click();
+        return chosen?.dataset.char === 'alchemist' && label.includes('丹修');
+      })()`);
+      if (!changed) fail(`${tag}: 切换修士后主卡或开始按钮未更新`);
+    }
     if (screen.combat) {
       if (r.endTurnOverlap) fail(`${tag}: 结束回合与手牌相交`);
       if (r.handFont != null && r.handFont < 11) fail(`${tag}: 手牌字号 ${r.handFont}px < 11px`);
@@ -361,6 +383,21 @@ async function captureCardShowcase(cdp, baseUrl) {
   await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
   await cdp.send('Page.navigate', { url: `${baseUrl}/index.html?v=${Date.now()}` });
   await sleep(1500);
+  await cdp.eval("(() => { WX_UI.screen = 'select'; WX_UI.render(); return 1; })()");
+  await sleep(450);
+  const select = await cdp.eval(`(() => {
+    const cards = [...document.querySelectorAll('.char-card')];
+    const images = [...document.querySelectorAll('.char-portrait')];
+    const start = document.querySelector('.start-btn-desktop')?.getBoundingClientRect();
+    return { count: cards.length, row: cards.every(card => Math.abs(card.getBoundingClientRect().top - cards[0].getBoundingClientRect().top) < 2),
+      loaded: images.every(image => image.complete && image.naturalWidth > 0),
+      startVisible: !!start && start.bottom <= innerHeight };
+  })()`);
+  if (select.count !== 3 || !select.row || !select.loaded || !select.startVisible) fail(`桌面选角立绘、三栏布局或开始按钮异常 ${JSON.stringify(select)}`);
+  await sleep(300);
+  const selectShot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  fs.writeFileSync(path.join(ROOT, 'docs', 'screenshots', 'select.png'), Buffer.from(selectShot.data, 'base64'));
+  console.log('CHECK 选角样板@1280: 三栏立绘与开始按钮');
   const sample = await cdp.eval(`(() => {
     localStorage.clear(); WX_UI.hasRun = false; WX_UI.beginRun();
     WX_UI.state.deck = [

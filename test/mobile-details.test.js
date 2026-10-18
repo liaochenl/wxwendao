@@ -211,6 +211,34 @@ test('角色选择与详情使用各自的符纹肖像', () => {
   }
 });
 
+test('手机选角优先展示已选角色立绘，并可切换到其他角色', () => {
+  const ui = makeUI(393);
+  ui.screen = 'select';
+  ui.ascension = 0;
+  ui.meta.maxAscension = 0;
+  const initial = ui.selectHTML();
+  assert.match(initial, /assets\/characters\/sword\.webp/);
+  assert.match(initial, /assets\/characters\/alchemist\.webp/);
+  assert.match(initial, /assets\/characters\/monk\.webp/);
+  assert.ok(initial.indexOf('data-char="sword"') < initial.indexOf('data-char="alchemist"'));
+  ui.action('select-char', { dataset: { char: 'monk' } });
+  const changed = ui.selectHTML();
+  assert.ok(changed.indexOf('data-char="monk"') < changed.indexOf('data-char="sword"'));
+  assert.match(changed, /char-card selected[^>]*data-char="monk"/);
+  assert.match(changed, /char-card selected[^>]*aria-pressed="true"/);
+  assert.match(changed, /踏入此道 · 体修/);
+  let rerenders = 0;
+  ui.render = () => { rerenders++; };
+  ui.resizeBackground = () => {};
+  ui.bind();
+  ui._testWindow.innerWidth = 1280;
+  ui._testListeners.resize();
+  ui._testWindow.innerWidth = 393;
+  ui._testListeners.resize();
+  assert.equal(rerenders, 2);
+  assert.ok(ui.selectHTML().indexOf('data-char="monk"') < ui.selectHTML().indexOf('data-char="sword"'));
+});
+
 test('遗物与丹药在图鉴和详情中使用可识别的器物造型', () => {
   const ui = makeUI();
   ui.screen = 'compendium';

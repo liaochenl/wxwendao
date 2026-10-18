@@ -6,6 +6,7 @@
 
   const TYPE_NAMES = { attack: '攻击', skill: '技法', power: '功法', curse: '禁制', status: '业障' };
   const CHAR_GLYPHS = { sword: '剑', alchemist: '丹', monk: '体' };
+  const CHAR_PORTRAITS = { sword: 'assets/characters/sword.webp', alchemist: 'assets/characters/alchemist.webp', monk: 'assets/characters/monk.webp' };
   const CHAR_SIGILS = {
     sword: '<path d="M50 8 58 23 54 66 50 73 46 66 42 23Z M35 65h30 M42 65l-6 9m22-9 6 9M50 73v10"/><path d="M21 34c8-14 17-19 29-20m29 20c-8-14-17-19-29-20"/>',
     alchemist: '<path d="M43 12h14m-11 0v19L25 69c-4 7 0 13 8 13h34c8 0 12-6 8-13L54 31V12M34 58h32"/><path d="M42 68c7-12 14-12 20-1M49 75c-3-9-1-15 5-20"/>',
@@ -231,7 +232,7 @@
         this.resizeBackground();
         clearTimeout(this._resizeTimer);
         this._resizeTimer = setTimeout(() => {
-          if (!this.busy && this.state && (this.screen === 'combat' || this.screen === 'reward')) this.render();
+          if (!this.busy && (this.screen === 'select' || (this.state && (this.screen === 'combat' || this.screen === 'reward')))) this.render();
         }, 160);
       });
     },
@@ -953,7 +954,10 @@
       </main>`;
     },
     selectHTML() {
-      const chars = D.characters;
+      const chars = window.innerWidth <= 600
+        ? D.characters.slice().sort((a, b) => Number(b.id === this.selectedChar) - Number(a.id === this.selectedChar))
+        : D.characters;
+      const chosen = D.characters.find(ch => ch.id === this.selectedChar) || D.characters[0];
       return `
       <main class="screen select-screen">
         <header class="page-head">
@@ -972,10 +976,11 @@
             <button class="btn btn-square" data-action="asc-plus" ${this.ascension >= this.meta.maxAscension ? 'disabled' : ''}>＋</button>
             <span class="asc-desc">${this.ascension === 0 ? '无劫，寻常山门。' : `敌人生命 +${this.ascension * 4}%，伤害 +${this.ascension * 2}%，起始诅咒 ${this.ascension >= 10 ? 2 : this.ascension >= 6 ? 1 : 0} 张。`}</span>
           </div>
-          <button class="btn btn-primary btn-lg start-btn" data-action="begin-run">踏入此道</button>
+          <button class="btn btn-primary btn-lg start-btn start-btn-desktop" data-action="begin-run">踏入此道 · ${esc(chosen.name.split('·')[0])}</button>
         </footer>
         <p class="select-tip">提示：相生顺序为 木 → 火 → 土 → 金 → 水 → 木。用克敌属性出牌，可无视护甲。</p>
-      </main>`;
+      </main>
+      <div class="select-mobile-action"><button class="btn btn-primary btn-lg start-btn" data-action="begin-run">踏入此道 · ${esc(chosen.name.split('·')[0])}</button></div>`;
     },
     charCardHTML(ch) {
       const selected = this.selectedChar === ch.id;
@@ -985,10 +990,14 @@
       }).join('');
       const relic = D.relicMap[ch.relic];
       return `
-      <div class="char-entry">
-      <button class="char-card ${selected ? 'selected' : ''}" data-action="select-char" data-char="${ch.id}" style="--accent:${ch.accent}">
+      <div class="char-entry ${selected ? 'selected' : ''}">
+      <button class="char-card ${selected ? 'selected' : ''}" data-action="select-char" data-char="${ch.id}" style="--accent:${ch.accent}" aria-pressed="${selected}">
         <span class="char-choose">${selected ? '已选' : '选择'}</span>
-        <span class="char-glyph">${characterSigil(ch.id)}</span>
+        <span class="char-visual" aria-hidden="true">
+          <img class="char-portrait" src="${CHAR_PORTRAITS[ch.id]}" alt="" loading="eager" decoding="async">
+          <span class="char-glyph">${characterSigil(ch.id)}</span>
+          <span class="char-visual-rule"></span>
+        </span>
         <span class="char-name">${esc(ch.name)}</span>
         <span class="char-title">${esc(ch.title)}</span>
         <span class="char-elems">${ch.elements.map(e => elemBadge(e)).join('')}</span>
