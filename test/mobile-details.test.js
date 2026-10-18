@@ -61,6 +61,15 @@ test('手机丹药先显示效果，确认后才使用', () => {
   assert.equal(used, 1);
 });
 
+test('玩法说明解释调息与条件回灵', () => {
+  const ui = makeUI();
+  ui.overlay = 'help';
+  const html = ui.overlayHTML();
+  assert.match(html, /调息/);
+  assert.match(html, /连携达到 2/);
+  assert.match(html, /聚气丹炉/);
+});
+
 test('战后奖励先显示完整卡牌属性，取消不领取，确认后领取', () => {
   const ui = makeUI();
   const card = { uid: 999, id: 'jin_ren', up: false };
@@ -181,6 +190,64 @@ test('卡牌详情展示升级前后效果，已升级牌也能回看原效果',
 
   ui.action('inspect-card', { dataset: { id: 'xin_mo', up: '0' } });
   assert.doesNotMatch(ui.overlayHTML(), /升级后/);
+});
+
+test('调息升级预览明确说明移除消耗', () => {
+  const ui = makeUI();
+  ui.action('inspect-card', { dataset: { id: 'tiao_xi', up: '0' } });
+  const text = ui.overlayHTML().replace(/<[^>]*>/g, '');
+  assert.match(text, /升级后/);
+  assert.match(text, /不再消耗/);
+});
+
+test('角色选择与详情使用各自的符纹肖像', () => {
+  const ui = makeUI(1280);
+  const select = ui.selectHTML();
+  for (const id of ['sword', 'alchemist', 'monk']) {
+    assert.match(select, new RegExp(`char-sigil sigil-${id}`));
+    ui.action('inspect-character', { dataset: { char: id } });
+    assert.match(ui.overlayHTML(), new RegExp(`entity-hero entity-hero-${id}`));
+    ui.action('close-overlay', { dataset: {} });
+  }
+});
+
+test('遗物与丹药在图鉴和详情中使用可识别的器物造型', () => {
+  const ui = makeUI();
+  ui.screen = 'compendium';
+  ui.compTab = 'potions';
+  const potions = ui.compendiumHTML();
+  assert.equal((potions.match(/potion-vessel/g) || []).length, D.potions.length);
+  ui.action('inspect-potion', { dataset: { id: 'energy' } });
+  assert.match(ui.overlayHTML(), /potion-showcase/);
+  assert.match(ui.overlayHTML(), /potion-vessel/);
+  ui.action('close-overlay', { dataset: {} });
+
+  ui.action('inspect-relic', { dataset: { id: 'ju_qi_lu' } });
+  assert.match(ui.overlayHTML(), /relic-showcase/);
+  assert.match(ui.overlayHTML(), /relic-emblem/);
+});
+
+test('特殊卡和诅咒有独立图案，动效尊重减少动态效果设置', () => {
+  const ui = makeUI();
+  ui.state.combat.hand = [
+    { uid: 'special-a', id: 'jian_yi', up: false },
+    { uid: 'special-b', id: 'huo_zhong', up: false },
+    { uid: 'curse-a', id: 'xin_mo', up: false }
+  ];
+  const hand = ui.combatHTML();
+  assert.match(hand, /card-id-jian-yi/);
+  assert.match(hand, /motif-jian-yi/);
+  assert.match(hand, /card-id-huo-zhong/);
+  assert.match(hand, /motif-huo-zhong/);
+  assert.match(hand, /card-curse/);
+  ui.meta.seenCards.push('jian_yi', 'huo_zhong');
+  ui.compTab = 'cards';
+  const compendium = ui.compendiumHTML();
+  assert.match(compendium, /card-id-jian-yi/);
+  assert.match(compendium, /card-id-huo-zhong/);
+  assert.match(compendium, new RegExp(`已识 \\d+ / ${D.cards.length}`));
+  const css = fs.readFileSync(path.join(__dirname, '../css/style.css'), 'utf8');
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
 test('桌面休整参悟先预览差异，确认后才升级', () => {

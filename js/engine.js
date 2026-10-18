@@ -1117,14 +1117,14 @@
       const rarity = weighted(state, ['common', 'uncommon', 'rare'], r => weights[r]);
       let rarityPool = pool.filter(c => c.rarity === rarity);
       if (!rarityPool.length) rarityPool = pool;
-      const card = rarityPool[Math.floor(rand(state) * rarityPool.length)];
+      const card = weighted(state, rarityPool, c => c.character === state.characterId ? 3 : 1);
       used.add(card.id);
       chosen.push(newCard(state, card.id, false, false));
     }
     if (guaranteeRare && chosen.length && !chosen.some(c => DATA.cardMap[c.id].rarity === 'rare')) {
       const rarePool = cardRewardPool(state, 'rare').filter(c => !used.has(c.id));
       if (rarePool.length) {
-        const rare = rarePool[Math.floor(rand(state) * rarePool.length)];
+        const rare = weighted(state, rarePool, c => c.character === state.characterId ? 3 : 1);
         chosen[0] = newCard(state, rare.id, false, false);
       }
     }

@@ -6,6 +6,11 @@
 
   const TYPE_NAMES = { attack: '攻击', skill: '技法', power: '功法', curse: '禁制', status: '业障' };
   const CHAR_GLYPHS = { sword: '剑', alchemist: '丹', monk: '体' };
+  const CHAR_SIGILS = {
+    sword: '<path d="M50 8 58 23 54 66 50 73 46 66 42 23Z M35 65h30 M42 65l-6 9m22-9 6 9M50 73v10"/><path d="M21 34c8-14 17-19 29-20m29 20c-8-14-17-19-29-20"/>',
+    alchemist: '<path d="M43 12h14m-11 0v19L25 69c-4 7 0 13 8 13h34c8 0 12-6 8-13L54 31V12M34 58h32"/><path d="M42 68c7-12 14-12 20-1M49 75c-3-9-1-15 5-20"/>',
+    monk: '<circle cx="50" cy="48" r="36"/><path d="M22 65 41 37l10 14 10-20 18 34M31 65h38M50 13v12M18 48h11m42 0h11"/><circle cx="50" cy="48" r="5"/>'
+  };
   const ACT_FLAVOR = {
     1: '山门之外，妖雾初起。循着香火与剑鸣，向山巅行去。',
     2: '魔窟深处，赤焰焚心。每一步都踩在旧日的灰烬上。',
@@ -24,7 +29,10 @@
     earth: '<path d="M9 69 33 32l12 16L60 17l31 52H9Z"/><path d="m24 46 9-14 7 9m10-12 10-12 11 19M13 74h74"/>',
     metal: '<path d="m50 9 8 13-4 36-4 7-4-7-4-36 8-13ZM29 56h42M42 56l-6 9m22-9 6 9M50 65v13M39 78h22"/><path d="m24 25 11-8m30 0 11 8M20 40h13m34 0h13"/>',
     water: '<path d="M50 11c-9 13-20 24-20 38a20 20 0 0 0 40 0C70 35 59 24 50 11Z"/><path d="M21 61c9-5 17-5 26 0s17 5 26 0m-59 11c12-6 22-6 34 0s22 6 38 0"/>',
-    none: '<circle cx="50" cy="43" r="25"/><path d="M50 11v64M18 43h64M27 20l46 46M73 20 27 66"/>'
+    none: '<circle cx="50" cy="43" r="25"/><path d="M50 11v64M18 43h64M27 20l46 46M73 20 27 66"/>',
+    jian_yi: '<path d="M51 5 59 18 54 59 50 69 46 59 41 18Z M28 56h44M39 56l-8 9m30-9 8 9M50 69v12"/><path d="M16 24 31 16m53 8-15-8M12 42h17m59 0H71"/>',
+    huo_zhong: '<path d="M50 73C28 69 24 51 34 37c-1 11 6 15 10 13-4-16 7-25 12-39 2 13 0 20 9 29 3-5 4-9 3-14 16 20 12 39-18 47Z"/><path d="M48 68c-8-5-5-13 4-21 0 7 9 11 5 18-2 4-6 5-9 3Z"/><circle cx="50" cy="63" r="3"/>',
+    curse: '<circle cx="50" cy="43" r="27" stroke-dasharray="6 7"/><path d="m20 17 23 22-13 25m48-44L57 42l12 24M50 13l-6 22 12 13-8 27M27 47l16-7m15 7 17-8"/>'
   };
 
   function esc(s) {
@@ -70,10 +78,22 @@
   }
   function relicById(id) { return D.relicMap[id]; }
   function potionById(id) { return D.potionMap[id]; }
+  function characterSigil(id) {
+    return `<span class="char-sigil sigil-${esc(id)}" aria-hidden="true"><svg viewBox="0 0 100 96" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" focusable="false">${CHAR_SIGILS[id] || ''}</svg></span>`;
+  }
+  function relicEmblem(id) {
+    const r = relicById(id);
+    return r ? `<span class="relic-emblem relic-${esc(r.rarity)}" aria-hidden="true"><span class="relic-emblem-core">${esc(r.name.slice(0, 1))}</span></span>` : '';
+  }
+  function potionVessel(id) {
+    const p = potionById(id);
+    return p ? `<span class="potion-vessel potion-${esc(id)}" aria-hidden="true"><svg viewBox="0 0 36 44" focusable="false"><path class="vessel-stop" d="M12 5h12v5H12z"/><path class="vessel-glass" d="M13 10h10v5c0 2 8 8 8 16 0 6-5 9-13 9S5 37 5 31c0-8 8-14 8-16z"/><path class="vessel-liquid" d="M8 29c6-3 13 2 20-1 2 7-2 9-10 9S7 35 8 29z"/><path class="vessel-shine" d="M11 25c1-3 3-6 5-8"/></svg><span class="potion-rune">${esc(p.icon)}</span></span>` : '';
+  }
   function cardData(inst) { return E.getCardData(inst); }
-  function cardArt(element) {
-    const motif = CARD_MOTIFS[element] || CARD_MOTIFS.none;
-    return `<svg class="card-art-icon motif-${element}" viewBox="0 0 100 85" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${motif}</svg>`;
+  function cardArt(element, id, rarity) {
+    const key = id === 'jian_yi' || id === 'huo_zhong' ? id : rarity === 'curse' ? 'curse' : element;
+    const motif = CARD_MOTIFS[key] || CARD_MOTIFS.none;
+    return `<svg class="card-art-icon motif-${key.replace(/_/g, '-')}" viewBox="0 0 100 85" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${motif}</svg>`;
   }
 
   function cardHTML(inst, opts) {
@@ -103,6 +123,8 @@
       if (preview.draw) live.push(`<span class="live live-draw">抽 ${preview.draw}</span>`);
     }
     const classes = ['card', 'el-' + data.element, 'rarity-' + data.rarity];
+    if (data.rarity === 'special') classes.push('card-special', 'card-id-' + data.id.replace(/_/g, '-'));
+    if (data.rarity === 'curse') classes.push('card-curse');
     if (upgraded) classes.push('upgraded');
     if (isHand) classes.push('in-hand');
     if (isHand && canPlay && !canPlay.ok) classes.push('disabled');
@@ -128,7 +150,7 @@
         <div class="card-art" style="--el:${el.color};--el-dark:${el.dark}">
           ${upgraded ? '<span class="card-up-mark" aria-label="已升级">悟</span>' : ''}
           <span class="card-elem" style="--el:${el.color}">${esc(el.glyph)}</span>
-          ${cardArt(data.element)}
+          ${cardArt(data.element, data.id, data.rarity)}
           <span class="card-type">${TYPE_NAMES[data.type] || ''} · ${RARITY_LABEL[data.rarity] || ''}</span>
         </div>
         <div class="card-text">${formatText(data.text)}</div>
@@ -149,14 +171,14 @@
     const r = relicById(id);
     if (!r) return '';
     const tag = opts.inspect ? 'button' : 'span';
-    return `<${tag} class="relic-chip ${opts.big ? 'big' : ''}" ${opts.inspect ? `type="button" data-action="inspect-relic" data-id="${esc(id)}"` : ''} title="${esc(r.name)}：${esc(r.desc)}"><i>${esc(r.name.slice(0, 1))}</i>${opts.showName ? `<span>${esc(r.name)}</span>` : ''}</${tag}>`;
+    return `<${tag} class="relic-chip ${opts.big ? 'big' : ''}" ${opts.inspect ? `type="button" data-action="inspect-relic" data-id="${esc(id)}"` : ''} title="${esc(r.name)}：${esc(r.desc)}">${relicEmblem(id)}${opts.showName ? `<span>${esc(r.name)}</span>` : ''}</${tag}>`;
   }
   function potionChip(id, opts) {
     opts = opts || {};
     const p = potionById(id);
     if (!p) return '';
     const tag = opts.inspect ? 'button' : 'span';
-    return `<${tag} class="potion-chip ${opts.big ? 'big' : ''}" ${opts.inspect ? `type="button" data-action="inspect-potion" data-id="${esc(id)}"` : ''} title="${esc(p.name)}：${esc(p.desc)}">${esc(p.icon)}</${tag}>`;
+    return `<${tag} class="potion-chip ${opts.big ? 'big' : ''}" ${opts.inspect ? `type="button" data-action="inspect-potion" data-id="${esc(id)}"` : ''} title="${esc(p.name)}：${esc(p.desc)}">${potionVessel(id)}</${tag}>`;
   }
   function hpBarHTML(cur, max, cls) {
     return `<span class="hpbar ${cls || ''}"><span class="hpbar-fill" style="width:${hpPct(cur, max)}%"></span><span class="hpbar-text">${cur} / ${max}</span></span>`;
@@ -966,7 +988,7 @@
       <div class="char-entry">
       <button class="char-card ${selected ? 'selected' : ''}" data-action="select-char" data-char="${ch.id}" style="--accent:${ch.accent}">
         <span class="char-choose">${selected ? '已选' : '选择'}</span>
-        <span class="char-glyph">${CHAR_GLYPHS[ch.id]}</span>
+        <span class="char-glyph">${characterSigil(ch.id)}</span>
         <span class="char-name">${esc(ch.name)}</span>
         <span class="char-title">${esc(ch.title)}</span>
         <span class="char-elems">${ch.elements.map(e => elemBadge(e)).join('')}</span>
@@ -1138,7 +1160,7 @@
         </section>
         <section class="battle-mid">
           <div class="player-panel" id="player-panel">
-            <div class="player-portrait"><span>${CHAR_GLYPHS[ch.id]}</span></div>
+            <div class="player-portrait"><span>${characterSigil(ch.id)}</span></div>
             <div class="player-info">
               <div class="player-name">${esc(ch.name)} <small>${esc(ch.passive)}</small></div>
               ${hpBarHTML(st.hp, st.maxHp)}
@@ -1159,7 +1181,7 @@
         <section class="hand-zone">
           <div class="left-tray">
             <div class="potions">
-              ${[0, 1, 2].map(i => st.potions[i] ? `<button class="potion-btn filled" data-action="use-potion" data-index="${i}" ${c.phase !== 'player' ? 'disabled' : ''} title="${esc(potionById(st.potions[i]).name)}：${esc(potionById(st.potions[i]).desc)}">${esc(potionById(st.potions[i]).icon)}</button>` : `<span class="potion-btn empty">空</span>`).join('')}
+              ${[0, 1, 2].map(i => st.potions[i] ? `<button class="potion-btn filled" data-action="use-potion" data-index="${i}" ${c.phase !== 'player' ? 'disabled' : ''} title="${esc(potionById(st.potions[i]).name)}：${esc(potionById(st.potions[i]).desc)}" aria-label="${esc(potionById(st.potions[i]).name)}：${esc(potionById(st.potions[i]).desc)}">${potionVessel(st.potions[i])}</button>` : `<span class="potion-btn empty">空</span>`).join('')}
             </div>
             <div class="piles">
               <button class="pile-btn" data-action="open-piles" data-pile="draw" title="抽牌堆"><b>${c.drawPile.length}</b><span>抽</span></button>
@@ -1460,19 +1482,19 @@
       const tabs = [['cards', '卡牌'], ['characters', '角色'], ['relics', '遗物'], ['enemies', '敌人'], ['potions', '丹药']];
       let body = '';
       if (this.compTab === 'cards') {
-        const allCards = D.cards.filter(c => c.rarity !== 'special');
+        const allCards = D.cards;
         body = `<div class="comp-grid">${allCards.map(c => {
           const seen = m.seenCards.includes(c.id);
           if (!seen) return `<div class="comp-locked"><span>？</span><small>${RARITY_LABEL[c.rarity] || ''}</small></div>`;
           return cardHTML({ uid: 'comp_' + c.id, id: c.id, up: false }, { mode: 'compendium', inspect: true });
         }).join('')}</div>`;
       } else if (this.compTab === 'characters') {
-        body = `<div class="comp-relics">${D.characters.map(ch => `<button class="comp-relic comp-inspect" data-action="inspect-character" data-char="${esc(ch.id)}"><span class="comp-relic-icon">${CHAR_GLYPHS[ch.id]}</span><span><b>${esc(ch.name)}</b><span>${esc(ch.passive)} · ${esc(CHAR_STYLE[ch.id])}</span></span></button>`).join('')}</div>`;
+        body = `<div class="comp-relics">${D.characters.map(ch => `<button class="comp-relic comp-inspect" data-action="inspect-character" data-char="${esc(ch.id)}"><span class="comp-relic-icon">${characterSigil(ch.id)}</span><span><b>${esc(ch.name)}</b><span>${esc(ch.passive)} · ${esc(CHAR_STYLE[ch.id])}</span></span></button>`).join('')}</div>`;
       } else if (this.compTab === 'relics') {
         body = `<div class="comp-relics">${D.relics.filter(r => r.rarity !== 'starter').map(r => {
           const seen = m.seenRelics.includes(r.id);
           return `<${seen ? 'button' : 'div'} class="comp-relic ${seen ? 'comp-inspect' : 'locked'}" ${seen ? `data-action="inspect-relic" data-id="${esc(r.id)}"` : ''}>
-            <span class="comp-relic-icon">${seen ? esc(r.name.slice(0, 1)) : '？'}</span>
+            <span class="comp-relic-icon">${seen ? relicEmblem(r.id) : '？'}</span>
             <div><b>${seen ? esc(r.name) : '未识法器'}</b><span>${seen ? esc(r.desc) : '尚未在轮回中得见。'}</span></div>
             <small>${RARITY_LABEL[r.rarity] || ''}</small>
           </${seen ? 'button' : 'div'}>`;
@@ -1486,7 +1508,7 @@
           </${seen ? 'button' : 'div'}>`;
         }).join('')}</div>`;
       } else if (this.compTab === 'potions') {
-        body = `<div class="comp-relics">${D.potions.map(p => `<button class="comp-relic comp-inspect" data-action="inspect-potion" data-id="${esc(p.id)}"><span class="comp-relic-icon">${esc(p.icon)}</span><span><b>${esc(p.name)}</b><span>${esc(p.desc)}</span></span></button>`).join('')}</div>`;
+        body = `<div class="comp-relics">${D.potions.map(p => `<button class="comp-relic comp-inspect" data-action="inspect-potion" data-id="${esc(p.id)}"><span class="comp-relic-icon">${potionVessel(p.id)}</span><span><b>${esc(p.name)}</b><span>${esc(p.desc)}</span></span></button>`).join('')}</div>`;
       }
       return `
       <main class="screen compendium-screen">
@@ -1498,7 +1520,7 @@
         <div class="comp-tabs">
           ${tabs.map(([id, name]) => `<button class="comp-tab ${this.compTab === id ? 'active' : ''}" data-action="comp-tab" data-tab="${id}">${name}</button>`).join('')}
         </div>
-        <div class="comp-count">${this.compTab === 'cards' ? `已识 ${m.seenCards.filter(id => D.cardMap[id] && D.cardMap[id].rarity !== 'special').length} / ${D.cards.filter(c => c.rarity !== 'special').length}` : this.compTab === 'relics' ? `已识 ${m.seenRelics.filter(id => D.relicMap[id] && D.relicMap[id].rarity !== 'starter').length} / ${D.relics.filter(r => r.rarity !== 'starter').length}` : this.compTab === 'enemies' ? `已识 ${m.seenEnemies.length} / ${Object.keys(D.enemies).length}` : this.compTab === 'characters' ? `${D.characters.length} 位修士` : `${D.potions.length} 种丹药`}</div>
+        <div class="comp-count">${this.compTab === 'cards' ? `已识 ${m.seenCards.filter(id => D.cardMap[id]).length} / ${D.cards.length}` : this.compTab === 'relics' ? `已识 ${m.seenRelics.filter(id => D.relicMap[id] && D.relicMap[id].rarity !== 'starter').length} / ${D.relics.filter(r => r.rarity !== 'starter').length}` : this.compTab === 'enemies' ? `已识 ${m.seenEnemies.length} / ${Object.keys(D.enemies).length}` : this.compTab === 'characters' ? `${D.characters.length} 位修士` : `${D.potions.length} 种丹药`}</div>
         <section class="comp-body">${body}</section>
       </main>`;
     },
@@ -1545,14 +1567,14 @@
         if (!p) return '';
         title = p.name;
         const enemy = this.state && this.state.combat && this.state.combat.enemies[this.targetIndex];
-        body = `<div class="detail-glyph">${esc(p.icon)}</div><p class="detail-text">${formatText(p.desc)}</p>
+        body = `<div class="entity-showcase potion-showcase">${potionVessel(p.id)}<span>丹 · ${esc(p.name)}</span></div><p class="detail-text">${formatText(p.desc)}</p>
           <p class="detail-note">${p.target === 'enemy' ? `目标：${esc(enemy && enemy.hp > 0 ? enemy.name : '当前敌人')}` : '作用于自身'}</p>`;
         if (d.action === 'use-potion') confirm = '确认使用';
       } else if (d.kind === 'relic') {
         const r = relicById(d.id);
         if (!r) return '';
         title = r.name;
-        body = `<div class="detail-glyph">${esc(r.name.slice(0, 1))}</div><div class="detail-meta"><span>${RARITY_LABEL[r.rarity] || '法器'}</span></div><p class="detail-text">${formatText(r.desc)}</p>`;
+        body = `<div class="entity-showcase relic-showcase">${relicEmblem(r.id)}<span>器 · ${esc(r.name)}</span></div><div class="detail-meta"><span>${RARITY_LABEL[r.rarity] || '法器'}</span></div><p class="detail-text">${formatText(r.desc)}</p>`;
       } else if (d.kind === 'status') {
         const status = D.statuses[d.id];
         if (!status) return '';
@@ -1563,7 +1585,8 @@
         if (!ch) return '';
         title = ch.name;
         const relic = relicById(ch.relic);
-        body = `<div class="detail-meta">${ch.elements.map(id => elemBadge(id, elem(id).name + '行')).join('')}<span>生命 ${ch.maxHp}</span></div>
+        body = `<div class="entity-hero entity-hero-${ch.id}" style="--accent:${ch.accent}">${characterSigil(ch.id)}<div><b>${esc(ch.title)}</b><span>“${esc(ch.flavor)}”</span></div></div>
+          <div class="detail-meta">${ch.elements.map(id => elemBadge(id, elem(id).name + '行')).join('')}<span>生命 ${ch.maxHp}</span></div>
           <p class="detail-text">${esc(ch.title)} · ${esc(CHAR_STYLE[ch.id])}</p>
           <h3>${esc(ch.passive)}</h3><p class="detail-text">${formatText(ch.passiveText)}</p>
           <h3>初始牌组</h3><div class="detail-list">${ch.deck.map(x => `<span>${esc(D.cardMap[x.id].name)} × ${x.count}</span>`).join('')}</div>
@@ -1602,7 +1625,7 @@
         title = '遗物';
         const relics = this.state.relics.map(id => {
           const r = relicById(id);
-          return `<div class="overlay-relic"><span class="relic-big">${esc(r.name.slice(0, 1))}</span><div><b>${esc(r.name)}</b><p>${esc(r.desc)}</p></div></div>`;
+          return `<div class="overlay-relic">${relicEmblem(id)}<div><b>${esc(r.name)}</b><p>${esc(r.desc)}</p></div></div>`;
         }).join('');
         body = relics || '<p class="dim">尚未拾得遗物。</p>';
       } else if (this.overlay === 'piles') {
@@ -1625,6 +1648,7 @@
         body = `
           <div class="help-grid">
             <div class="help-block"><b>灵气与手牌</b><p>每回合 3 点灵气、抽 5 张牌。打出卡牌消耗灵气；回合结束弃掉手牌。灵气不足时打不出牌，但可以先打出低费牌调整顺序。</p></div>
+            <div class="help-block"><b>回灵构筑</b><p>调息返还费用并抽牌，连携达到 2 时再回 1 点灵气。普通调息打出后消耗；升级后不再消耗，可配合抽牌组成持续回灵。归元可净赚 1 点灵气；聚气丹炉在偶数回合回灵。</p></div>
             <div class="help-block"><b>相生连携</b><p>上一张牌的五行「生」出下一张，就能续上连携。顺序：木 → 火 → 土 → 金 → 水 → 木。连携每 +1，当前牌的伤害与护甲也 +1。断链会清零，但不会额外惩罚。</p></div>
             <div class="help-block"><b>相克破防</b><p>用克敌属性攻击：木克土、土克水、水克火、火克金、金克木。相克伤害 ×1.5，并且无视护甲。保连携还是断链打弱点，是每回合最核心的取舍。</p></div>
             <div class="help-block"><b>五行周天</b><p>连携叠到 5 层时，立即对所有敌人造成 8 点伤害、回复 1 点灵气、抽 1 张牌，然后连携归零。连携会跨回合保留。</p></div>
