@@ -161,3 +161,58 @@ test('战斗状态可点开查看当前层数与完整效果', () => {
   assert.match(ui.overlayHTML(), /当前 1 层/);
   assert.match(ui.overlayHTML(), /造成的攻击伤害降低 25%/);
 });
+
+test('卡牌详情展示升级前后效果，已升级牌也能回看原效果', () => {
+  const ui = makeUI();
+  ui.action('inspect-card', { dataset: { id: 'jin_ren', up: '0' } });
+  const base = ui.overlayHTML();
+  assert.match(base, /升级前/);
+  assert.match(base, /造成 6 点伤害/);
+  assert.match(base, /升级后/);
+  assert.match(base, /造成 9 点伤害/);
+  assert.match(base, /灵气 1/);
+  ui.action('close-overlay', { dataset: {} });
+
+  ui.action('inspect-card', { dataset: { id: 'jin_ren', up: '1' } });
+  const upgraded = ui.overlayHTML();
+  assert.match(upgraded, /已悟/);
+  assert.match(upgraded, /升级前/);
+  assert.match(upgraded, /造成 6 点伤害/);
+
+  ui.action('inspect-card', { dataset: { id: 'xin_mo', up: '0' } });
+  assert.doesNotMatch(ui.overlayHTML(), /升级后/);
+});
+
+test('桌面休整参悟先预览差异，确认后才升级', () => {
+  const ui = makeUI(1280);
+  ui.state.screen = 'rest';
+  ui.screen = 'rest';
+  ui.picker = { mode: 'upgrade-rest', title: '选择一张牌参悟' };
+  const inst = ui.state.deck.find(c => c.id === 'jin_ren');
+  let upgrades = 0;
+  ui.pickCard = () => { upgrades++; };
+  ui.action('pick-card', { dataset: { uid: inst.uid } });
+  assert.equal(upgrades, 0);
+  assert.match(ui.overlayHTML(), /造成 9 点伤害/);
+  assert.match(ui.overlayHTML(), /确认参悟/);
+  ui.action('confirm-detail', { dataset: {} });
+  assert.equal(upgrades, 1);
+});
+
+test('桌面奖励可单独查看升级差异，手牌提示也包含升级效果', () => {
+  const ui = makeUI(1280);
+  setReward(ui);
+  const reward = ui.rewardHTML();
+  assert.match(reward, /data-action="inspect-card" data-id="shui_yue"/);
+  let taken = 0;
+  ui.takeRewardCard = () => { taken++; };
+  ui.action('inspect-card', { dataset: { id: 'shui_yue', up: '0' } });
+  assert.equal(taken, 0);
+  assert.match(ui.overlayHTML(), /升级后/);
+
+  ui.action('close-overlay', { dataset: {} });
+  ui.screen = 'combat';
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  ui.state.combat.hand = [{ uid: 'hand-jin', id: 'jin_ren', up: false }];
+  assert.match(ui.combatHTML(), /升级后（灵气 1）/);
+});

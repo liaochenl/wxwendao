@@ -618,6 +618,15 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .card.upgraded .card-name { color: #2b4a2c; }
 .card.locked { opacity: 0.8; }
 .card.in-hand { cursor: pointer; transform: translateY(var(--lift, 0)) rotate(var(--rot, 0deg)); transform-origin: 50% 100%; }
+@media (min-width: 601px) {
+  .card.in-hand[data-upgrade-preview]:is(:hover, :focus-visible) { z-index: 22; }
+  .card.in-hand[data-upgrade-preview]:is(:hover, :focus-visible)::before {
+    content: attr(data-upgrade-preview); position: absolute; left: 50%; bottom: calc(100% + 8px);
+    width: 230px; transform: translateX(-50%); padding: 10px 12px; border: 1px solid var(--gold);
+    border-radius: 8px; background: #1c2520; color: #eee3ce; font-size: 12px; line-height: 1.5;
+    white-space: normal; text-align: left; box-shadow: 0 8px 24px #0009; pointer-events: none;
+  }
+}
 @media (hover: hover) and (pointer: fine) { .card.in-hand:hover { z-index: 20; transform: translateY(-24px) rotate(0deg) scale(1.055); box-shadow: 0 24px 38px -18px rgba(0, 0, 0, 0.9); } }
 .card.in-hand.selected { z-index: 21; transform: translateY(-26px) rotate(0deg) scale(1.06); }
 .card.in-hand.selected .card-inner { box-shadow: 0 0 0 2px rgba(216, 185, 119, 0.8), 0 0 32px rgba(216, 185, 119, 0.28), 0 7px 18px -8px rgba(0, 0, 0, 0.72); }
@@ -861,6 +870,12 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .detail-glyph { width: 58px; height: 58px; display: grid; place-items: center; margin-bottom: 12px; border: 1px solid var(--line-strong); border-radius: 12px; color: var(--gold); font: 28px var(--serif); }
 .detail-text, .card-detail-text { margin: 14px 0; color: var(--text); font-size: 16px; line-height: 1.75; white-space: normal; }
 .card-detail-text { font-size: 18px; color: #eee3ce; }
+.card-current-label { margin-bottom: 10px; color: var(--muted); font-size: 12px; letter-spacing: 0.08em; }
+.card-upgrade-preview { margin-top: 18px; padding: 14px 16px; border: 1px solid rgba(216, 185, 119, 0.35); border-radius: 10px; background: rgba(216, 185, 119, 0.07); }
+.card-upgrade-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--gold); font-family: var(--serif); font-size: 14px; }
+.card-upgrade-head b { font-size: 16px; }
+.card-upgrade-text { margin: 10px 0 0; color: var(--text); font-size: 15px; line-height: 1.7; }
+.card-upgrade-preview small { display: block; margin-top: 8px; color: var(--muted); font-size: 11px; }
 .detail-body h3 { margin: 18px 0 5px; color: var(--gold); font: 15px var(--serif); }
 .detail-note { color: var(--muted); font-size: 12px; line-height: 1.7; }
 .detail-list { display: grid; gap: 8px; color: #d2c8b6; font-size: 13px; line-height: 1.6; }
