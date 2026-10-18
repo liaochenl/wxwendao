@@ -3,6 +3,11 @@
   'use strict';
   const D = window.WX_DATA;
   const E = window.WXEngine;
+  const FX = window.WXEffects;
+  function visual(method, options) {
+    try { return Promise.resolve(FX?.[method]?.(options)).catch(() => {}); }
+    catch (_) { return Promise.resolve(); }
+  }
 
   const TYPE_NAMES = { attack: '攻击', skill: '技法', power: '功法', curse: '禁制', status: '业障' };
   const CHAR_GLYPHS = { sword: '剑', alchemist: '丹', monk: '体' };
@@ -47,9 +52,9 @@
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
-  function enemyPortrait(id, name, loading = 'lazy') {
+  function enemyPortrait(id, name, loading = 'lazy', className = '') {
     const src = ENEMY_PORTRAITS[id];
-    return src ? `<img src="${esc(src)}" alt="" loading="${loading}" decoding="async">` : esc(name.slice(0, 1));
+    return src ? `<img class="${className}" src="${esc(src)}" alt="" loading="${loading}" decoding="async">` : esc(name.slice(0, 1));
   }
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
   function hpPct(cur, max) { return Math.max(0, Math.min(100, Math.round(cur / Math.max(1, max) * 100))); }
@@ -203,6 +208,7 @@
 
   const UI = {
     init(opts) {
+      try { FX?.init(); } catch (_) {}
       this.app = opts.app;
       this.meta = opts.meta;
       this.state = opts.saved || null;
@@ -474,24 +480,41 @@
       if (this.busy) return;
       const c = this.state.combat;
       if (!c || c.phase !== 'player') return;
+      const card = c.hand[index];
+      const cardData = card && E.getCardData(card);
+      const cardEl = document.querySelector('.hand .card[data-index="' + index + '"]');
+      let captured = null;
+      try { captured = FX?.captureCard(cardEl); } catch (_) {}
+      const allEnemies = cardData?.effects?.some(effect => effect.op === 'damage' && effect.target === 'all');
+      let targetEl = null;
+      if (cardData?.type === 'attack') {
+        targetEl = allEnemies ? document.querySelector('.enemy-zone') :
+          document.querySelector('[data-enemy-uid="' + c.enemies[target]?.uid + '"]') ||
+          document.querySelector('.enemy-unit[data-index="' + target + '"]');
+      }
+      const rect = targetEl?.getBoundingClientRect();
+      const destination = rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } :
+        { x: window.innerWidth / 2, y: window.innerHeight * .38 };
       this.busy = true;
       this.selected = null;
-      const cardEl = document.querySelector('.hand .card[data-index="' + index + '"]');
-      if (cardEl) cardEl.classList.add('casting');
       this.sfx('card');
-      await sleep(140);
-      const res = E.playCard(this.state, index, target);
-      if (!res.ok) {
-        this.busy = false;
-        this.toast(res.reason || '无法打出');
+      try {
+        const res = E.playCard(this.state, index, target);
+        if (!res.ok) {
+          this.toast(res.reason || '无法打出');
+          this.render();
+          return;
+        }
         this.render();
-        return;
+        await visual('playCardFlight', { visual: captured, element: cardData?.element, cardType: cardData?.type, target: destination });
+        await this.fx(res.events);
+        this.busy = false;
+        this.commit();
+        this.checkCombatState();
+      } finally {
+        try { FX?.clear(captured); } catch (_) {}
+        this.busy = false;
       }
-      this.render();
-      await this.fx(res.events);
-      this.busy = false;
-      this.commit();
-      this.checkCombatState();
     },
     async usePotion(index) {
       if (this.busy || !this.state || !this.state.combat) return;
@@ -683,6 +706,8 @@
               this.hitPulse(el);
               this.floatAt(el, ev.cross ? '克制 -' + amount : '-' + amount, ev.cross ? 'fx-cross' : 'fx-damage');
               this.sfx(ev.cross ? 'cross' : 'hit');
+              void visual('impact', { target: el, element: ev.element, heavy: ev.cross || amount >= 20 });
+              if (ev.cross) void visual('overcomeBurst', { target: el, element: ev.element });
             }
             await sleep(ev.target === 'player' ? 110 : 85);
             break;
@@ -691,6 +716,7 @@
             const el = ev.target === 'player' ? document.getElementById('player-panel') : document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
             this.floatAt(el, '甲 +' + ev.amount, 'fx-block');
             this.sfx('block');
+            void visual('block', { target: el });
             await sleep(60);
             break;
           }
@@ -698,6 +724,7 @@
             const el = ev.target === 'enemy' ? document.querySelector('[data-enemy-uid="' + ev.uid + '"]') : document.getElementById('player-panel');
             this.floatAt(el, '+' + ev.amount, 'fx-heal');
             this.sfx('heal');
+            void visual('heal', { target: el });
             await sleep(70);
             break;
           }
@@ -705,6 +732,7 @@
             const el = ev.target === 'player' ? document.getElementById('player-panel') : document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
             const s = D.statuses[ev.key];
             this.floatAt(el, (s ? s.glyph : '') + (ev.amount > 0 ? '+' + ev.amount : ev.amount), s && s.debuff ? 'fx-debuff' : 'fx-buff');
+            void visual('status', { target: el, key: ev.key, debuff: !!s?.debuff });
             await sleep(55);
             break;
           }
@@ -712,6 +740,7 @@
             if (ev.linked) {
               this.floatAt(document.querySelector('.chain-panel'), '相生 · 连携 ' + ev.chain, 'fx-chain');
               this.sfx('chain');
+              void visual('chainPulse', { target: document.querySelector('.chain-panel'), element: ev.element });
             } else if (ev.reset) {
               this.floatAt(document.querySelector('.chain-panel'), '周天归元', 'fx-chain');
             } else if (ev.element && ev.prev) {
@@ -724,10 +753,12 @@
           }
           case 'zhoutian': {
             this.sfx('zhoutian');
-            document.body.classList.add('zhoutian-flash');
+            const motionReduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+            if (!motionReduced) document.body.classList.add('zhoutian-flash');
             this.floatAt(document.querySelector('.chain-panel'), '五行周天', 'fx-zhoutian');
-            setTimeout(() => document.body.classList.remove('zhoutian-flash'), 900);
-            await sleep(520);
+            setTimeout(() => document.body.classList.remove('zhoutian-flash'), 650);
+            if (FX?.zhoutian) await visual('zhoutian');
+            else await sleep(motionReduced ? 30 : 520);
             break;
           }
           case 'phase': {
@@ -1224,6 +1255,8 @@
       const alive = e.hp > 0;
       const intent = E.getEnemyIntent(this.state, e);
       const weak = weakElement(e.element);
+      const statuses = statusChips(e.statuses, 'enemy', i);
+      const sub = `${e.block > 0 ? `<span class="block-pill">甲 ${e.block}</span>` : ''}${e.phase === 2 ? '<span class="phase-tag">狂怒</span>' : ''}${statuses ? `<span class="statuses">${statuses}</span>` : ''}`;
       const targetable = this.selected != null && alive;
       const showTarget = alive && i === targetIdx && (targetable || this.state.combat.enemies.length > 1);
       const detail = intent ? [
@@ -1247,13 +1280,9 @@
             ${elemBadge(e.element)}
             ${weak ? `<span class="weak-tag" title="相克弱点">弱 ${elem(weak).glyph}</span>` : ''}
           </div>
-          <div class="enemy-art">${enemyPortrait(e.id, e.name, 'eager')}</div>
+          <div class="enemy-art">${enemyPortrait(e.id, e.name, 'eager', 'enemy-art-figure')}</div>
           ${hpBarHTML(e.hp, e.maxHp, 'enemy-hp')}
-          <div class="enemy-sub">
-            ${e.block > 0 ? `<span class="block-pill">甲 ${e.block}</span>` : ''}
-            ${e.phase === 2 ? '<span class="phase-tag">狂怒</span>' : ''}
-            <span class="statuses">${statusChips(e.statuses, 'enemy', i)}</span>
-          </div>
+          ${sub ? `<div class="enemy-sub">${sub}</div>` : ''}
         </div>
       </div>`;
     },
