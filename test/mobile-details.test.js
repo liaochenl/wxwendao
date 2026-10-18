@@ -139,6 +139,31 @@ test('图鉴有角色与丹药入口，敌人和遗物可点开说明', () => {
   assert.match(ui.compendiumHTML(), /data-action="inspect-relic"/);
 });
 
+test('三幕怪物立绘在战斗、已解锁图鉴和详情中显示，未解锁图鉴隐藏立绘', () => {
+  const ui = makeUI();
+  const expected = new Map();
+  for (const [act, pool] of Object.entries(D.encounters)) {
+    for (const encounter of [...pool.normal, ...pool.elite, pool.boss]) {
+      for (const enemy of encounter.enemies) expected.set(enemy.id, `assets/monsters/${String(act).padStart(2, '0')}/${enemy.id}.webp`);
+    }
+  }
+  assert.equal(expected.size, Object.keys(D.enemies).length);
+  for (const [id, art] of expected) {
+    assert.ok(fs.existsSync(path.join(__dirname, '..', art)), `${id} 的图片文件缺失`);
+    E.startCombat(ui.state, { enemies: [{ id }] }, 'combat');
+    assert.ok(ui.enemyHTML(ui.state.combat.enemies[0], 0, 0).includes(`src="${art}"`), `${id} 战斗立绘缺失`);
+    ui.detail = { kind: 'enemy', id };
+    assert.ok(ui.detailHTML().includes(`src="${art}"`), `${id} 详情立绘缺失`);
+  }
+  ui.screen = 'compendium';
+  ui.compTab = 'enemies';
+  ui.meta.seenEnemies = ['shan_xiao'];
+  const compendium = ui.compendiumHTML();
+  assert.match(compendium, /src="assets\/monsters\/01\/shan_xiao.webp"/);
+  assert.doesNotMatch(compendium, /src="assets\/monsters\/03\/tai_xu.webp"/);
+  assert.match(compendium, /未识之敌/);
+});
+
 test('敌人详情显示招式附加的业障，关闭卡牌详情返回原面板', () => {
   const ui = makeUI();
   ui.action('inspect-enemy', { dataset: { id: 'chi_ba' } });
