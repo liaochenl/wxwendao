@@ -7,6 +7,14 @@
   const TYPE_NAMES = { attack: '攻击', skill: '技法', power: '功法', curse: '禁制', status: '业障' };
   const CHAR_GLYPHS = { sword: '剑', alchemist: '丹', monk: '体' };
   const CHAR_PORTRAITS = { sword: 'assets/characters/sword.webp', alchemist: 'assets/characters/alchemist.webp', monk: 'assets/characters/monk.webp' };
+  const ENEMY_PORTRAITS = {};
+  for (const [act, pool] of Object.entries(D.encounters)) {
+    for (const encounter of [...pool.normal, ...pool.elite, pool.boss]) {
+      for (const enemy of encounter.enemies) {
+        ENEMY_PORTRAITS[enemy.id] = `assets/monsters/${act.padStart(2, '0')}/${enemy.id}.webp`;
+      }
+    }
+  }
   const CHAR_SIGILS = {
     sword: '<path d="M50 8 58 23 54 66 50 73 46 66 42 23Z M35 65h30 M42 65l-6 9m22-9 6 9M50 73v10"/><path d="M21 34c8-14 17-19 29-20m29 20c-8-14-17-19-29-20"/>',
     alchemist: '<path d="M43 12h14m-11 0v19L25 69c-4 7 0 13 8 13h34c8 0 12-6 8-13L54 31V12M34 58h32"/><path d="M42 68c7-12 14-12 20-1M49 75c-3-9-1-15 5-20"/>',
@@ -38,6 +46,10 @@
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function enemyPortrait(id, name, loading = 'lazy') {
+    const src = ENEMY_PORTRAITS[id];
+    return src ? `<img src="${esc(src)}" alt="" loading="${loading}" decoding="async">` : esc(name.slice(0, 1));
   }
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
   function hpPct(cur, max) { return Math.max(0, Math.min(100, Math.round(cur / Math.max(1, max) * 100))); }
@@ -1235,7 +1247,7 @@
             ${elemBadge(e.element)}
             ${weak ? `<span class="weak-tag" title="相克弱点">弱 ${elem(weak).glyph}</span>` : ''}
           </div>
-          <div class="enemy-art">${esc(e.name.slice(0, 1))}</div>
+          <div class="enemy-art">${enemyPortrait(e.id, e.name, 'eager')}</div>
           ${hpBarHTML(e.hp, e.maxHp, 'enemy-hp')}
           <div class="enemy-sub">
             ${e.block > 0 ? `<span class="block-pill">甲 ${e.block}</span>` : ''}
@@ -1512,7 +1524,7 @@
         body = `<div class="comp-enemies">${Object.values(D.enemies).map(e => {
           const seen = m.seenEnemies.includes(e.id);
           return `<${seen ? 'button' : 'div'} class="comp-enemy ${seen ? 'comp-inspect' : 'locked'}" ${seen ? `data-action="inspect-enemy" data-id="${esc(e.id)}"` : ''}>
-            <span class="comp-enemy-art" style="--el:${elem(e.element).color}">${seen ? esc(e.name.slice(0, 1)) : '？'}</span>
+            <span class="comp-enemy-art" style="--el:${elem(e.element).color}">${seen ? enemyPortrait(e.id, e.name) : '？'}</span>
             <div><b>${seen ? esc(e.name) : '未识之敌'}</b>${seen ? `<span>${elemBadge(e.element)} ${e.boss ? '幕主' : e.elite ? '精英' : '寻常'}</span>` : '<span>尚未交手。</span>'}</div>
           </${seen ? 'button' : 'div'}>`;
         }).join('')}</div>`;
@@ -1608,7 +1620,8 @@
         const live = this.state && this.state.combat && this.state.combat.enemies[d.index] && this.state.combat.enemies[d.index].id === d.id ? this.state.combat.enemies[d.index] : null;
         const weak = weakElement(e.element);
         const intent = live ? E.getEnemyIntent(this.state, live) : null;
-        body = `<div class="detail-meta">${elemBadge(e.element)}<span>${e.boss ? '幕主' : e.elite ? '精英' : '寻常敌人'}</span>${live ? `<span>生命 ${live.hp} / ${live.maxHp}</span><span>护甲 ${live.block}</span>` : ''}</div>
+        body = `<div class="detail-enemy-portrait" style="--el:${elem(e.element).color}">${enemyPortrait(e.id, e.name, 'eager')}</div>
+          <div class="detail-meta">${elemBadge(e.element)}<span>${e.boss ? '幕主' : e.elite ? '精英' : '寻常敌人'}</span>${live ? `<span>生命 ${live.hp} / ${live.maxHp}</span><span>护甲 ${live.block}</span>` : ''}</div>
           <p class="detail-note">${weak ? `弱点：${elem(weak).name}行攻击可破甲并增伤` : '无五行弱点'}</p>
           ${intent ? `<h3>当前意图 · ${esc(intent.name)}</h3><p class="detail-text">${esc(intent.label)}</p>` : ''}
           <h3>招式</h3><div class="detail-list">${Object.values(e.moves).map(m => `<span><b>${esc(m.name)}</b>　${esc([m.damage ? `伤害 ${m.damage}${m.hits > 1 ? ' × ' + m.hits : ''}` : '', m.block ? `护甲 ${m.block}` : '', m.heal ? `回复 ${m.heal}` : '', statusList(m.debuffs), statusList(m.buffs), ...(m.addCards || []).map(x => `塞入 ${x.count || 1} 张${D.cardMap[x.id] ? D.cardMap[x.id].name : '业障'}`)].filter(Boolean).join(' · ') || '特殊效果')}</span>`).join('')}</div>

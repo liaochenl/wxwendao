@@ -231,6 +231,24 @@ const SCREENS = [
     name: 'upgraded-hand',
     combat: true,
     prepare: "(() => { WX_UI.overlay=null; WX_UI.state.combat.hand=[{uid:'audit-up',id:'bai_cao',up:true}]; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'monster-act2',
+    combat: true,
+    prepare: "(() => { WX_UI.state.act=2; WXEngine.startCombat(WX_UI.state,{enemies:[{id:'chi_ba'}]},'boss'); WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'monster-act3',
+    combat: true,
+    prepare: "(() => { WX_UI.state.act=3; WXEngine.startCombat(WX_UI.state,{enemies:[{id:'tai_xu'}]},'boss'); WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'monster-compendium',
+    prepare: "(() => { WX_UI.overlay=null; WX_UI.meta.seenEnemies=['shan_xiao','chi_ba','tai_xu']; WX_UI.screen='compendium'; WX_UI.compTab='enemies'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'monster-detail',
+    prepare: "(() => { WX_UI.detail={kind:'enemy',id:'tai_xu'}; WX_UI.overlay='detail'; WX_UI.render(); return 1; })()"
   }
 ];
 
@@ -311,6 +329,20 @@ async function auditAt(cdp, baseUrl, vp) {
       })()`);
       if (!badge || badge.text !== '土' || badge.title !== '土行' || badge.overflow) fail(`${tag}: 土行徽章文字错误或溢出`);
     }
+    if (screen.name === 'combat' || screen.name.startsWith('monster-')) {
+      const art = await cdp.eval(`(() => {
+        const selector = WX_UI.screen === 'combat' ? '.enemy-art img' : WX_UI.overlay === 'detail' ? '.detail-enemy-portrait img' : '.comp-enemy:not(.locked) .comp-enemy-art img';
+        const images = [...document.querySelectorAll(selector)];
+        const visible = images.filter(img => img.getBoundingClientRect().top < innerHeight && img.getBoundingClientRect().bottom > 0);
+        return { count: images.length, loaded: visible.every(img => img.complete && img.naturalWidth > 0),
+          fullDetail: WX_UI.overlay !== 'detail' || images.every(img => getComputedStyle(img).objectFit === 'contain'),
+          lockedImages: document.querySelectorAll('.comp-enemy.locked img').length,
+          lockedGlyphSize: parseFloat(getComputedStyle(document.querySelector('.comp-enemy.locked .comp-enemy-art') || document.body).fontSize) };
+      })()`);
+      if (!art.count || !art.loaded || !art.fullDetail || art.lockedImages || (screen.name === 'monster-compendium' && art.lockedGlyphSize < 20)) {
+        fail(`${tag}: 怪物立绘未正确加载或图鉴泄露未解锁图片`);
+      }
+    }
     if (screen.name === 'enemy-status-info') {
       const info = await cdp.eval(`(() => ({ enemyClicks:window.__enemyClicks,
         text:document.querySelector('.detail-panel .detail-body')?.innerText || '' }))()`);
@@ -355,7 +387,19 @@ async function auditAt(cdp, baseUrl, vp) {
         if (narrow !== 3) fail(`${tag}: 缩回手机宽度后未恢复纵向奖励布局`);
       }
     }
-    if (screen.name.endsWith('-detail')) {
+    if (screen.name === 'monster-detail') {
+      const panel = await cdp.eval(`(() => {
+        const el = document.querySelector('.detail-panel');
+        const close = el?.querySelector('[data-action="close-overlay"]');
+        if (!el || !close) return null;
+        const r = el.getBoundingClientRect();
+        return { left:r.left, right:r.right, top:r.top, bottom:r.bottom };
+      })()`);
+      if (!panel || panel.left < -1 || panel.right > vp.width + 1 || panel.top < -1 || panel.bottom > vp.height + 1) {
+        fail(`${tag}: 怪物详情面板或关闭按钮出屏`);
+      }
+    }
+    if (screen.name.endsWith('-detail') && screen.name !== 'monster-detail') {
       const detail = await cdp.eval(`(() => {
         const panel = document.querySelector('.detail-panel');
         const body = document.querySelector('.detail-body');
@@ -377,7 +421,7 @@ async function auditAt(cdp, baseUrl, vp) {
       }
     }
 
-    if (vp.width === 393 && (!screen.name.endsWith('-detail') || screen.name === 'upgrade-detail' || screen.name === 'earth-card-detail') && !screen.name.endsWith('-info')) {
+    if (vp.width === 393 && (!screen.name.endsWith('-detail') || screen.name === 'upgrade-detail' || screen.name === 'earth-card-detail' || screen.name === 'monster-detail') && !screen.name.endsWith('-info')) {
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       fs.mkdirSync(SHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(SHOT_DIR, `after-${screen.name}-393.png`), Buffer.from(data, 'base64'));
