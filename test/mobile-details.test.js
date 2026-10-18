@@ -192,6 +192,23 @@ test('卡牌详情展示升级前后效果，已升级牌也能回看原效果',
   assert.doesNotMatch(ui.overlayHTML(), /升级后/);
 });
 
+test('五行详情圆徽章只显示单字，完整行名保留在提示中', () => {
+  const ui = makeUI();
+  for (const id of D.elementOrder) {
+    const card = D.cards.find(c => c.element === id);
+    ui.action('inspect-card', { dataset: { id: card.id, up: '0' } });
+    const badge = ui.overlayHTML().match(/<span class="elem-badge"[^>]*>[^<]*<\/span>/)?.[0] || '';
+    assert.match(badge, new RegExp(`title="${D.elements[id].name}行"`));
+    assert.match(badge, new RegExp(`>${D.elements[id].glyph}<\\/span>$`));
+    ui.action('close-overlay', { dataset: {} });
+  }
+  ui.action('inspect-character', { dataset: { char: 'monk' } });
+  assert.match(ui.overlayHTML(), /title="土行"[^>]*>土<\/span>/);
+  ui.action('close-overlay', { dataset: {} });
+  ui.action('inspect-enemy', { dataset: { id: 'shan_xiao', index: '0' } });
+  assert.match(ui.overlayHTML(), /title="土行"[^>]*>土<\/span>/);
+});
+
 test('调息升级预览明确说明移除消耗', () => {
   const ui = makeUI();
   ui.action('inspect-card', { dataset: { id: 'tiao_xi', up: '0' } });
