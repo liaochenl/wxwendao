@@ -54,7 +54,7 @@
         let expired = false;
         await Promise.race([
           Promise.resolve(animation.finished).catch(() => {}),
-          new Promise(resolve => { timeout = setTimeout(() => { expired = true; resolve(); }, Math.min((options.duration || 0) + 120, 800)); })
+          new Promise(resolve => { timeout = setTimeout(() => { expired = true; resolve(); }, Math.min((options.duration || 0) + (options.delay || 0) + 120, 900)); })
         ]);
         if (expired) animation.cancel?.();
       }
@@ -62,16 +62,24 @@
     finally { clearTimeout(timeout); el.remove(); }
   }
 
-  function ring(x, y, element, className = 'fx-ring', duration = 300, scale = 2) {
+  function ring(x, y, element, className = 'fx-ring', duration = 300, scale = 2, delay = 0) {
     return animateAndRemove(node(className, x, y, element), [
-      { transform: 'translate(-50%, -50%) scale(.35)', opacity: .95 },
+      { transform: 'translate(-50%, -50%) scale(.25)', opacity: .95 },
       { transform: `translate(-50%, -50%) scale(${scale})`, opacity: 0 }
-    ], { duration, easing: 'ease-out' });
+    ], { duration, delay, easing: 'ease-out' });
+  }
+
+  function flash(x, y, element, className = 'fx-flash', duration = 180, delay = 0) {
+    return animateAndRemove(node(className, x, y, element), [
+      { transform: 'translate(-50%, -50%) scale(.35)', opacity: 0 },
+      { transform: 'translate(-50%, -50%) scale(1)', opacity: .92, offset: .35 },
+      { transform: 'translate(-50%, -50%) scale(1.35)', opacity: 0 }
+    ], { duration, delay, easing: 'ease-out' });
   }
 
   function init() { ensureLayer(); }
 
-  function captureCard(card) {
+  function captureCard(card, element) {
     try {
       if (!card || reduced() || !ensureLayer()) return null;
       const rect = card.getBoundingClientRect();
@@ -82,6 +90,7 @@
         width: rect.width + 'px', height: rect.height + 'px',
         margin: '0', transform: 'none', pointerEvents: 'none'
       });
+      ghost.style.setProperty('--fx-color', color(element));
       layer.appendChild(ghost);
       return { ghost, rect, centerX: rect.left + rect.width / 2, centerY: rect.top + rect.height / 2 };
     } catch (_) { return null; }
@@ -94,15 +103,16 @@
     const destination = centerOf(target) || { x: window.innerWidth / 2, y: window.innerHeight * .38 };
     const dx = destination.x - visual.centerX;
     const dy = destination.y - visual.centerY;
-    const long = cardType === 'power';
+    const duration = cardType === 'power' ? 445 : cardType === 'skill' ? 400 : 375;
     try {
       if (!reduced()) {
         await animateAndRemove(visual.ghost, [
-          { transform: 'translate(0, 0) scale(1)', opacity: 1, offset: 0 },
-          { transform: 'translate(0, -16px) scale(1.12)', opacity: 1, offset: .24 },
-          { transform: `translate(${dx * .53}px, ${dy * .47 - 32}px) rotate(${cardType === 'attack' ? -9 : 3}deg) scale(1.14)`, opacity: 1, offset: .62 },
-          { transform: `translate(${dx}px, ${dy}px) rotate(0deg) scale(${long ? .7 : .82})`, opacity: 0, offset: 1 }
-        ], { duration: long ? 340 : 270, easing: 'cubic-bezier(.2,.8,.25,1)' });
+          { transform: 'translate(0, 0) scale(1)', opacity: 1, offset: 0, easing: 'ease-out' },
+          { transform: 'translate(0, -18px) scale(1.20)', opacity: 1, offset: .2, easing: 'cubic-bezier(.2,.8,.25,1)' },
+          { transform: `translate(${dx * .53}px, ${dy * .47 - 32}px) rotate(${cardType === 'attack' ? -9 : 3}deg) scale(1.23)`, opacity: 1, offset: .58, easing: 'ease-in' },
+          { transform: `translate(${dx * .88}px, ${dy * .84}px) rotate(0deg) scale(1.05)`, opacity: 1, offset: .82, easing: 'ease-in' },
+          { transform: `translate(${dx}px, ${dy}px) rotate(0deg) scale(.82)`, opacity: 0, offset: 1 }
+        ], { duration, easing: 'linear' });
         try { void elementBurst({ element, x: destination.x, y: destination.y, strength: cardType === 'attack' ? 1 : .8 }).catch(() => {}); }
         catch (_) {}
       }
@@ -113,26 +123,32 @@
     if (reduced() || !ensureLayer() || !Number.isFinite(x) || !Number.isFinite(y)) return Promise.resolve();
     const type = ORDER.includes(element) ? element : 'earth';
     const count = Math.min(strength > 1 ? 16 : 10, 18);
-    const travel = (type === 'earth' ? 31 : type === 'fire' ? 72 : 57) * Math.min(strength, 1.5);
-    const animations = [ring(x, y, type, 'fx-ring fx-element-' + type, 220, type === 'water' ? 2.8 : 2.1)];
+    const travel = ({ wood: 78, fire: 98, earth: 43, metal: 85, water: 82 })[type] * Math.min(strength, 1.35);
+    const animations = [ring(x, y, type, 'fx-ring fx-element-' + type, type === 'water' ? 350 : 320, type === 'water' ? 2.8 : type === 'earth' ? 2 : 2.25)];
+    if (type === 'fire') animations.push(flash(x, y, type, 'fx-flash fx-fire-core', 200));
     if (type === 'metal') {
       animations.push(animateAndRemove(node('fx-slash fx-element-metal', x, y, type), [
         { transform: 'translate(-90%, -50%) rotate(-34deg) scaleX(.2)', opacity: 0 },
         { transform: 'translate(-50%, -50%) rotate(-34deg) scaleX(1.2)', opacity: 1, offset: .45 },
         { transform: 'translate(-10%, -50%) rotate(-34deg) scaleX(.7)', opacity: 0 }
-      ], { duration: 190, easing: 'ease-out' }));
+      ], { duration: 265, easing: 'ease-out' }));
+      animations.push(animateAndRemove(node('fx-slash fx-slash-secondary fx-element-metal', x + 9, y - 9, type), [
+        { transform: 'translate(-80%, -50%) rotate(-34deg) scaleX(.2)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) rotate(-34deg) scaleX(1)', opacity: .55, offset: .5 },
+        { transform: 'translate(-10%, -50%) rotate(-34deg) scaleX(.7)', opacity: 0 }
+      ], { duration: 240, delay: 35, easing: 'ease-out' }));
     }
     for (let i = 0; i < count; i++) {
       const a = 2 * Math.PI * i / count + .32;
       const distance = travel * (.64 + (i % 3) * .18);
       const px = Math.cos(a) * distance;
-      const py = Math.sin(a) * distance - (type === 'wood' ? 15 : type === 'fire' ? 22 : 0);
+      const py = Math.sin(a) * distance - (type === 'wood' ? 24 : type === 'fire' ? 27 : 0);
       const p = node('fx-particle fx-element-' + type, x, y, type);
       animations.push(animateAndRemove(p, [
         { transform: `translate(-50%, -50%) rotate(${i * 28}deg) scale(.5)`, opacity: 0 },
         { transform: `translate(calc(-50% + ${px * .25}px), calc(-50% + ${py * .25}px)) rotate(${i * 28 + 25}deg) scale(1)`, opacity: 1, offset: .22 },
         { transform: `translate(calc(-50% + ${px}px), calc(-50% + ${py}px)) rotate(${i * 28 + 90}deg) scale(.4)`, opacity: 0 }
-      ], { duration: 190 + (i % 3) * 25, easing: 'cubic-bezier(.15,.75,.4,1)' }));
+      ], { duration: 275 + (i % 3) * 24, easing: 'cubic-bezier(.15,.75,.4,1)' }));
     }
     return Promise.all(animations);
   }
@@ -141,17 +157,24 @@
     const pos = centerOf(target);
     if (!pos || reduced()) return;
     try {
-      if (target && typeof target.animate === 'function') {
-        target.animate(heavy ? [
+      const hitEl = target?.querySelector?.('.enemy-body') || target;
+      if (hitEl && typeof hitEl.animate === 'function') {
+        hitEl.animate(element === 'earth' ? [
+          { transform: 'translateY(0) scaleY(1)' }, { transform: heavy ? 'translateY(3px) scaleY(.94)' : 'translateY(1.5px) scaleY(.98)' },
+          { transform: 'translateY(0) scaleY(1)' }
+        ] : heavy ? [
           { transform: 'translateX(0) scale(1)' }, { transform: 'translateX(-5px) scale(1.03)' },
           { transform: 'translateX(5px) scale(.98)' }, { transform: 'translateX(0) scale(1)' }
         ] : [
           { transform: 'translateX(0)' }, { transform: 'translateX(-4px)' },
           { transform: 'translateX(4px)' }, { transform: 'translateX(0)' }
-        ], { duration: 210, easing: 'ease-out' });
+        ], { duration: heavy ? 260 : 220, easing: 'ease-out' });
       }
     } catch (_) {}
-    return ring(pos.x, pos.y, element, heavy ? 'fx-ring fx-impact fx-impact-heavy' : 'fx-ring fx-impact', 250, heavy ? 2.6 : 1.8);
+    return Promise.all([
+      ring(pos.x, pos.y, element, heavy ? 'fx-ring fx-impact fx-impact-heavy' : 'fx-ring fx-impact', heavy ? 340 : 315, heavy ? 2.9 : 2.2),
+      heavy ? flash(pos.x, pos.y, element, 'fx-flash fx-impact-flash', 180) : Promise.resolve()
+    ]);
   }
 
   function block({ target } = {}) {
@@ -186,9 +209,9 @@
     const p = centerOf(target);
     if (!p || reduced()) return Promise.resolve();
     try { target.animate?.([
-      { transform: 'scale(1)' }, { transform: 'scale(1.07)' }, { transform: 'scale(1)' }
-    ], { duration: 300, easing: 'ease-out' }); } catch (_) {}
-    return ring(p.x, p.y, element, 'fx-ring fx-chain-pulse', 300, 2.6);
+      { transform: 'scale(1)' }, { transform: 'scale(1.10)' }, { transform: 'scale(1)' }
+    ], { duration: 350, easing: 'ease-out' }); } catch (_) {}
+    return ring(p.x, p.y, element, 'fx-ring fx-chain-pulse', 350, 2.7);
   }
 
   function overcomeBurst({ target, element } = {}) {
@@ -196,7 +219,9 @@
     if (!p || reduced()) return Promise.resolve();
     return Promise.all([
       elementBurst({ element, x: p.x, y: p.y, strength: 1.4 }),
-      ring(p.x, p.y, element, 'fx-ring fx-overcome', 310, 3)
+      ring(p.x, p.y, element, 'fx-ring fx-overcome', 340, 2.7),
+      ring(p.x, p.y, element, 'fx-ring fx-overcome-echo', 330, 3, 70),
+      flash(p.x, p.y, element, 'fx-flash fx-overcome-flash', 190)
     ]);
   }
 
@@ -207,34 +232,41 @@
     const ringNode = node('fx-zhoutian-ring', x, y, 'metal');
     if (ringNode) ringNode.style.background = `conic-gradient(${ORDER.map(color).join(',')},${color('wood')})`;
     const wave = node('fx-zhoutian-wave', x, y, 'metal');
+    const secondWave = node('fx-zhoutian-wave fx-zhoutian-wave-echo', x, y, 'metal');
     const animations = [
       animateAndRemove(ringNode, [
         { transform: 'translate(-50%, -50%) scale(.3) rotate(0deg)', opacity: 0 },
         { transform: 'translate(-50%, -50%) scale(1) rotate(180deg)', opacity: 1, offset: .52 },
         { transform: 'translate(-50%, -50%) scale(1.35) rotate(235deg)', opacity: 0 }
-      ], { duration: 560, easing: 'ease-out' }),
+      ], { duration: 650, easing: 'ease-out' }),
       animateAndRemove(wave, [
         { transform: 'translate(-50%, -50%) scale(.2)', opacity: 0, offset: 0 },
         { transform: 'translate(-50%, -50%) scale(.45)', opacity: .8, offset: .46 },
         { transform: 'translate(-50%, -50%) scale(3.4)', opacity: 0 }
-      ], { duration: 560, easing: 'ease-out' })
+      ], { duration: 650, easing: 'ease-out' }),
+      animateAndRemove(secondWave, [
+        { transform: 'translate(-50%, -50%) scale(.3)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) scale(.7)', opacity: .95, offset: .24 },
+        { transform: 'translate(-50%, -50%) scale(2.4)', opacity: 0 }
+      ], { duration: 330, delay: 320, easing: 'ease-out' }),
+      flash(x, y, 'metal', 'fx-flash fx-zhoutian-core', 250, 300)
     ];
     for (let i = 0; i < 25; i++) {
       const a = Math.PI * 2 * i / 25;
       const p = node('fx-particle fx-element-' + ORDER[i % 5], x, y, ORDER[i % 5]);
       animations.push(animateAndRemove(p, [
         { transform: 'translate(-50%, -50%) scale(.4)', opacity: 0, offset: 0 },
-        { transform: 'translate(-50%, -50%) scale(1.2)', opacity: 0, offset: .4 },
-        { transform: `translate(calc(-50% + ${Math.cos(a) * 160}px), calc(-50% + ${Math.sin(a) * 105}px)) scale(.75)`, opacity: 1, offset: .66 },
+        { transform: 'translate(-50%, -50%) scale(1.2)', opacity: 0, offset: .46 },
+        { transform: `translate(calc(-50% + ${Math.cos(a) * 160}px), calc(-50% + ${Math.sin(a) * 105}px)) scale(.75)`, opacity: 1, offset: .69 },
         { transform: `translate(calc(-50% + ${Math.cos(a) * 225}px), calc(-50% + ${Math.sin(a) * 145}px)) scale(.2)`, opacity: 0 }
-      ], { duration: 560, easing: 'ease-out' }));
+      ], { duration: 650, easing: 'ease-out' }));
     }
     try {
       document.querySelectorAll?.('.enemy-unit:not(.dead)').forEach(enemy => {
         enemy.animate?.([
           { transform: 'translateX(0)' }, { transform: 'translateX(-3px)' },
           { transform: 'translateX(3px)' }, { transform: 'translateX(0)' }
-        ], { duration: 180, delay: 320 });
+        ], { duration: 180, delay: 380 });
       });
     } catch (_) {}
     await Promise.all(animations);
