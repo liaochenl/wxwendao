@@ -484,7 +484,7 @@
       const cardData = card && E.getCardData(card);
       const cardEl = document.querySelector('.hand .card[data-index="' + index + '"]');
       let captured = null;
-      try { captured = FX?.captureCard(cardEl); } catch (_) {}
+      try { captured = FX?.captureCard(cardEl, cardData?.element); } catch (_) {}
       const allEnemies = cardData?.effects?.some(effect => effect.op === 'damage' && effect.target === 'all');
       let targetEl = null;
       if (cardData?.type === 'attack') {
@@ -1267,7 +1267,7 @@
         intent.addCards.length ? '塞入业障' : ''
       ].filter(Boolean).join(' · ') : '';
       return `
-      <div class="enemy-unit ${alive ? '' : 'dead'} ${targetable ? 'targetable' : ''} ${i === targetIdx && alive ? 'focused' : ''} ${showTarget ? 'show-target' : ''}" data-enemy-uid="${e.uid}" data-action="enemy" data-index="${i}">
+      <div class="enemy-unit ${alive ? '' : 'dead'} ${targetable ? 'targetable' : ''} ${i === targetIdx && alive ? 'focused' : ''} ${showTarget ? 'show-target' : ''}" style="--enemy-index:${i};--enemy-element:${elem(e.element).color}" data-enemy-uid="${e.uid}" data-action="enemy" data-index="${i}">
         ${alive ? `<button class="entity-info enemy-info-btn" data-action="inspect-enemy" data-id="${esc(e.id)}" data-index="${i}" aria-label="查看${esc(e.name)}详情">详情</button>` : ''}
         <div class="intent ${intent && intent.damage ? 'intent-attack' : ''}" title="${intent ? esc(intent.name + '：' + intent.label) : ''}">
           <span class="intent-icon">${intent ? esc(intent.icon) : '？'}</span>
@@ -1280,7 +1280,7 @@
             ${elemBadge(e.element)}
             ${weak ? `<span class="weak-tag" title="相克弱点">弱 ${elem(weak).glyph}</span>` : ''}
           </div>
-          <div class="enemy-art">${enemyPortrait(e.id, e.name, 'eager', 'enemy-art-figure')}</div>
+          <div class="enemy-art"><div class="enemy-art-motion">${enemyPortrait(e.id, e.name, 'eager', 'enemy-art-figure')}</div></div>
           ${hpBarHTML(e.hp, e.maxHp, 'enemy-hp')}
           ${sub ? `<div class="enemy-sub">${sub}</div>` : ''}
         </div>
@@ -1539,7 +1539,10 @@
           return cardHTML({ uid: 'comp_' + c.id, id: c.id, up: false }, { mode: 'compendium', inspect: true });
         }).join('')}</div>`;
       } else if (this.compTab === 'characters') {
-        body = `<div class="comp-relics">${D.characters.map(ch => `<button class="comp-relic comp-inspect" data-action="inspect-character" data-char="${esc(ch.id)}"><span class="comp-relic-icon">${characterSigil(ch.id)}</span><span><b>${esc(ch.name)}</b><span>${esc(ch.passive)} · ${esc(CHAR_STYLE[ch.id])}</span></span></button>`).join('')}</div>`;
+        body = `<div class="comp-characters">${D.characters.map(ch => `<button class="comp-character comp-inspect" data-action="inspect-character" data-char="${esc(ch.id)}" style="--accent:${ch.accent}">
+          <span class="comp-character-art"><img class="comp-character-portrait" src="${CHAR_PORTRAITS[ch.id]}" alt="" loading="lazy" decoding="async"><span class="comp-character-sigil">${characterSigil(ch.id)}</span></span>
+          <span class="comp-character-info"><b>${esc(ch.name)}</b><span>${esc(ch.title)}</span><small>${esc(ch.passive)} · ${esc(CHAR_STYLE[ch.id])}</small></span>
+        </button>`).join('')}</div>`;
       } else if (this.compTab === 'relics') {
         body = `<div class="comp-relics">${D.relics.filter(r => r.rarity !== 'starter').map(r => {
           const seen = m.seenRelics.includes(r.id);

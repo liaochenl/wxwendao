@@ -51,6 +51,25 @@ test('出牌前复制卡牌，视觉失败也会完成规则结算并解除忙�
   assert.equal(ui.state.combat.hand.length, before - 1);
 });
 
+test('角色图鉴直接展示三位修士立绘，且保持可点开的角色入口', () => {
+  const ui = makeUI();
+  ui.compTab = 'characters';
+  const html = ui.compendiumHTML();
+  assert.equal((html.match(/class="comp-character-portrait"/g) || []).length, 3);
+  for (const id of ['sword', 'alchemist', 'monk']) {
+    assert.match(html, new RegExp(`assets/characters/${id}\\.webp`));
+    assert.match(html, new RegExp(`data-action="inspect-character" data-char="${id}"`));
+  }
+});
+
+test('战斗怪物立绘有独立呼吸层，受击单位仍独立存在', () => {
+  const ui = makeUI();
+  const html = ui.enemyHTML(ui.state.combat.enemies[0], 0, 0);
+  assert.match(html, /class="enemy-unit [^"]*focused[^"]*"/);
+  assert.match(html, /class="enemy-art-motion"/);
+  assert.match(html, /class="enemy-art-figure"/);
+});
+
 function setReward(ui) {
   ui.state.reward = {
     kind: 'combat', gold: 10,

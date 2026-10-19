@@ -223,6 +223,10 @@ const SCREENS = [
     prepare: "(() => { WX_UI.overlay=null; WX_UI.screen='compendium'; WX_UI.compTab='cards'; WX_UI.render(); return 1; })()"
   },
   {
+    name: 'characters',
+    prepare: "(() => { WX_UI.overlay=null; WX_UI.screen='compendium'; WX_UI.compTab='characters'; WX_UI.render(); return 1; })()"
+  },
+  {
     name: 'multi',
     combat: true,
     prepare: "(() => { const st=WX_UI.state; WX_UI.overlay=null; WXEngine.startCombat(st,{enemies:[{id:'shan_xiao'},{id:'shan_xiao'},{id:'shan_xiao'}]},'combat'); WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
@@ -254,6 +258,7 @@ const SCREENS = [
 
 const viewports = [
   { width: 360, height: 640 },
+  { width: 390, height: 844 },
   { width: 393, height: 852 },
   { width: 430, height: 932 }
 ];
@@ -305,6 +310,23 @@ async function auditAt(cdp, baseUrl, vp) {
       })()`);
       if (!changed) fail(`${tag}: 切换修士后主卡或开始按钮未更新`);
     }
+    if (screen.name === 'characters') {
+      const portraits = await cdp.eval(`(() => {
+        const cards=[...document.querySelectorAll('.comp-character')];
+        const images=cards.map(card=>card.querySelector('.comp-character-portrait'));
+        return { count:cards.length, loaded:images.every(img=>img?.complete && img.naturalWidth>0),
+          clickable:cards.every(card=>card.dataset.action==='inspect-character'),
+          inside:cards.every(card=>{const r=card.getBoundingClientRect();return r.left>=-1&&r.right<=innerWidth+1;}),
+          artHeight:cards[0]?.querySelector('.comp-character-art')?.getBoundingClientRect().height||0 };
+      })()`);
+      if (portraits.count !== 3 || !portraits.loaded || !portraits.clickable || !portraits.inside || portraits.artHeight < 110 || portraits.artHeight > 150) {
+        fail(`${tag}: 角色图鉴立绘、点击入口或手机布局异常 ${JSON.stringify(portraits)}`);
+      }
+      const detail = await cdp.eval(`(() => { document.querySelector('.comp-character')?.click();
+        return { open:WX_UI.overlay==='detail', name:document.querySelector('.detail-panel')?.textContent||'' }; })()`);
+      if (!detail.open || !detail.name.includes('凌霄')) fail(`${tag}: 点击角色图鉴未打开角色详情`);
+      await cdp.eval("(() => { WX_UI.closeOverlay(); return 1; })()");
+    }
     if (screen.combat) {
       if (r.endTurnOverlap) fail(`${tag}: 结束回合与手牌相交`);
       if (r.handFont != null && r.handFont < 11) fail(`${tag}: 手牌字号 ${r.handFont}px < 11px`);
@@ -341,6 +363,25 @@ async function auditAt(cdp, baseUrl, vp) {
       })()`);
       if (!art.count || !art.loaded || !art.fullDetail || art.lockedImages || (screen.name === 'monster-compendium' && art.lockedGlyphSize < 20)) {
         fail(`${tag}: 怪物立绘未正确加载或图鉴泄露未解锁图片`);
+      }
+    }
+    if (screen.name === 'combat') {
+      const motion = await cdp.eval(`(() => {
+        const enemy=document.querySelector('.enemy-unit');
+        const inner=enemy?.querySelector('.enemy-art-motion');
+        const image=enemy?.querySelector('.enemy-art-figure');
+        const idle=inner && getComputedStyle(inner).animationName;
+        const imageAnimation=image && getComputedStyle(image).animationName;
+        enemy?.classList.add('hit');
+        const hit=enemy && getComputedStyle(enemy).animationName;
+        enemy?.classList.remove('hit');
+        enemy?.classList.add('dead');
+        const dead=inner && getComputedStyle(inner).animationName;
+        enemy?.classList.remove('dead');
+        return { idle, imageAnimation, hit, dead, focused:!!enemy?.classList.contains('focused') };
+      })()`);
+      if (motion.idle !== 'enemyIdle' || motion.imageAnimation !== 'none' || !motion.hit.includes('hitShake') || motion.dead !== 'none' || !motion.focused) {
+        fail(`${tag}: 怪物呼吸层与受击、死亡或目标高亮冲突 ${JSON.stringify(motion)}`);
       }
     }
     if (screen.name === 'enemy-status-info') {
@@ -454,6 +495,18 @@ async function captureCardShowcase(cdp, baseUrl) {
   const selectShot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   fs.writeFileSync(path.join(ROOT, 'docs', 'screenshots', 'select.png'), Buffer.from(selectShot.data, 'base64'));
   console.log('CHECK 选角样板@1280: 三栏立绘与开始按钮');
+  const compCharacters = await cdp.eval(`(() => {
+    WX_UI.meta = WX_UI.meta || {seenCards:[],seenRelics:[],seenEnemies:[]};
+    WX_UI.screen='compendium'; WX_UI.compTab='characters'; WX_UI.render();
+    const cards=[...document.querySelectorAll('.comp-character')];
+    const images=cards.map(card=>card.querySelector('.comp-character-portrait'));
+    return { count:cards.length, loaded:images.every(img=>img?.complete && img.naturalWidth>0),
+      row:cards.every(card=>Math.abs(card.getBoundingClientRect().top-cards[0].getBoundingClientRect().top)<2) };
+  })()`);
+  await sleep(350);
+  const loadedCharacters = await cdp.eval(`(() => [...document.querySelectorAll('.comp-character-portrait')].every(img=>img.complete && img.naturalWidth>0))()`);
+  if (compCharacters.count !== 3 || !loadedCharacters || !compCharacters.row) fail(`桌面角色图鉴立绘或三栏布局异常 ${JSON.stringify(compCharacters)}`);
+  console.log('CHECK 角色图鉴@1280: 三位修士立绘与三栏布局');
   const sample = await cdp.eval(`(() => {
     localStorage.clear(); WX_UI.hasRun = false; WX_UI.beginRun();
     WX_UI.state.deck = [
@@ -566,9 +619,13 @@ async function auditCombatEffects(cdp, baseUrl) {
     if (started.error || !started.ghost || started.after !== started.before - 1 || started.pointer !== 'none' || started.fxZ >= started.overlayZ) {
       fail(`出牌特效@${width}: 快照、即时结算或遮挡层级异常 ${JSON.stringify(started)}`);
     }
+    await sleep(175);
+    const midFlight = await cdp.eval(`(() => { const ghost=document.querySelector('.fx-card-ghost');
+      return { visible:!!ghost, opacity:ghost?Number(getComputedStyle(ghost).opacity):0 }; })()`);
+    if (!midFlight.visible || midFlight.opacity < .65) fail(`出牌特效@${width}: 飞牌中段过早淡出 ${JSON.stringify(midFlight)}`);
     await sleep(1500);
     const settled = await cdp.eval(`(() => ({ busy:WX_UI.busy, ghost:document.querySelectorAll('.fx-card-ghost').length,
-      temporary:document.querySelectorAll('#fx-layer .fx-particle,#fx-layer .fx-ring,#fx-layer .fx-slash').length,
+      temporary:document.querySelectorAll('#fx-layer .fx-particle,#fx-layer .fx-ring,#fx-layer .fx-slash,#fx-layer .fx-flash').length,
       hand:WX_UI.state.combat.hand.length }))()`);
     if (settled.busy || settled.ghost || settled.temporary || settled.hand) fail(`出牌特效@${width}: 动画未清理或忙碌状态未解除 ${JSON.stringify(settled)}`);
     for (const element of ['wood','fire','earth','metal','water']) {
@@ -578,16 +635,16 @@ async function auditCombatEffects(cdp, baseUrl) {
           distinct:document.querySelectorAll('#fx-layer .fx-element-${element}').length };
       })()`);
       if (!burst.distinct || burst.particles > 12) fail(`五行特效@${width}/${element}: 粒子形态或数量异常 ${JSON.stringify(burst)}`);
-      await sleep(400);
-      const leftover = await cdp.eval(`(() => document.querySelectorAll('#fx-layer .fx-particle,#fx-layer .fx-ring,#fx-layer .fx-slash').length)()`);
-      if (leftover) fail(`五行特效@${width}/${element}: 节点未清理 ${leftover}`);
+      const finished = await cdp.eval(`Promise.race([window.__fxBurst.then(()=>true),new Promise(resolve=>setTimeout(()=>resolve(false),1000))])`);
+      const leftover = await cdp.eval(`(() => [...document.querySelectorAll('#fx-layer .fx-particle,#fx-layer .fx-ring,#fx-layer .fx-slash,#fx-layer .fx-flash')].map(el=>el.className))()`);
+      if (!finished || leftover.length) fail(`五行特效@${width}/${element}: 动画未结束或节点未清理 ${JSON.stringify(leftover)}`);
     }
     const zhou = await cdp.eval(`(() => { window.__fxZhou=WXEffects.zhoutian();
       return { ring:document.querySelectorAll('.fx-zhoutian-ring').length,
         particles:document.querySelectorAll('#fx-layer .fx-particle').length }; })()`);
     if (zhou.ring !== 1 || zhou.particles > 30) fail(`周天特效@${width}: 环或粒子异常 ${JSON.stringify(zhou)}`);
-    await sleep(750);
-    if (await cdp.eval(`(() => document.querySelectorAll('.fx-zhoutian-ring,.fx-zhoutian-wave,#fx-layer .fx-particle').length)()`)) fail(`周天特效@${width}: 节点未清理`);
+    const zhouFinished = await cdp.eval(`Promise.race([window.__fxZhou.then(()=>true),new Promise(resolve=>setTimeout(()=>resolve(false),1100))])`);
+    if (!zhouFinished || await cdp.eval(`(() => document.querySelectorAll('.fx-zhoutian-ring,.fx-zhoutian-wave,#fx-layer .fx-particle,#fx-layer .fx-flash').length)()`)) fail(`周天特效@${width}: 动画未结束或节点未清理`);
     console.log(`CHECK 出牌特效@${width}: 飞牌、五行、周天、清理和层级`);
   }
   await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
@@ -596,8 +653,9 @@ async function auditCombatEffects(cdp, baseUrl) {
     return { particles:document.querySelectorAll('#fx-layer .fx-particle').length,
       ring:document.querySelectorAll('.fx-zhoutian-ring').length,
       clone:WXEffects.captureCard(document.querySelector('.hand .card')),
-      floatOpacity:Number(getComputedStyle(document.querySelector('.float-text')).opacity) }; })()`);
-  if (reduced.particles || reduced.ring || reduced.clone || reduced.floatOpacity < .5) fail(`减少动态效果下粒子、飞牌或必要飘字异常 ${JSON.stringify(reduced)}`);
+      floatOpacity:Number(getComputedStyle(document.querySelector('.float-text')).opacity),
+      enemyIdle:getComputedStyle(document.querySelector('.enemy-art-motion')).animationName }; })()`);
+  if (reduced.particles || reduced.ring || reduced.clone || reduced.floatOpacity < .5 || reduced.enemyIdle !== 'none') fail(`减少动态效果下粒子、飞牌、怪物呼吸或必要飘字异常 ${JSON.stringify(reduced)}`);
   console.log('CHECK 减少动态效果: 粒子与飞牌已关闭');
 }
 
