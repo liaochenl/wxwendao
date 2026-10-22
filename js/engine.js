@@ -19,6 +19,17 @@
     treasure:{ name: '宝箱', glyph: '宝', desc: '一件遗物或一笔金币。' },
     boss:    { name: '幕主', glyph: '主', desc: '本幕之主。' }
   };
+  const ROUTE_META = {
+    safe: { name: '稳健', glyph: '稳', short: '稳途', desc: '休整与商店倾向更高，精英较少' },
+    resource: { name: '机缘', glyph: '缘', short: '机缘', desc: '事件、商店与宝箱倾向更高' },
+    danger: { name: '险途', glyph: '险', short: '险途', desc: '精英与战斗倾向更高，收益也更集中' }
+  };
+  const ROUTE_MULTIPLIERS = {
+    safe: { combat: 1.05, event: 0.90, elite: 0.45, shop: 1.35, rest: 1.55, treasure: 0.90 },
+    resource: { combat: 0.75, event: 1.45, elite: 0.75, shop: 1.50, rest: 0.80, treasure: 1.50 },
+    danger: { combat: 1.00, event: 0.70, elite: 1.70, shop: 0.55, rest: 0.55, treasure: 1.15 }
+  };
+  const MAP_SPECIAL_TYPES = ['shop', 'rest', 'treasure', 'elite'];
   const RARITY_NAME = { starter: '初始', common: '普通', uncommon: '罕见', rare: '稀有', curse: '诅咒', special: '特殊' };
   const CHARACTER_IDS = DATA.characters.map(c => c.id);
   const CURSE_IDS = ['xin_mo', 'za_nian', 'zou_huo'];
@@ -163,6 +174,136 @@
   }
 
   /* ---------------- 地图 ---------------- */
+  function getMapRouteProfile(node, rowNodes) {
+    const count = rowNodes?.length || 1;
+    if (count === 1) return 'resource';
+    if (node.col === 0) return 'safe';
+    if (node.col === count - 1) return 'danger';
+    return 'resource';
+  }
+
+  function getMapTypeLimits(act) {
+    return { shop: 2, event: 4, treasure: 2, rest: 2, elite: act === 1 ? 2 : 3 };
+  }
+
+  function getMapTypeWeights({ act, row, route, predecessors = [], typeCounts = {}, reservedTreasureSuccessor = false }) {
+    const weights = {
+      combat: 46,
+      event: 17,
+      elite: row >= 2 ? (act === 1 ? 8 : act === 2 ? 11 : 14) : 0,
+      shop: 8,
+      rest: row >= 3 && row <= 5 ? 9 : 0,
+      treasure: 6
+    };
+    const multiplier = ROUTE_MULTIPLIERS[route] || ROUTE_MULTIPLIERS.resource;
+    const limits = getMapTypeLimits(act);
+    for (const type of Object.keys(weights)) {
+      if (limits[type] != null && (typeCounts[type] || 0) >= limits[type]) weights[type] = 0;
+      if (MAP_SPECIAL_TYPES.includes(type) && predecessors.some(node => node.type === type)) weights[type] = 0;
+      if (type === 'treasure' && reservedTreasureSuccessor) weights[type] = 0;
+      if (type === 'event' && predecessors.some(node => node.type === 'event')) weights[type] *= 0.25;
+      weights[type] *= multiplier[type];
+    }
+    return weights;
+  }
+
+  function mapIncoming(nodes) {
+    const incoming = new Map(nodes.map(node => [node.id, []]));
+    for (const node of nodes) for (const next of node.next) incoming.get(next)?.push(node);
+    return incoming;
+  }
+
+  function validateMap(map) {
+    const errors = [];
+    if (!map || !Array.isArray(map.nodes) || !Array.isArray(map.byRow)) return { valid: false, errors: ['地图结构缺失'] };
+    const byId = new Map(map.nodes.map(node => [node.id, node]));
+    const incoming = mapIncoming(map.nodes);
+    const hard = new Set(MAP_SPECIAL_TYPES);
+    const boss = byId.get(map.bossId);
+    if (!boss || boss.type !== 'boss' || boss.row !== 8) errors.push('幕主节点无效');
+    if (map.byRow.length !== 9 || map.byRow[0]?.length !== 3 || map.byRow[7]?.length !== 2) errors.push('地图层数或固定节点数无效');
+    for (let row = 1; row <= 6; row++) if (map.byRow[row]?.length < 2 || map.byRow[row]?.length > 3) errors.push(`第 ${row + 1} 层节点数无效`);
+    for (const node of map.nodes) {
+      if (node.row < 8 && !ROUTE_META[node.route]) errors.push(`${node.id} 缺少路线`);
+      if (node.row === 0 && node.type !== 'combat') errors.push(`${node.id} 起点不是战斗`);
+      if (node.row === 7 && node.type !== 'rest') errors.push(`${node.id} 幕主前不是休整`);
+      if (node.row === 1 && ['elite', 'rest'].includes(node.type)) errors.push(`${node.id} 第 2 层类型无效`);
+      if (node.row === 2 && node.type === 'rest') errors.push(`${node.id} 第 3 层不能休整`);
+      if (node.row === 6 && node.type === 'rest') errors.push(`${node.id} 连续休整风险`);
+      if (node.row < 8 && !node.next.length) errors.push(`${node.id} 无后继`);
+      if (node.row > 0 && !(incoming.get(node.id) || []).length) errors.push(`${node.id} 无入边`);
+      for (const nextId of node.next) {
+        const next = byId.get(nextId);
+        if (!next || next.row !== node.row + 1) errors.push(`${node.id} 连线无效`);
+        else if (hard.has(node.type) && next.type === node.type) errors.push(`${node.id} → ${next.id} 连续特殊节点`);
+      }
+    }
+    const middle = map.nodes.filter(node => node.row >= 1 && node.row <= 6);
+    const count = type => middle.filter(node => node.type === type).length;
+    const limits = getMapTypeLimits(map.act);
+    for (const type of ['shop', 'event', 'elite', 'treasure']) if (count(type) < 1) errors.push(`缺少 ${type}`);
+    for (const [type, maximum] of Object.entries(limits)) if (count(type) > maximum) errors.push(`${type} 超过上限`);
+    if (!middle.some(node => node.type === 'treasure' && node.row >= 3 && node.row <= 5)) errors.push('缺少中段宝箱');
+    const starts = map.byRow[0] || [];
+    const forward = new Set();
+    const stack = starts.slice();
+    while (stack.length) {
+      const node = stack.pop();
+      if (forward.has(node.id)) continue;
+      forward.add(node.id);
+      for (const id of node.next) if (byId.has(id)) stack.push(byId.get(id));
+    }
+    if (forward.size !== map.nodes.length) errors.push('存在起点不可达节点');
+    const backward = new Set();
+    const reverse = boss ? [boss] : [];
+    while (reverse.length) {
+      const node = reverse.pop();
+      if (backward.has(node.id)) continue;
+      backward.add(node.id);
+      reverse.push(...(incoming.get(node.id) || []));
+    }
+    if (backward.size !== map.nodes.length) errors.push('存在无法到达幕主的节点');
+    return { valid: errors.length === 0, errors };
+  }
+
+  function assignMapTypes(state, map, guaranteedTreasure) {
+    const { nodes, byRow, act } = map;
+    const incoming = mapIncoming(nodes);
+    const byId = new Map(nodes.map(node => [node.id, node]));
+    const middle = nodes.filter(node => node.row >= 1 && node.row <= 6);
+    const minimum = { shop: 1, event: 1, elite: 1, treasure: 1 };
+    const counts = { combat: 0, event: 0, elite: 0, shop: 0, rest: 0, treasure: 1 };
+    for (const node of middle) node.type = 'combat';
+    guaranteedTreasure.type = 'treasure';
+    for (let row = 1; row <= 6; row++) {
+      for (const node of byRow[row]) {
+        if (node === guaranteedTreasure) continue;
+        const weights = getMapTypeWeights({ act, row, route: node.route, predecessors: incoming.get(node.id),
+          typeCounts: counts, reservedTreasureSuccessor: node.next.includes(guaranteedTreasure.id) });
+        const choices = Object.keys(weights).filter(type => weights[type] > 0);
+        node.type = weighted(state, choices, type => weights[type]);
+        counts[node.type]++;
+      }
+    }
+    for (const type of ['shop', 'event', 'elite']) {
+      if (counts[type] >= minimum[type]) continue;
+      const candidates = middle.filter(node => {
+        if (node === guaranteedTreasure || node.type === type) return false;
+        if (counts[node.type] <= (minimum[node.type] || 0)) return false;
+        const weights = getMapTypeWeights({ act, row: node.row, route: node.route,
+          predecessors: incoming.get(node.id), typeCounts: counts,
+          reservedTreasureSuccessor: node.next.includes(guaranteedTreasure.id) });
+        return weights[type] > 0 && !node.next.some(id => byId.get(id)?.type === type && MAP_SPECIAL_TYPES.includes(type));
+      });
+      if (!candidates.length) return false;
+      const target = weighted(state, candidates, node => ROUTE_MULTIPLIERS[node.route][type]);
+      counts[target.type]--;
+      target.type = type;
+      counts[type]++;
+    }
+    return true;
+  }
+
   function generateMap(state, act) {
     const counts = [3, randInt(state, 2, 3), randInt(state, 2, 3), randInt(state, 2, 3), randInt(state, 2, 3), randInt(state, 2, 3), randInt(state, 2, 3), 2];
     const nodes = [];
@@ -204,47 +345,16 @@
     }
     byRow[7].forEach(n => { n.next = [boss.id]; });
 
-    // 类型：起点战斗、第 7 层休整、第 4 层至少一个宝箱
+    // 路线只由横向位置决定；节点类型仍按每局种子抽取。
+    for (let row = 0; row < 8; row++) {
+      for (const node of byRow[row]) node.route = getMapRouteProfile(node, byRow[row]);
+    }
     byRow[0].forEach(n => { n.type = 'combat'; });
     byRow[7].forEach(n => { n.type = 'rest'; });
-    for (let row = 1; row <= 6; row++) {
-      byRow[row].forEach((n, idx) => {
-        if (row === 4 && idx === 0) { n.type = 'treasure'; return; }
-        const weights = {
-          combat: 46,
-          event: 17,
-          elite: row >= 2 ? (act === 1 ? 8 : act === 2 ? 11 : 14) : 0,
-          shop: 8,
-          rest: row >= 3 ? 9 : 2,
-          treasure: 6
-        };
-        const types = Object.keys(weights).filter(t => weights[t] > 0);
-        n.type = weighted(state, types, t => weights[t]);
-      });
-    }
-    // 确保每幕至少有一个商店、一个事件
-    const all = nodes.filter(n => n.row >= 1 && n.row <= 6);
-    const flexible = () => {
-      const pool = all.filter(n => n.type !== 'treasure' && n.type !== 'rest');
-      return pool.length ? pool : all;
-    };
-    if (!all.some(n => n.type === 'shop')) {
-      const pool = flexible();
-      pool[randInt(state, 0, pool.length - 1)].type = 'shop';
-    }
-    if (!all.some(n => n.type === 'event')) {
-      const pool = flexible().filter(n => n.type !== 'shop');
-      const target = pool.length ? pool : flexible();
-      target[randInt(state, 0, target.length - 1)].type = 'event';
-    }
-    if (!nodes.some(n => n.type === 'elite')) {
-      const pool = flexible().filter(n => n.type !== 'shop' && n.type !== 'event');
-      const target = pool.length ? pool : flexible();
-      target[randInt(state, 0, target.length - 1)].type = 'elite';
-    }
-
-    state.act = act;
-    state.map = {
+    const treasureCandidates = byRow.slice(3, 6).flat();
+    const guaranteedTreasure = weighted(state, treasureCandidates, node =>
+      node.route === 'resource' ? 3 : node.route === 'safe' ? 2 : 1);
+    const map = {
       act,
       nodes,
       byRow,
@@ -252,8 +362,25 @@
       currentNode: null,
       rows: 9
     };
+    let valid = false;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      if (assignMapTypes(state, map, guaranteedTreasure) && validateMap(map).valid) {
+        valid = true;
+        break;
+      }
+    }
+    if (!valid) {
+      // 极端配额冲突时保持本局可玩；固定节点与连线仍沿用同一种子生成的结果。
+      for (const node of nodes.filter(node => node.row >= 1 && node.row <= 6)) node.type = 'combat';
+      guaranteedTreasure.type = 'treasure';
+      byRow[1][0].type = 'shop';
+      byRow[1][byRow[1].length - 1].type = 'event';
+      byRow[2][byRow[2].length - 1].type = 'elite';
+    }
+    state.act = act;
+    state.map = map;
     state.screen = 'map';
-    return state.map;
+    return map;
   }
 
   function nodeById(state, id) {
@@ -1564,9 +1691,13 @@
     VERSION,
     ACT_NAMES,
     NODE_META,
+    ROUTE_META,
     RARITY_NAME,
     createRun,
     generateMap,
+    getMapRouteProfile,
+    getMapTypeWeights,
+    validateMap,
     nodeById,
     availableNodes,
     currentNode,

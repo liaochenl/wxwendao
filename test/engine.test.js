@@ -559,7 +559,7 @@ test('地图：分层连通、起点可达 Boss、类型合法、每幕有商店
       assert.strictEqual(map.byRow[8][0].type, 'boss');
       assert.strictEqual(map.byRow[7].every(n => n.type === 'rest'), true);
       assert.strictEqual(map.byRow[0].every(n => n.type === 'combat'), true);
-      assert.ok(map.byRow[4].some(n => n.type === 'treasure'));
+      assert.ok(map.byRow.slice(3, 6).some(row => row.some(n => n.type === 'treasure')));
       assert.ok(map.nodes.some(n => n.type === 'shop'));
       assert.ok(map.byRow[7].every(n => n.next.includes(map.bossId)));
       // 从每个起点都能到达 Boss

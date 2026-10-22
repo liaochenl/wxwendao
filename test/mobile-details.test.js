@@ -70,6 +70,23 @@ test('战斗怪物立绘有独立呼吸层，受击单位仍独立存在', () =>
   assert.match(html, /class="enemy-art-figure"/);
 });
 
+test('地图起点说明三种路线，旧存档缺少路线字段仍可显示', () => {
+  const ui = makeUI(390);
+  ui.state.combat = null;
+  ui.state.screen = 'map';
+  let html = ui.mapHTML();
+  assert.match(html, /稳途/);
+  assert.match(html, /机缘/);
+  assert.match(html, /险途/);
+  assert.match(html, /data-route="safe"/);
+  assert.match(html, /路线倾向：稳健/);
+  for (const node of ui.state.map.nodes) delete node.route;
+  ui.state = E.deserialize(E.serialize(ui.state));
+  html = ui.mapHTML();
+  assert.match(html, /map-canvas/);
+  assert.doesNotMatch(html, /route-start-label/);
+});
+
 function setReward(ui) {
   ui.state.reward = {
     kind: 'combat', gold: 10,

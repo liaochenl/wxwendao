@@ -1108,6 +1108,7 @@
         });
       });
       const cur = curId ? E.nodeById(st, curId) : null;
+      const hasRoutes = map.nodes.some(node => node.route && E.ROUTE_META[node.route]);
       const nodeHTML = map.nodes.map(node => {
         const p = pos[node.id];
         const meta = E.getNodeMeta(node.type);
@@ -1115,14 +1116,17 @@
         const isCur = node.id === curId;
         const visited = node.visited && !isCur;
         const cls = ['map-node', 'type-' + node.type];
+        const route = E.ROUTE_META[node.route] ? node.route : null;
+        if (route) cls.push('route-' + route);
         if (isAvail) cls.push('available');
         if (isCur) cls.push('current');
         if (visited) cls.push('visited');
         if (node.type === 'boss') cls.push('boss');
         const disabled = !isAvail;
-        return `<button class="${cls.join(' ')}" style="left:${p.x / 10}%;top:${p.y}px" data-action="node" data-id="${node.id}" ${disabled ? 'disabled' : ''} title="${esc(meta.name)}：${esc(meta.desc)}">
+        return `<button class="${cls.join(' ')}" style="left:${p.x / 10}%;top:${p.y}px" ${route ? `data-route="${route}"` : ''} data-action="node" data-id="${node.id}" ${disabled ? 'disabled' : ''} title="${esc(meta.name)}：${esc(meta.desc)}${route ? `&#10;路线倾向：${esc(E.ROUTE_META[route].name)}` : ''}">
           <span class="node-ring"></span>
           <span class="node-glyph">${meta.glyph}</span>
+          ${node.row === 0 && route ? `<span class="route-start-label">${esc(E.ROUTE_META[route].short)}</span>` : ''}
           ${isCur ? '<span class="you-marker">你</span>' : ''}
           ${node.type === 'boss' ? `<span class="node-label">${esc(D.enemies[map.bossId ? D.encounters[map.act].boss.enemies[0].id : 'tai_xu'].name)}</span>` : ''}
         </button>`;
@@ -1134,6 +1138,11 @@
           <aside class="map-side">
             <h2>${esc(E.getActName(st.act))}</h2>
             <p class="act-flavor">${esc(ACT_FLAVOR[st.act] || '')}</p>
+            ${hasRoutes ? `<div class="map-route-hint" aria-label="路线倾向">
+              <span class="route-hint-row route-safe"><b>稳</b>休整、商店偏多</span>
+              <span class="route-hint-row route-resource"><b>缘</b>事件、宝箱偏多</span>
+              <span class="route-hint-row route-danger"><b>险</b>精英、战斗偏多</span>
+            </div>` : ''}
             <div class="map-legend">
               ${['combat', 'elite', 'event', 'shop', 'rest', 'treasure', 'boss'].map(t => {
                 const m = E.getNodeMeta(t);
