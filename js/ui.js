@@ -14,7 +14,8 @@
   const CHAR_PORTRAITS = { sword: 'assets/characters/sword.webp', alchemist: 'assets/characters/alchemist.webp', monk: 'assets/characters/monk.webp' };
   const ENEMY_PORTRAITS = {};
   for (const [act, pool] of Object.entries(D.encounters)) {
-    for (const encounter of [...pool.normal, ...pool.elite, pool.boss]) {
+    const normal = Array.isArray(pool.normal) ? pool.normal : Object.values(pool.normal).flat();
+    for (const encounter of [...normal, ...pool.elite, pool.boss]) {
       for (const enemy of encounter.enemies) {
         ENEMY_PORTRAITS[enemy.id] = `assets/monsters/${act.padStart(2, '0')}/${enemy.id}.webp`;
       }

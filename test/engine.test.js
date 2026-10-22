@@ -853,3 +853,100 @@ test('遗物被动：攻击伤害加成', () => {
   E.playCard(s, 0, 0);
   assert.strictEqual(before - e.hp, 7); // 6 + 玄铁剑 1
 });
+
+test('普通遭遇按节点实际层数划分三阶段，三幕遭遇 ID 与组合稳定对应', () => {
+  for (const [floor, stage] of [[1, 'early'], [2, 'early'], [3, 'mid'], [5, 'mid'], [6, 'late'], [8, 'late']]) {
+    assert.equal(E.getEncounterStageByFloor(floor), stage);
+  }
+  for (const act of [1, 2, 3]) {
+    const normal = DATA.encounters[act].normal;
+    const ids = new Map();
+    for (const stage of ['early', 'mid', 'late']) {
+      assert.ok(normal[stage].length >= 3, `第 ${act} 幕 ${stage} 池为空`);
+      for (const encounter of normal[stage]) {
+        assert.ok(encounter.id, '遭遇 ID 缺失');
+        const signature = encounter.enemies.map(enemy => enemy.id).join('+');
+        assert.ok(!ids.has(encounter.id) || ids.get(encounter.id) === signature, `${encounter.id} 指向不同敌人组合`);
+        assert.ok(encounter.enemies.length >= 1 && encounter.enemies.length <= 2);
+        encounter.enemies.forEach(enemy => assert.ok(DATA.enemies[enemy.id], enemy.id));
+        ids.set(encounter.id, signature);
+      }
+    }
+    assert.ok(normal.early.every(encounter => encounter.enemies.length === 1));
+    assert.ok(normal.late.some(encounter => encounter.enemies.length === 2));
+  }
+});
+
+test('普通遭遇使用对应阶段池，进入节点时才选择，并限制历史为最近两场', () => {
+  const s = fresh('sword', 123);
+  assert.deepEqual(s.recentEncounters, []);
+  assert.ok(s.map.byRow[0].every(node => !node.encounterId));
+  for (const [row, stage] of [[0, 'early'], [1, 'early'], [2, 'mid'], [4, 'mid'], [5, 'late'], [7, 'late']]) {
+    const encounter = E.pickEncounter(s, 1, 'combat', row);
+    assert.ok(DATA.encounters[1].normal[stage].includes(encounter));
+    assert.deepEqual(s.recentEncounters.slice(-1), [encounter.id]);
+    assert.ok(s.recentEncounters.length <= 2);
+  }
+  const node = s.map.byRow[0][0];
+  assert.ok(E.enterNode(s, node.id).ok);
+  assert.ok(DATA.encounters[1].normal.early.some(encounter => encounter.id === s.recentEncounters.at(-1)));
+
+  const lateRun = fresh('sword', 124);
+  const lateNode = lateRun.map.byRow[5][0];
+  lateNode.type = 'combat';
+  lateRun.map.byRow[0] = [lateNode];
+  assert.ok(E.enterNode(lateRun, lateNode.id).ok);
+  assert.ok(DATA.encounters[1].normal.late.some(encounter => encounter.id === lateRun.recentEncounters[0]));
+});
+
+test('最近相同遭遇降低权重，且同种单怪与组合分别记录', () => {
+  const encounter = { id: 'a1_shan_xiao', weight: 4 };
+  assert.equal(E.adjustedEncounterWeight(encounter, []), 4);
+  assert.equal(E.adjustedEncounterWeight(encounter, ['a1_other', encounter.id]), 0.2);
+  assert.equal(E.adjustedEncounterWeight(encounter, [encounter.id, 'a1_other']), 1.4);
+  assert.equal(E.adjustedEncounterWeight(encounter, ['a1_shan_xiao_huo_shu']), 4);
+});
+
+test('同 seed 和相同阶段抽取的普通遭遇可复现，精英与幕主保持原样', () => {
+  const a = fresh('sword', 909);
+  const b = fresh('sword', 909);
+  const rows = [0, 1, 2, 3, 5, 6];
+  const sequence = state => rows.map(row => E.pickEncounter(state, 1, 'combat', row).id);
+  assert.deepEqual(sequence(a), sequence(b));
+  const history = a.recentEncounters.slice();
+  assert.strictEqual(E.pickEncounter(a, 1, 'elite', 6), DATA.encounters[1].elite[0]);
+  assert.strictEqual(E.pickEncounter(a, 1, 'boss', 8), DATA.encounters[1].boss);
+  assert.deepEqual(a.recentEncounters, history);
+});
+
+test('下一幕清空普通遭遇历史，旧存档缺少历史字段仍可进入普通战斗', () => {
+  const s = fresh('sword', 110);
+  s.recentEncounters = ['a1_shan_xiao'];
+  E.nextAct(s);
+  assert.deepEqual(s.recentEncounters, []);
+  const saved = JSON.parse(E.serialize(s));
+  delete saved.recentEncounters;
+  const restored = E.deserialize(JSON.stringify(saved));
+  assert.ok(restored);
+  const node = restored.map.byRow[0][0];
+  assert.ok(E.enterNode(restored, node.id).ok);
+  assert.equal(restored.recentEncounters.length, 1);
+  assert.ok(DATA.encounters[2].normal.early.some(encounter => encounter.id === restored.recentEncounters[0]));
+});
+
+test('阶段池缺失时回退到中期池，坏权重仍能开始普通战斗', () => {
+  DATA.encounters[99] = {
+    normal: { early: [], mid: [{ id: 'fallback', enemies: [{ id: 'shan_xiao' }], weight: 0 }] },
+    elite: DATA.encounters[1].elite,
+    boss: DATA.encounters[1].boss
+  };
+  try {
+    const s = fresh('sword', 29);
+    const encounter = E.pickEncounter(s, 99, 'combat', 0);
+    assert.equal(encounter.id, 'fallback');
+    assert.deepEqual(s.recentEncounters, ['fallback']);
+    assert.equal(E.adjustedEncounterWeight({ weight: 4 }, []), 4);
+  } finally {
+    delete DATA.encounters[99];
+  }
+});

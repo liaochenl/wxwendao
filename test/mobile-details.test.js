@@ -185,7 +185,8 @@ test('三幕怪物立绘在战斗、已解锁图鉴和详情中显示，未解�
   const ui = makeUI();
   const expected = new Map();
   for (const [act, pool] of Object.entries(D.encounters)) {
-    for (const encounter of [...pool.normal, ...pool.elite, pool.boss]) {
+    const normal = Array.isArray(pool.normal) ? pool.normal : Object.values(pool.normal).flat();
+    for (const encounter of [...normal, ...pool.elite, pool.boss]) {
       for (const enemy of encounter.enemies) expected.set(enemy.id, `assets/monsters/${String(act).padStart(2, '0')}/${enemy.id}.webp`);
     }
   }

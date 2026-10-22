@@ -148,6 +148,7 @@
       shop: null,
       treasure: null,
       usedEvents: [],
+      recentEncounters: [],
       stats: { floors: 0, kills: 0, elites: 0, cardsPlayed: 0, damageDealt: 0, damageTaken: 0 },
       victory: false,
       startedAt: Date.now()
@@ -269,12 +270,42 @@
   function getActName(act) { return ACT_NAMES[act] || ''; }
   function getNodeMeta(type) { return NODE_META[type] || NODE_META.combat; }
 
-  function pickEncounter(state, act, type) {
+  function getEncounterStageByFloor(floor) {
+    if (floor <= 2) return 'early';
+    if (floor <= 5) return 'mid';
+    return 'late';
+  }
+  function adjustedEncounterWeight(encounter, history) {
+    const weight = encounter.weight == null ? 1 : Number(encounter.weight);
+    if (!Number.isFinite(weight) || weight <= 0) return 0;
+    const recent = Array.isArray(history) ? history : [];
+    if (encounter.id && encounter.id === recent[recent.length - 1]) return weight * 0.05;
+    if (encounter.id && encounter.id === recent[recent.length - 2]) return weight * 0.35;
+    return weight;
+  }
+  function pickEncounter(state, act, type, row) {
     const table = DATA.encounters[act];
     if (!table) return { enemies: [{ id: 'shan_xiao' }] };
     if (type === 'elite') return table.elite[0];
     if (type === 'boss') return table.boss;
-    return weighted(state, table.normal, e => e.weight || 1);
+    const normal = table.normal || {};
+    const currentRow = row == null ? (currentNode(state)?.row ?? 0) : row;
+    const stage = getEncounterStageByFloor(currentRow + 1);
+    const pools = Array.isArray(normal) ? [normal] : [normal[stage], normal.mid, ...Object.values(normal)];
+    const pool = pools.find(items => Array.isArray(items) && items.length) || [];
+    if (!pool.length) return { enemies: [{ id: 'shan_xiao' }] };
+    const history = Array.isArray(state.recentEncounters) ? state.recentEncounters : [];
+    const adjustedTotal = pool.reduce((sum, encounter) => sum + adjustedEncounterWeight(encounter, history), 0);
+    const rawWeight = encounter => {
+      const value = encounter.weight == null ? 1 : Number(encounter.weight);
+      return Number.isFinite(value) && value > 0 ? value : 0;
+    };
+    const rawTotal = pool.reduce((sum, encounter) => sum + rawWeight(encounter), 0);
+    const selected = weighted(state, pool, adjustedTotal > 0 && Number.isFinite(adjustedTotal)
+      ? encounter => adjustedEncounterWeight(encounter, history)
+      : rawTotal > 0 && Number.isFinite(rawTotal) ? rawWeight : () => 1);
+    if (selected.id) state.recentEncounters = [...history, selected.id].slice(-2);
+    return selected;
   }
 
   function enterNode(state, nodeId) {
@@ -289,7 +320,7 @@
     state.stats.floors++;
     state.reward = null;
     if (node.type === 'combat' || node.type === 'elite' || node.type === 'boss') {
-      const enc = pickEncounter(state, state.map.act, node.type);
+      const enc = pickEncounter(state, state.map.act, node.type, node.row);
       if (node.type === 'elite') state.stats.elites++;
       startCombat(state, enc, node.type);
     } else if (node.type === 'event') {
@@ -1186,6 +1217,7 @@
   function nextAct(state) {
     state.act++;
     if (state.act > 3) { state.screen = 'victory'; return; }
+    state.recentEncounters = [];
     state.hp = Math.min(state.maxHp, state.hp + Math.ceil(state.maxHp * 0.25));
     state.screen = 'map';
     state.combat = null;
@@ -1507,6 +1539,7 @@
       if (!state || state.version !== VERSION) return null;
       if (!state.characterId || !state.deck || !state.map) return null;
       if (typeof state.nextUid !== 'number') state.nextUid = 100000;
+      if (!Array.isArray(state.recentEncounters)) state.recentEncounters = [];
       return state;
     } catch (err) { return null; }
   }
@@ -1538,6 +1571,9 @@
     availableNodes,
     currentNode,
     enterNode,
+    getEncounterStageByFloor,
+    adjustedEncounterWeight,
+    pickEncounter,
     getActName,
     getNodeMeta,
     startCombat,
