@@ -57,7 +57,11 @@ function scoreCard(state, i) {
   return score;
 }
 
-function combatTurn(s, metrics) {
+function combatTurn(s, metrics, observeResult) {
+  const record = result => {
+    if (observeResult) observeResult(result);
+    return result;
+  };
   let guard = 0;
   const seen = new Set();
   while (s.combat && s.combat.phase === 'player' && guard++ < 30) {
@@ -70,10 +74,10 @@ function combatTurn(s, metrics) {
     // 濒死喝药；其它丹药也尽量用掉
     if (s.hp < s.maxHp * 0.4 || incomingDamage(s) > s.hp) {
       const idx = s.potions.findIndex(p => p === 'heal' || p === 'block' || p === 'cleanse');
-      if (idx >= 0) { E.usePotion(s, idx, 0); continue; }
+      if (idx >= 0) { record(E.usePotion(s, idx, 0)); continue; }
     }
     if (s.potions.length && (s.combat.turn >= 2 || s.potions.length >= 2)) {
-      E.usePotion(s, 0, 0);
+      record(E.usePotion(s, 0, 0));
       continue;
     }
     let best = -1, bestScore = 0;
@@ -84,16 +88,16 @@ function combatTurn(s, metrics) {
     }
     if (best < 0) break;
     const played = c.hand[best];
-    const r = E.playCard(s, best, 0);
+    const r = record(E.playCard(s, best, 0));
     if (!r.ok) break;
     tally(metrics, s.characterId, played.id, 'played');
   }
   if (!s.combat) return;
   if (s.combat.phase === 'player') {
-    E.endPlayerTurn(s);
-    if (s.combat && s.combat.phase === 'enemy') E.runEnemyTurn(s);
+    record(E.endPlayerTurn(s));
+    if (s.combat && s.combat.phase === 'enemy') record(E.runEnemyTurn(s));
   }
-  if (s.combat && s.combat.phase === 'won') E.finishCombat(s);
+  if (s.combat && s.combat.phase === 'won') record(E.finishCombat(s));
 }
 
 function chooseNode(s) {
@@ -110,10 +114,52 @@ function chooseNode(s) {
   return avail[0];
 }
 
-function runOne(charId, seed, asc, metrics, encounterMetrics) {
+function observeEnemyKills(sample, enemies) {
+  if (sample.enemyCount !== 2 || !sample.aliveEnemies) return;
+  const remaining = new Set(enemies.filter(enemy => enemy.hp > 0).map(enemy => enemy.uid));
+  const fallen = sample.aliveEnemies.filter(enemy => !remaining.has(enemy.uid));
+  if (!fallen.length) return;
+  sample.aliveEnemies = sample.aliveEnemies.filter(enemy => remaining.has(enemy.uid));
+  if (sample.firstKill == null) {
+    sample.firstKill = fallen.length > 1 ? 'simultaneous' : fallen[0].id;
+  } else if (sample.secondKill == null) {
+    sample.secondKill = fallen.length > 1 ? 'simultaneous' : fallen[0].id;
+  }
+}
+
+function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
   const s = E.createRun({ characterId: charId, seed, ascension: asc });
   let steps = 0;
   let normalCombats = 0;
+  let activeNormal = null;
+  function recordCombatEvents(result) {
+    if (!activeNormal) return;
+    if (s.combat) observeEnemyKills(activeNormal, s.combat.enemies);
+    if (!result?.events) return;
+    for (const event of result.events) {
+      if (event.t === 'damage' && event.target === 'player' && event.direct) {
+        activeNormal.directDamageTaken += event.amount;
+      }
+    }
+  }
+  function finishNormalSample() {
+    if (!activeNormal) return;
+    const row = activeNormal;
+    activeNormal = null;
+    const dead = s.screen === 'gameover' || s.hp <= 0 || s.combat?.phase === 'lost';
+    if (observer && observer.onNormalCombat) observer.onNormalCombat({
+      id: row.id, act: row.act, mapRow: row.mapRow, stage: row.stage,
+      enemyCount: row.enemyCount, hpBefore: row.hpBefore, hpAfter: s.hp,
+      hpLoss: row.hpBefore - s.hp,
+      damageTaken: s.stats.damageTaken - row.damageBefore + row.directDamageTaken,
+      directDamageTaken: row.directDamageTaken,
+      turns: row.maxTurn,
+      dead,
+      firstKill: row.firstKill,
+      secondKill: row.secondKill,
+      aliveAtDeath: dead ? (s.combat?.enemies || []).filter(enemy => enemy.hp > 0).map(enemy => enemy.id) : null
+    });
+  }
   while (steps++ < 3000) {
     if (s.screen === 'victory' || s.screen === 'gameover') break;
     if (s.screen === 'map') {
@@ -122,6 +168,14 @@ function runOne(charId, seed, asc, metrics, encounterMetrics) {
       E.enterNode(s, n.id);
       if (n.type === 'combat') {
         normalCombats++;
+        activeNormal = {
+          id: s.recentEncounters.at(-1), act: s.act, mapRow: n.row,
+          stage: n.row <= 1 ? 'early' : n.row <= 4 ? 'mid' : 'late',
+          enemyCount: s.combat.enemies.length, hpBefore: s.hp,
+          damageBefore: s.stats.damageTaken, directDamageTaken: 0, maxTurn: s.combat.turn,
+          aliveEnemies: s.combat.enemies.map(enemy => ({ uid: enemy.uid, id: enemy.id })),
+          firstKill: null, secondKill: null
+        };
         if (encounterMetrics) {
           const stage = n.row <= 1 ? 'early' : n.row <= 4 ? 'mid' : 'late';
           const key = `${s.act}:${stage}`;
@@ -134,10 +188,10 @@ function runOne(charId, seed, asc, metrics, encounterMetrics) {
         }
       }
     } else if (s.screen === 'combat') {
-      if (s.combat.phase === 'player') combatTurn(s, metrics);
-      else if (s.combat.phase === 'won') E.finishCombat(s);
+      if (s.combat.phase === 'player') combatTurn(s, metrics, recordCombatEvents);
+      else if (s.combat.phase === 'won') recordCombatEvents(E.finishCombat(s));
       else if (s.combat.phase === 'lost') { s.screen = 'gameover'; break; }
-      else if (s.combat.phase === 'enemy') E.runEnemyTurn(s);
+      else if (s.combat.phase === 'enemy') recordCombatEvents(E.runEnemyTurn(s));
     } else if (s.screen === 'reward') {
       for (const inst of s.reward.cards) tally(metrics, charId, inst.id, 'offered');
       if (!s.reward.cardTaken && s.deck.length < 20) {
@@ -183,7 +237,11 @@ function runOne(charId, seed, asc, metrics, encounterMetrics) {
     } else {
       break;
     }
+    if (activeNormal && s.combat) activeNormal.maxTurn = Math.max(activeNormal.maxTurn, s.combat.turn);
+    if (activeNormal && s.screen !== 'combat') finishNormalSample();
   }
+  finishNormalSample();
+  const deathNode = s.screen === 'gameover' ? E.currentNode(s) : null;
   return {
     win: s.screen === 'victory',
     dead: s.screen === 'gameover',
@@ -194,12 +252,14 @@ function runOne(charId, seed, asc, metrics, encounterMetrics) {
     deck: s.deck.length,
     kills: s.stats.kills,
     normalCombats,
-    deathRow: s.screen === 'gameover' ? E.currentNode(s)?.row : null,
+    deathRow: deathNode?.row ?? null,
+    deathType: deathNode?.type ?? null,
     steps,
     stuck: steps >= 3000
   };
 }
 
+function runCli() {
 const runs = Number(process.argv[2] || 600);
 const ascension = Number(process.argv[3] || 0);
 const reportCards = process.argv.includes('--report-cards');
@@ -266,3 +326,7 @@ if (reportCards) {
   }
   console.log('CARD_STATS_END');
 }
+}
+
+if (require.main === module) runCli();
+module.exports = { runOne, observeEnemyKills };
