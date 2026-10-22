@@ -57,7 +57,7 @@ function scoreCard(state, i) {
   return score;
 }
 
-function combatTurn(s, metrics, observeResult) {
+function combatTurn(s, metrics, observeResult, observePlay) {
   const record = result => {
     if (observeResult) observeResult(result);
     return result;
@@ -91,6 +91,7 @@ function combatTurn(s, metrics, observeResult) {
     const r = record(E.playCard(s, best, 0));
     if (!r.ok) break;
     tally(metrics, s.characterId, played.id, 'played');
+    if (observePlay) observePlay(played, r, c);
   }
   if (!s.combat) return;
   if (s.combat.phase === 'player') {
@@ -132,6 +133,29 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
   let steps = 0;
   let normalCombats = 0;
   let activeNormal = null;
+  const highlights = { maxTurnDamage: 0, maxTurnBlock: 0, maxCardsPlayedInTurn: 0,
+    maxPoison: 0, maxBurn: 0, maxResource: 0, finisherCount: 0 };
+  let highlightCombat = null;
+  let highlightTurn = 0;
+  let turnDamage = 0;
+  function observePlay(card, played, combat) {
+    if (highlightCombat !== combat || highlightTurn !== combat.turn) {
+      highlightCombat = combat;
+      highlightTurn = combat.turn;
+      turnDamage = 0;
+    }
+    turnDamage += played.events.filter(event => event.t === 'damage' && event.target === 'enemy')
+      .reduce((sum, event) => sum + Math.max(0, event.amount - (event.blocked || 0)), 0);
+    highlights.maxTurnDamage = Math.max(highlights.maxTurnDamage, turnDamage);
+    highlights.maxTurnBlock = Math.max(highlights.maxTurnBlock, combat.block);
+    highlights.maxCardsPlayedInTurn = Math.max(highlights.maxCardsPlayedInTurn, combat.cardsPlayedThisTurn);
+    highlights.maxResource = Math.max(highlights.maxResource, combat.characterResource?.value || 0);
+    if (DATA.cardMap[card.id]?.finisher) highlights.finisherCount++;
+    for (const enemy of combat.enemies) {
+      highlights.maxPoison = Math.max(highlights.maxPoison, enemy.statuses.poison || 0);
+      highlights.maxBurn = Math.max(highlights.maxBurn, enemy.statuses.burn || 0);
+    }
+  }
   function recordCombatEvents(result) {
     if (!activeNormal) return;
     if (s.combat) observeEnemyKills(activeNormal, s.combat.enemies);
@@ -188,11 +212,12 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
         }
       }
     } else if (s.screen === 'combat') {
-      if (s.combat.phase === 'player') combatTurn(s, metrics, recordCombatEvents);
+      if (s.combat.phase === 'player') combatTurn(s, metrics, recordCombatEvents, observePlay);
       else if (s.combat.phase === 'won') recordCombatEvents(E.finishCombat(s));
       else if (s.combat.phase === 'lost') { s.screen = 'gameover'; break; }
       else if (s.combat.phase === 'enemy') recordCombatEvents(E.runEnemyTurn(s));
     } else if (s.screen === 'reward') {
+      if (observer?.onReward) observer.onReward({ act: s.act, cards: s.reward.cards.map(card => card.id) });
       for (const inst of s.reward.cards) tally(metrics, charId, inst.id, 'offered');
       if (!s.reward.cardTaken && s.deck.length < 20) {
         const picked = s.reward.cards[0];
@@ -242,6 +267,12 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
   }
   finishNormalSample();
   const deathNode = s.screen === 'gameover' ? E.currentNode(s) : null;
+  const deckTags = { sword_intent: 0, sword_cycle: 0, sword_chain: 0 };
+  const payoffTags = { sword_intent: false, sword_cycle: false, sword_chain: false };
+  for (const card of s.deck) for (const tag of DATA.cardMap[card.id]?.tags || []) {
+    if (deckTags[tag] != null) deckTags[tag]++;
+    if (payoffTags[tag] != null && DATA.cardMap[card.id].rarity === 'rare' && DATA.cardMap[card.id].finisher) payoffTags[tag] = true;
+  }
   return {
     win: s.screen === 'victory',
     dead: s.screen === 'gameover',
@@ -255,7 +286,10 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
     deathRow: deathNode?.row ?? null,
     deathType: deathNode?.type ?? null,
     steps,
-    stuck: steps >= 3000
+    stuck: steps >= 3000,
+    deckTags,
+    payoffTags,
+    highlights
   };
 }
 

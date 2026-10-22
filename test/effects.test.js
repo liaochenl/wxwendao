@@ -92,6 +92,19 @@ test('五行爆发、剑光、命中和周天增强时长但保持粒子上限',
   assert.ok(created.filter(el => el.className.includes('fx-particle')).length <= 42);
 });
 
+test('剑修终结演出比普通命中更重且尊重减少动态效果', async () => {
+  const { FX, created } = loadEffects();
+  await FX.finisher({ target: { x: 190, y: 210 }, element: 'metal', kind: 'swordIntent' });
+  const rings = created.filter(el => el.className.includes('fx-finisher-ring'));
+  assert.ok(rings.length >= 2);
+  assert.ok(rings.some(el => el.animations[0].options.duration >= 500));
+  assert.ok(created.some(el => el.className.includes('fx-finisher-slash')));
+  assert.ok(created.filter(el => el.className.includes('fx-finisher-particle')).length >= 4);
+  const reduced = loadEffects(true);
+  await reduced.FX.finisher({ target: { x: 190, y: 210 }, element: 'metal' });
+  assert.equal(reduced.created.length, 0);
+});
+
 test('特效模块复制出牌卡到独立图层，飞行完成后清理且不移动原卡', async () => {
   const { FX, layer } = loadEffects();
   const card = makeNode();

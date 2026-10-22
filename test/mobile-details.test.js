@@ -51,6 +51,68 @@ test('出牌前复制卡牌，视觉失败也会完成规则结算并解除忙�
   assert.equal(ui.state.combat.hand.length, before - 1);
 });
 
+test('剑修面板显示剑意，终结牌结算时调用专属演出', async () => {
+  const order = [];
+  const effects = {
+    captureCard() { return null; },
+    async playCardFlight(options) { order.push(['flight', options.finisher]); },
+    async finisher() { order.push(['finisher']); }
+  };
+  const ui = makeUI(393, effects);
+  ui.state.combat.hand = [{ uid: 'finish', id: 'yi_jian_kai_tian', up: false }];
+  ui.state.combat.energy = 2;
+  ui.state.combat.characterResource.value = 8;
+  ui.state.combat.enemies[0].hp = ui.state.combat.enemies[0].maxHp = 999;
+  ui.state.combat.firstAttackUsed = true;
+  assert.match(ui.combatHTML(), /剑意 8\/10/);
+  ui.fx = async () => { order.push(['events']); };
+  ui.commit = () => {};
+  ui.checkCombatState = () => {};
+  await ui.playCard(0, 0);
+  assert.deepEqual(order, [['flight', true], ['finisher'], ['events']]);
+});
+
+test('终结演出与伤害反馈在飞牌结束前并行启动', async () => {
+  const started = [];
+  let finishFlight, finishFinisher, finishEvents;
+  const effects = {
+    captureCard() { return null; },
+    playCardFlight() { started.push('flight'); return new Promise(resolve => { finishFlight = resolve; }); },
+    finisher() { started.push('finisher'); return new Promise(resolve => { finishFinisher = resolve; }); }
+  };
+  const ui = makeUI(393, effects);
+  ui.state.combat.hand = [{ uid: 'finish', id: 'yi_jian_kai_tian', up: false }];
+  ui.state.combat.energy = 2;
+  ui.state.combat.enemies[0].hp = ui.state.combat.enemies[0].maxHp = 999;
+  ui.fx = () => { started.push('events'); return new Promise(resolve => { finishEvents = resolve; }); };
+  ui.commit = () => {};
+  ui.checkCombatState = () => {};
+  const play = ui.playCard(0, 0);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(started, ['flight', 'finisher', 'events']);
+  assert.equal(ui.busy, true);
+  finishFlight();
+  finishFinisher();
+  finishEvents();
+  await play;
+  assert.equal(ui.busy, false);
+});
+
+test('剑修奖励在手机和桌面标明构筑方向', () => {
+  const ui = makeUI(393);
+  ui.state.reward = { kind: 'combat', gold: 10, cards: [
+    { uid: 'a', id: 'ning_feng', up: false },
+    { uid: 'b', id: 'xing_yun_jue', up: false },
+    { uid: 'c', id: 'jin_shui_yin', up: false }
+  ], cardTaken: false, selected: -1 };
+  for (const [width, marker] of [[393, 'reward-option-meta'], [1280, 'card-build-tags']]) {
+    ui._testWindow.innerWidth = width;
+    const html = ui.rewardHTML();
+    assert.match(html, new RegExp(marker));
+    for (const name of ['剑意', '流云', '金水']) assert.match(html, new RegExp(name));
+  }
+});
+
 test('角色图鉴直接展示三位修士立绘，且保持可点开的角色入口', () => {
   const ui = makeUI();
   ui.compTab = 'characters';

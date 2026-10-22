@@ -32,6 +32,9 @@
     3: '天阙将倾，五行失序。去问一问，这天到底是谁的天。'
   };
   const RARITY_LABEL = { starter: '初始', common: '凡品', uncommon: '灵品', rare: '玄品', curse: '禁制', special: '异数' };
+  const BUILD_TAG_NAMES = { sword_intent: '剑意', sword_cycle: '流云', sword_chain: '金水' };
+  function buildNames(card) { return (card.tags || []).map(tag => BUILD_TAG_NAMES[tag]).filter(Boolean); }
+  function resourceName(id) { return D.characters.find(character => character.resource?.id === id)?.resource.name || id; }
   const CHAR_STYLE = { sword: '连携爆发 · 直伤抽牌', alchemist: '持续伤害 · 中毒回春', monk: '厚甲反伤 · 稳健推进' };
   const CHAR_TIPS = {
     sword: '先金后水接链，遇到木属敌人时，断链打相克往往更赚。',
@@ -143,6 +146,7 @@
     }
     const classes = ['card', 'el-' + data.element, 'rarity-' + data.rarity];
     if (data.rarity === 'special') classes.push('card-special', 'card-id-' + data.id.replace(/_/g, '-'));
+    if (data.finisher) classes.push('card-finisher');
     if (data.rarity === 'curse') classes.push('card-curse');
     if (upgraded) classes.push('upgraded');
     if (isHand) classes.push('in-hand');
@@ -158,6 +162,8 @@
       (opts.pickUid ? `data-action="pick-card" data-uid="${esc(opts.pickUid)}"` :
         (opts.inspect ? `data-action="inspect-card" data-id="${esc(inst.id)}" data-up="${upgraded ? '1' : '0'}"` : ''));
     const other = data.up ? cardData({ id: inst.id, up: !upgraded }) : null;
+    const buildTags = buildNames(data);
+    const footText = [...buildTags, data.exhaust ? '消耗' : '', data.retain ? '保留' : ''].filter(Boolean).join(' · ') || el.name + '行';
     const upgradeHint = other ? `${upgraded ? '升级前' : '升级后'}（灵气 ${other.cost}）：${other.text}` : '';
     const tooltip = `${data.name}（${TYPE_NAMES[data.type] || ''}·${RARITY_LABEL[data.rarity] || ''}）\n${data.text}${upgraded ? '\n（已悟）' : ''}${upgradeHint ? '\n' + upgradeHint : ''}`;
     const inner = `
@@ -175,7 +181,7 @@
         <div class="card-text">${formatText(data.text)}</div>
         <div class="card-live">${live.join('')}</div>
         <div class="card-foot">
-          <span>${data.exhaust ? '消耗' : ''}${data.retain ? ' 保留' : ''}${!data.exhaust && !data.retain ? el.name + '行' : ''}</span>
+          <span class="${buildTags.length ? 'card-build-tags' : ''}">${footText}</span>
           <span class="card-rarity">${RARITY_LABEL[data.rarity] || ''}</span>
         </div>
       </div>`;
@@ -507,8 +513,19 @@
           return;
         }
         this.render();
-        await visual('playCardFlight', { visual: captured, element: cardData?.element, cardType: cardData?.type, target: destination });
-        await this.fx(res.events);
+        const flight = visual('playCardFlight', { visual: captured, element: cardData?.element, cardType: cardData?.type, target: destination, finisher: !!cardData?.finisher });
+        if (cardData?.finisher) {
+          // 接近目标时开始聚剑；命中反馈与终结演出同步，避免串行拖长整次出牌。
+          await Promise.race([flight, sleep(300)]);
+          await Promise.all([
+            flight,
+            visual('finisher', { target: destination, element: cardData.element, kind: this.state.characterId }),
+            this.fx(res.events)
+          ]);
+        } else {
+          await flight;
+          await this.fx(res.events);
+        }
         this.busy = false;
         this.commit();
         this.checkCombatState();
@@ -705,7 +722,7 @@
               this.sfx(ev.blocked > 0 && amount === 0 ? 'block' : 'hurt');
             } else {
               this.hitPulse(el);
-              this.floatAt(el, ev.cross ? '克制 -' + amount : '-' + amount, ev.cross ? 'fx-cross' : 'fx-damage');
+              this.floatAt(el, ev.cross ? '克制 -' + amount : '-' + amount, `${ev.cross ? 'fx-cross' : 'fx-damage'}${amount >= 40 ? ' fx-burst-number' : ''}`);
               this.sfx(ev.cross ? 'cross' : 'hit');
               void visual('impact', { target: el, element: ev.element, heavy: ev.cross || amount >= 20 });
               if (ev.cross) void visual('overcomeBurst', { target: el, element: ev.element });
@@ -782,6 +799,17 @@
             break;
           }
           case 'potion': this.sfx('potion'); await sleep(60); break;
+          case 'resource': {
+            const el = document.querySelector('.character-resource');
+            this.floatAt(el, `${resourceName(ev.id)} ${ev.delta > 0 ? '+' : ''}${ev.delta}`, 'fx-resource');
+            await sleep(35);
+            break;
+          }
+          case 'resourceReady': {
+            const el = document.querySelector('.character-resource');
+            this.floatAt(el, `${resourceName(ev.id)}已满`, 'fx-resource-ready');
+            break;
+          }
           case 'energy': this.sfx('energy'); await sleep(45); break;
           case 'draw':
           case 'shuffle': await sleep(25); break;
@@ -1226,6 +1254,10 @@
             <div class="player-info">
               <div class="player-name">${esc(ch.name)} <small>${esc(ch.passive)}</small></div>
               ${hpBarHTML(st.hp, st.maxHp)}
+              ${ch.resource && c.characterResource ? `<div class="character-resource ${c.characterResource.value >= c.characterResource.max ? 'ready' : ''}" title="${esc(ch.resource.name)}：强化角色专属牌">
+                <span class="character-resource-label">${esc(ch.resource.name)} ${c.characterResource.value}/${c.characterResource.max}</span>
+                <span class="character-resource-pips">${Array.from({ length: c.characterResource.max }, (_, i) => `<i class="${i < c.characterResource.value ? 'on' : ''}"></i>`).join('')}</span>
+              </div>` : ''}
               <div class="player-sub">
                 ${c.block > 0 ? `<span class="block-pill" title="护甲">甲 ${c.block}</span>` : ''}
                 <span class="statuses">${statusChips(c.statuses, 'player')}</span>
@@ -1337,7 +1369,7 @@
         </div>`;
         const data = cardData(inst);
         const tag = r.cardTaken ? 'div' : 'button';
-        const traits = [data.exhaust ? '消耗' : '', data.retain ? '保留' : '', inst.up ? '已悟' : ''].filter(Boolean);
+        const traits = [...buildNames(data), data.exhaust ? '消耗' : '', data.retain ? '保留' : '', inst.up ? '已悟' : ''].filter(Boolean);
         const el = elem(data.element);
         return `<${tag} class="reward-option el-${data.element} ${r.cardTaken && r.selected === i ? 'chosen' : ''} ${r.cardTaken && r.selected !== i ? 'faded' : ''}" style="--el:${el.color};--el-dark:${el.dark}" ${r.cardTaken ? '' : `type="button" data-action="take-card" data-index="${i}" data-confirm="1"`}>
           <span class="reward-option-top"><span class="reward-option-cost">${data.cost}</span><span class="reward-option-name">${esc(data.name)}</span><span class="reward-option-seal">${esc(el.glyph)}</span></span>
