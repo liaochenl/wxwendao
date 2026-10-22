@@ -98,17 +98,17 @@
 
   function clear(visual) { try { visual?.ghost?.remove(); } catch (_) {} }
 
-  async function playCardFlight({ visual, element, cardType, target } = {}) {
+  async function playCardFlight({ visual, element, cardType, target, finisher = false } = {}) {
     if (!visual?.ghost) return;
     const destination = centerOf(target) || { x: window.innerWidth / 2, y: window.innerHeight * .38 };
     const dx = destination.x - visual.centerX;
     const dy = destination.y - visual.centerY;
-    const duration = cardType === 'power' ? 445 : cardType === 'skill' ? 400 : 375;
+    const duration = finisher ? 350 : cardType === 'power' ? 445 : cardType === 'skill' ? 400 : 375;
     try {
       if (!reduced()) {
         await animateAndRemove(visual.ghost, [
           { transform: 'translate(0, 0) scale(1)', opacity: 1, offset: 0, easing: 'ease-out' },
-          { transform: 'translate(0, -18px) scale(1.20)', opacity: 1, offset: .2, easing: 'cubic-bezier(.2,.8,.25,1)' },
+          { transform: `translate(0, -18px) scale(${finisher ? 1.34 : 1.20})`, opacity: 1, offset: .2, easing: 'cubic-bezier(.2,.8,.25,1)' },
           { transform: `translate(${dx * .53}px, ${dy * .47 - 32}px) rotate(${cardType === 'attack' ? -9 : 3}deg) scale(1.23)`, opacity: 1, offset: .58, easing: 'ease-in' },
           { transform: `translate(${dx * .88}px, ${dy * .84}px) rotate(0deg) scale(1.05)`, opacity: 1, offset: .82, easing: 'ease-in' },
           { transform: `translate(${dx}px, ${dy}px) rotate(0deg) scale(.82)`, opacity: 0, offset: 1 }
@@ -225,6 +225,33 @@
     ]);
   }
 
+  function finisher({ target, element = 'metal' } = {}) {
+    const pos = centerOf(target);
+    if (!pos || reduced()) return Promise.resolve();
+    const slash = node('fx-slash fx-finisher-slash', pos.x, pos.y, element);
+    const animations = [
+      ring(pos.x, pos.y, element, 'fx-ring fx-finisher-ring', 520, 3.2),
+      ring(pos.x, pos.y, element, 'fx-ring fx-finisher-ring fx-finisher-echo', 480, 2.6, 35),
+      flash(pos.x, pos.y, element, 'fx-flash fx-finisher-flash', 260, 110),
+      animateAndRemove(slash, [
+        { transform: 'translate(-90%, -50%) rotate(-34deg) scaleX(.1)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) rotate(-34deg) scaleX(1.35)', opacity: 1, offset: .5 },
+        { transform: 'translate(10%, -50%) rotate(-34deg) scaleX(.8)', opacity: 0 }
+      ], { duration: 510, easing: 'ease-out' })
+    ];
+    for (let index = 0; index < 6; index++) {
+      const angle = Math.PI * 2 * index / 6;
+      const dx = Math.cos(angle) * 95;
+      const dy = Math.sin(angle) * 75;
+      animations.push(animateAndRemove(node('fx-particle fx-element-metal fx-finisher-particle', pos.x, pos.y, element), [
+        { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(.7)`, opacity: 0 },
+        { transform: `translate(calc(-50% + ${dx * .7}px), calc(-50% + ${dy * .7}px)) scale(1)`, opacity: 1, offset: .25 },
+        { transform: 'translate(-50%, -50%) scale(.2)', opacity: 0 }
+      ], { duration: 410, easing: 'ease-in' }));
+    }
+    return Promise.all(animations);
+  }
+
   async function zhoutian() {
     if (reduced() || !ensureLayer()) return;
     const x = window.innerWidth / 2;
@@ -272,5 +299,5 @@
     await Promise.all(animations);
   }
 
-  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, zhoutian, clear };
+  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, zhoutian, clear };
 })();

@@ -89,6 +89,41 @@
     });
   }
   function getCharacter(state) { return DATA.characters.find(c => c.id === state.characterId) || DATA.characters[0]; }
+  function ensureCharacterResource(state) {
+    const spec = getCharacter(state).resource;
+    if (!state.combat || !spec) return null;
+    const current = state.combat.characterResource;
+    if (!current || current.id !== spec.id) state.combat.characterResource = { id: spec.id, value: 0, max: spec.max };
+    else {
+      current.max = spec.max;
+      current.value = Math.max(0, Math.min(spec.max, Number(current.value) || 0));
+    }
+    return state.combat.characterResource;
+  }
+  function changeCharacterResource(state, delta) {
+    const resource = ensureCharacterResource(state);
+    if (!resource || !delta) return 0;
+    const before = resource.value;
+    const cardCap = state.combat.resourceGainedThisCard == null ? Infinity :
+      Math.max(0, (getCharacter(state).resource.gainPerCardMax ?? Infinity) - state.combat.resourceGainedThisCard);
+    const adjusted = delta > 0 ? Math.min(delta, cardCap) : delta;
+    resource.value = Math.max(0, Math.min(resource.max, before + adjusted));
+    const actual = resource.value - before;
+    if (actual) {
+      if (actual > 0 && state.combat.resourceGainedThisCard != null) state.combat.resourceGainedThisCard += actual;
+      emit({ t: 'resource', id: resource.id, before, after: resource.value, delta: actual });
+      if (before < resource.max && resource.value === resource.max) emit({ t: 'resourceReady', id: resource.id });
+    }
+    return actual;
+  }
+  function awardCharacterResourceForPlayedCard(state, data, target, chainInfo) {
+    const resource = ensureCharacterResource(state);
+    if (resource?.id !== 'swordIntent' || data.type !== 'attack') return;
+    // 消耗剑意的终结牌在出牌结算后保持清空，不返还本次攻击的基础剑意。
+    if (data.effects.some(effect => effect.consumeResource)) return;
+    changeCharacterResource(state, 1 + (chainInfo.linked ? 1 : 0) +
+      (target && isCross(data.element, target.element) ? 1 : 0));
+  }
   function hasRelic(state, id) { return state.relics.includes(id); }
   function relicPassive(state, key) {
     let total = 0;
@@ -524,6 +559,7 @@
       firstAttackUsed: false,
       firstCardUsed: false,
       encounterType: type || 'combat',
+      characterResource: getCharacter(state).resource ? { id: getCharacter(state).resource.id, value: 0, max: getCharacter(state).resource.max } : undefined,
       relicUsed: {},
       log: []
     };
@@ -786,6 +822,7 @@
     c.hand.splice(handIndex, 1);
     c.energy -= cost;
     c.cardsPlayedThisTurn++;
+    c.resourceGainedThisCard = 0;
     state.stats.cardsPlayed++;
     const isFirstAttack = !c.firstAttackUsed && data.type === 'attack';
     if (data.type === 'attack') c.firstAttackUsed = true;
@@ -796,7 +833,9 @@
 
     const info = advanceChain(state, data.element);
     const chainBonus = info.chainBonus;
-    resolveEffects(state, data, target, chainBonus);
+    resolveEffects(state, data, target, chainBonus, info);
+    awardCharacterResourceForPlayedCard(state, data, target, info);
+    delete c.resourceGainedThisCard;
 
     if (state.characterId === 'sword' && isFirstAttack && target && target.hp > 0 && c.phase === 'player') {
       emit({ t: 'passive', name: '剑心' });
@@ -812,29 +851,33 @@
     return result(true);
   }
 
-  function resolveEffects(state, data, target, chainBonus) {
+  function resolveEffects(state, data, target, chainBonus, chainInfo) {
     const c = state.combat;
     for (const effect of (data.effects || [])) {
       if (c.phase !== 'player') break;
-      if (effect.cond && !checkCond(state, effect.cond, target)) continue;
+      if (effect.cond && !checkCond(state, effect.cond, target, chainInfo?.linked)) continue;
       switch (effect.op) {
         case 'damage': {
           const isAll = effect.target === 'all';
           const targets = isAll ? aliveEnemies(state) : (target && target.hp > 0 ? [target] : []);
-          const hits = effect.hits || 1;
+          const resource = ensureCharacterResource(state)?.value || 0;
+          const hits = (effect.hits || 1) + (effect.extraHitsAtResource != null && resource >= effect.extraHitsAtResource ? effect.extraHits || 0 : 0) + (chainInfo?.linked ? effect.extraHitsOnLink || 0 : 0);
           const chainExtra = chainBonus || 0;
+          const resourceBonus = (effect.perResource || 0) * resource + (effect.bonusAtResource != null && resource >= effect.bonusAtResource ? effect.bonusDamage || 0 : 0);
+          const cardsBonus = (effect.perCardsPlayed || 0) * Math.min(Math.max(0, c.cardsPlayedThisTurn - 1), effect.maxCardsPlayedBonus || 99);
+          if (effect.consumeResource) changeCharacterResource(state, -resource);
           for (const enemy of targets) {
             for (let h = 0; h < hits; h++) {
               if (enemy.hp <= 0) break;
               if (state.hp <= 0) break;
-              const perHitBase = (effect.value || 0) + (effect.perChain || 0) * c.chain;
+              const perHitBase = (effect.value || 0) + (effect.perChain || 0) * c.chain + resourceBonus + cardsBonus;
               const cross = isCross(data.element, enemy.element);
               hurtEnemy(state, enemy, perHitBase, {
                 strength: data.type === 'attack',
                 attackDamage: data.type === 'attack',
                 fireAttackDamage: data.type === 'attack' && data.element === 'fire',
                 chainBonus: chainExtra,
-                pierce: !!effect.pierce,
+                pierce: !!effect.pierce || (effect.pierceAtResource != null && resource >= effect.pierceAtResource),
                 cross: !!cross,
                 element: data.element
               });
@@ -851,6 +894,12 @@
         case 'energy':
           c.energy += effect.value || 0;
           emit({ t: 'energy', amount: effect.value || 0, energy: c.energy });
+          break;
+        case 'gainResource':
+          changeCharacterResource(state, effect.value || 0);
+          break;
+        case 'consumeResource':
+          changeCharacterResource(state, -(effect.value || ensureCharacterResource(state)?.value || 0));
           break;
         case 'heal':
           healPlayer(state, effect.value || 0);
@@ -918,11 +967,12 @@
     }
   }
 
-  function checkCond(state, cond, target) {
+  function checkCond(state, cond, target, linked) {
     const c = state.combat;
     if (cond.chainAtLeast != null && c.chain < cond.chainAtLeast) return false;
     if (cond.chainBelow != null && c.chain >= cond.chainBelow) return false;
     if (cond.enemyPoisoned && (!target || !target.statuses.poison)) return false;
+    if (cond.linked != null && !!linked !== cond.linked) return false;
     return true;
   }
 
@@ -946,9 +996,13 @@
     const chainBonus = linked ? chainAfter : 0;
     let damage = null, hits = 1, block = null, cross = false, heal = null, draw = null, poison = null;
     for (const effect of data.effects || []) {
-      if (effect.cond && !checkCond(state, effect.cond, target)) continue;
+      if (effect.cond && !checkCond(state, effect.cond, target, linked)) continue;
       if (effect.op === 'damage' && damage == null) {
-        let per = (effect.value || 0) + (effect.perChain || 0) * chainAfter;
+        const resource = c.characterResource?.value || 0;
+        let per = (effect.value || 0) + (effect.perChain || 0) * chainAfter +
+          (effect.perResource || 0) * resource +
+          (effect.bonusAtResource != null && resource >= effect.bonusAtResource ? effect.bonusDamage || 0 : 0) +
+          (effect.perCardsPlayed || 0) * Math.min(c.cardsPlayedThisTurn, effect.maxCardsPlayedBonus || 99);
         const tgt = effect.target === 'all' ? target : target;
         if (tgt) cross = isCross(data.element, tgt.element);
         per = calcPlayerHit(state, per, {
@@ -960,7 +1014,7 @@
           target: tgt
         });
         damage = per;
-        hits = effect.hits || 1;
+        hits = (effect.hits || 1) + (effect.extraHitsAtResource != null && resource >= effect.extraHitsAtResource ? effect.extraHits || 0 : 0) + (linked ? effect.extraHitsOnLink || 0 : 0);
       }
       if (effect.op === 'block' && block == null) block = (effect.value || 0) + (c.statuses.dexterity || 0) + chainBonus + relicPassive(state, 'blockBonus');
       if (effect.op === 'heal') heal = effect.value || 0;
@@ -1264,6 +1318,17 @@
     });
   }
 
+  function getCardRewardWeight(state, card) {
+    const base = card.character === state.characterId ? (state.characterId === 'sword' ? 3 * 1.3 : 3) : 1;
+    if (!card.tags?.length) return base;
+    const tagCounts = {};
+    for (const instance of state.deck) {
+      for (const tag of DATA.cardMap[instance.id]?.tags || []) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+    }
+    const strongest = Math.max(0, ...card.tags.map(tag => tagCounts[tag] || 0));
+    return base * (strongest >= 4 ? 1.4 : strongest >= 2 ? 1.25 : 1);
+  }
+
   function rollCardChoices(state, count, rarityBoost, guaranteeRare) {
     const boost = rarityBoost || 0;
     const weights = boost >= 2 ? { common: 22, uncommon: 40, rare: 38 } : boost === 1 ? { common: 40, uncommon: 40, rare: 20 } : { common: 60, uncommon: 30, rare: 10 };
@@ -1275,14 +1340,14 @@
       const rarity = weighted(state, ['common', 'uncommon', 'rare'], r => weights[r]);
       let rarityPool = pool.filter(c => c.rarity === rarity);
       if (!rarityPool.length) rarityPool = pool;
-      const card = weighted(state, rarityPool, c => c.character === state.characterId ? 3 : 1);
+      const card = weighted(state, rarityPool, c => getCardRewardWeight(state, c));
       used.add(card.id);
       chosen.push(newCard(state, card.id, false, false));
     }
     if (guaranteeRare && chosen.length && !chosen.some(c => DATA.cardMap[c.id].rarity === 'rare')) {
       const rarePool = cardRewardPool(state, 'rare').filter(c => !used.has(c.id));
       if (rarePool.length) {
-        const rare = weighted(state, rarePool, c => c.character === state.characterId ? 3 : 1);
+        const rare = weighted(state, rarePool, c => getCardRewardWeight(state, c));
         chosen[0] = newCard(state, rare.id, false, false);
       }
     }
@@ -1667,6 +1732,7 @@
       if (!state.characterId || !state.deck || !state.map) return null;
       if (typeof state.nextUid !== 'number') state.nextUid = 100000;
       if (!Array.isArray(state.recentEncounters)) state.recentEncounters = [];
+      if (state.combat) ensureCharacterResource(state);
       return state;
     } catch (err) { return null; }
   }
@@ -1716,6 +1782,7 @@
     usePotion,
     finishCombat,
     rollCardChoices,
+    getCardRewardWeight,
     addCardToDeck,
     takeRewardCard,
     skipReward,
