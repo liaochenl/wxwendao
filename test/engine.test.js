@@ -854,6 +854,22 @@ test('遗物被动：攻击伤害加成', () => {
   assert.strictEqual(before - e.hp, 7); // 6 + 玄铁剑 1
 });
 
+test('普通双怪生命倍率按幕维持正式配置', () => {
+  const expected = { 1: 0.50, 2: 0.45, 3: 0.45 };
+  for (const act of [1, 2, 3]) {
+    for (const stage of ['early', 'mid', 'late']) {
+      const encounters = DATA.encounters[act].normal[stage];
+      const doubles = encounters.filter(row => row.enemies.length === 2);
+      if (act === 1 && stage !== 'early') assert.ok(doubles.length > 0);
+      for (const row of doubles) assert.equal(row.hpScale, expected[act], `${act}/${stage}/${row.id}`);
+      for (const row of encounters.filter(row => row.enemies.length === 1)) assert.equal(row.hpScale, undefined);
+    }
+    for (const row of [...DATA.encounters[act].elite, DATA.encounters[act].boss]) {
+      assert.equal(row.hpScale, undefined);
+    }
+  }
+});
+
 test('普通遭遇按节点实际层数划分三阶段，三幕遭遇 ID 与组合稳定对应', () => {
   for (const [floor, stage] of [[1, 'early'], [2, 'early'], [3, 'mid'], [5, 'mid'], [6, 'late'], [8, 'late']]) {
     assert.equal(E.getEncounterStageByFloor(floor), stage);

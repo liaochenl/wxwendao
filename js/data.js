@@ -636,17 +636,17 @@
           { id: 'a1_tong_jia', enemies: [{ id: 'tong_jia' }], weight: 3 },
           { id: 'a1_teng_yao', enemies: [{ id: 'teng_yao' }], weight: 3 },
           { id: 'a1_luo_shi', enemies: [{ id: 'luo_shi' }], weight: 3 },
-          { id: 'a1_shan_xiao_huo_shu', enemies: [{ id: 'shan_xiao' }, { id: 'huo_shu' }], weight: 1, hpScale: 0.45 },
-          { id: 'a1_qing_she_shui_gui', enemies: [{ id: 'qing_she' }, { id: 'shui_gui' }], weight: 1, hpScale: 0.45 }
+          { id: 'a1_shan_xiao_huo_shu', enemies: [{ id: 'shan_xiao' }, { id: 'huo_shu' }], weight: 1, hpScale: 0.50 },
+          { id: 'a1_qing_she_shui_gui', enemies: [{ id: 'qing_she' }, { id: 'shui_gui' }], weight: 1, hpScale: 0.50 }
         ],
         late: [
           { id: 'a1_tong_jia', enemies: [{ id: 'tong_jia' }], weight: 2 },
           { id: 'a1_teng_yao', enemies: [{ id: 'teng_yao' }], weight: 2 },
           { id: 'a1_luo_shi', enemies: [{ id: 'luo_shi' }], weight: 2 },
-          { id: 'a1_tong_jia_huo_shu', enemies: [{ id: 'tong_jia' }, { id: 'huo_shu' }], weight: 1.5, hpScale: 0.45 },
-          { id: 'a1_teng_yao_qing_she', enemies: [{ id: 'teng_yao' }, { id: 'qing_she' }], weight: 1.5, hpScale: 0.45 },
-          { id: 'a1_luo_shi_shui_gui', enemies: [{ id: 'luo_shi' }, { id: 'shui_gui' }], weight: 1.5, hpScale: 0.45 },
-          { id: 'a1_shan_xiao_teng_yao', enemies: [{ id: 'shan_xiao' }, { id: 'teng_yao' }], weight: 1.5, hpScale: 0.45 }
+          { id: 'a1_tong_jia_huo_shu', enemies: [{ id: 'tong_jia' }, { id: 'huo_shu' }], weight: 1.5, hpScale: 0.50 },
+          { id: 'a1_teng_yao_qing_she', enemies: [{ id: 'teng_yao' }, { id: 'qing_she' }], weight: 1.5, hpScale: 0.50 },
+          { id: 'a1_luo_shi_shui_gui', enemies: [{ id: 'luo_shi' }, { id: 'shui_gui' }], weight: 1.5, hpScale: 0.50 },
+          { id: 'a1_shan_xiao_teng_yao', enemies: [{ id: 'shan_xiao' }, { id: 'teng_yao' }], weight: 1.5, hpScale: 0.50 }
         ]
       },
       elite: [{ enemies: [{ id: 'jin_jia_shi_jiang' }] }],
