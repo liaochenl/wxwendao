@@ -625,45 +625,85 @@
   /* ---------------- 遭遇 ---------------- */
   const ENCOUNTERS = {
     1: {
-      normal: [
-        { enemies: [{ id: 'shan_xiao' }], weight: 3 },
-        { enemies: [{ id: 'qing_she' }], weight: 3 },
-        { enemies: [{ id: 'huo_shu' }], weight: 3 },
-        { enemies: [{ id: 'tong_jia' }], weight: 2 },
-        { enemies: [{ id: 'shui_gui' }], weight: 3 },
-        { enemies: [{ id: 'teng_yao' }], weight: 2 },
-        { enemies: [{ id: 'luo_shi' }], weight: 2 },
-        { enemies: [{ id: 'qing_she' }, { id: 'huo_shu' }], weight: 1.5, hpScale: 0.72 }
-      ],
+      normal: {
+        early: [
+          { id: 'a1_shan_xiao', enemies: [{ id: 'shan_xiao' }], weight: 4 },
+          { id: 'a1_qing_she', enemies: [{ id: 'qing_she' }], weight: 4 },
+          { id: 'a1_huo_shu', enemies: [{ id: 'huo_shu' }], weight: 3 },
+          { id: 'a1_shui_gui', enemies: [{ id: 'shui_gui' }], weight: 2 }
+        ],
+        mid: [
+          { id: 'a1_tong_jia', enemies: [{ id: 'tong_jia' }], weight: 3 },
+          { id: 'a1_teng_yao', enemies: [{ id: 'teng_yao' }], weight: 3 },
+          { id: 'a1_luo_shi', enemies: [{ id: 'luo_shi' }], weight: 3 },
+          { id: 'a1_shan_xiao_huo_shu', enemies: [{ id: 'shan_xiao' }, { id: 'huo_shu' }], weight: 1, hpScale: 0.45 },
+          { id: 'a1_qing_she_shui_gui', enemies: [{ id: 'qing_she' }, { id: 'shui_gui' }], weight: 1, hpScale: 0.45 }
+        ],
+        late: [
+          { id: 'a1_tong_jia', enemies: [{ id: 'tong_jia' }], weight: 2 },
+          { id: 'a1_teng_yao', enemies: [{ id: 'teng_yao' }], weight: 2 },
+          { id: 'a1_luo_shi', enemies: [{ id: 'luo_shi' }], weight: 2 },
+          { id: 'a1_tong_jia_huo_shu', enemies: [{ id: 'tong_jia' }, { id: 'huo_shu' }], weight: 1.5, hpScale: 0.45 },
+          { id: 'a1_teng_yao_qing_she', enemies: [{ id: 'teng_yao' }, { id: 'qing_she' }], weight: 1.5, hpScale: 0.45 },
+          { id: 'a1_luo_shi_shui_gui', enemies: [{ id: 'luo_shi' }, { id: 'shui_gui' }], weight: 1.5, hpScale: 0.45 },
+          { id: 'a1_shan_xiao_teng_yao', enemies: [{ id: 'shan_xiao' }, { id: 'teng_yao' }], weight: 1.5, hpScale: 0.45 }
+        ]
+      },
       elite: [{ enemies: [{ id: 'jin_jia_shi_jiang' }] }],
       boss: { enemies: [{ id: 'shan_gui' }] }
     },
     2: {
-      normal: [
-        { enemies: [{ id: 'xue_sha' }], weight: 3 },
-        { enemies: [{ id: 'bing_po' }], weight: 3 },
-        { enemies: [{ id: 'shi_kui' }], weight: 2 },
-        { enemies: [{ id: 'jin_jia' }], weight: 3 },
-        { enemies: [{ id: 'shi_teng' }], weight: 3 },
-        { enemies: [{ id: 'you_huo' }], weight: 3 },
-        { enemies: [{ id: 'xuan_gui' }], weight: 2 },
-        { enemies: [{ id: 'xue_sha' }, { id: 'you_huo' }], weight: 1.2, hpScale: 0.75 },
-        { enemies: [{ id: 'bing_po' }, { id: 'shi_teng' }], weight: 1, hpScale: 0.72 }
-      ],
+      normal: {
+        early: [
+          { id: 'a2_xue_sha', enemies: [{ id: 'xue_sha' }], weight: 3 },
+          { id: 'a2_bing_po', enemies: [{ id: 'bing_po' }], weight: 3 },
+          { id: 'a2_shi_kui', enemies: [{ id: 'shi_kui' }], weight: 2 },
+          { id: 'a2_you_huo', enemies: [{ id: 'you_huo' }], weight: 3 }
+        ],
+        mid: [
+          { id: 'a2_jin_jia', enemies: [{ id: 'jin_jia' }], weight: 3 },
+          { id: 'a2_shi_teng', enemies: [{ id: 'shi_teng' }], weight: 3 },
+          { id: 'a2_xuan_gui', enemies: [{ id: 'xuan_gui' }], weight: 3 },
+          { id: 'a2_xue_sha_you_huo', enemies: [{ id: 'xue_sha' }, { id: 'you_huo' }], weight: 0.9, hpScale: 0.45 },
+          { id: 'a2_bing_po_shi_kui', enemies: [{ id: 'bing_po' }, { id: 'shi_kui' }], weight: 0.9, hpScale: 0.45 },
+          { id: 'a2_shi_teng_xue_sha', enemies: [{ id: 'shi_teng' }, { id: 'xue_sha' }], weight: 0.9, hpScale: 0.45 }
+        ],
+        late: [
+          { id: 'a2_xuan_gui', enemies: [{ id: 'xuan_gui' }], weight: 2 },
+          { id: 'a2_jin_jia', enemies: [{ id: 'jin_jia' }], weight: 2 },
+          { id: 'a2_shi_teng', enemies: [{ id: 'shi_teng' }], weight: 2 },
+          { id: 'a2_jin_jia_xue_sha', enemies: [{ id: 'jin_jia' }, { id: 'xue_sha' }], weight: 1.5, hpScale: 0.45 },
+          { id: 'a2_xuan_gui_you_huo', enemies: [{ id: 'xuan_gui' }, { id: 'you_huo' }], weight: 1.5, hpScale: 0.45 },
+          { id: 'a2_shi_teng_bing_po', enemies: [{ id: 'shi_teng' }, { id: 'bing_po' }], weight: 1.5, hpScale: 0.45 },
+          { id: 'a2_shi_kui_jin_jia', enemies: [{ id: 'shi_kui' }, { id: 'jin_jia' }], weight: 1.5, hpScale: 0.45 }
+        ]
+      },
       elite: [{ enemies: [{ id: 'shi_ling_teng_mu' }] }],
       boss: { enemies: [{ id: 'chi_ba' }] }
     },
     3: {
-      normal: [
-        { enemies: [{ id: 'tian_bing' }], weight: 3 },
-        { enemies: [{ id: 'lei_shou' }], weight: 3 },
-        { enemies: [{ id: 'xuan_bing' }], weight: 3 },
-        { enemies: [{ id: 'gu_mu' }], weight: 3 },
-        { enemies: [{ id: 'huang_quan' }], weight: 2 },
-        { enemies: [{ id: 'xing_huo' }], weight: 3 },
-        { enemies: [{ id: 'tian_bing' }, { id: 'lei_shou' }], weight: 1, hpScale: 0.75 },
-        { enemies: [{ id: 'xuan_bing' }, { id: 'gu_mu' }], weight: 1, hpScale: 0.72 }
-      ],
+      normal: {
+        early: [
+          { id: 'a3_tian_bing', enemies: [{ id: 'tian_bing' }], weight: 3 },
+          { id: 'a3_xing_huo', enemies: [{ id: 'xing_huo' }], weight: 3 },
+          { id: 'a3_huang_quan', enemies: [{ id: 'huang_quan' }], weight: 2 }
+        ],
+        mid: [
+          { id: 'a3_lei_shou', enemies: [{ id: 'lei_shou' }], weight: 3 },
+          { id: 'a3_xuan_bing', enemies: [{ id: 'xuan_bing' }], weight: 3 },
+          { id: 'a3_gu_mu', enemies: [{ id: 'gu_mu' }], weight: 3 },
+          { id: 'a3_tian_bing_xing_huo', enemies: [{ id: 'tian_bing' }, { id: 'xing_huo' }], weight: 1, hpScale: 0.45 },
+          { id: 'a3_huang_quan_lei_shou', enemies: [{ id: 'huang_quan' }, { id: 'lei_shou' }], weight: 1, hpScale: 0.45 }
+        ],
+        late: [
+          { id: 'a3_lei_shou', enemies: [{ id: 'lei_shou' }], weight: 2 },
+          { id: 'a3_xuan_bing', enemies: [{ id: 'xuan_bing' }], weight: 2 },
+          { id: 'a3_tian_bing_lei_shou', enemies: [{ id: 'tian_bing' }, { id: 'lei_shou' }], weight: 1.6, hpScale: 0.45 },
+          { id: 'a3_xuan_bing_xing_huo', enemies: [{ id: 'xuan_bing' }, { id: 'xing_huo' }], weight: 1.6, hpScale: 0.45 },
+          { id: 'a3_gu_mu_huang_quan', enemies: [{ id: 'gu_mu' }, { id: 'huang_quan' }], weight: 1.6, hpScale: 0.45 },
+          { id: 'a3_tian_bing_gu_mu', enemies: [{ id: 'tian_bing' }, { id: 'gu_mu' }], weight: 1.6, hpScale: 0.45 }
+        ]
+      },
       elite: [{ enemies: [{ id: 'xuan_shui_jiao_wang' }] }],
       boss: { enemies: [{ id: 'tai_xu' }] }
     }

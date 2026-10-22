@@ -110,15 +110,29 @@ function chooseNode(s) {
   return avail[0];
 }
 
-function runOne(charId, seed, asc, metrics) {
+function runOne(charId, seed, asc, metrics, encounterMetrics) {
   const s = E.createRun({ characterId: charId, seed, ascension: asc });
   let steps = 0;
+  let normalCombats = 0;
   while (steps++ < 3000) {
     if (s.screen === 'victory' || s.screen === 'gameover') break;
     if (s.screen === 'map') {
       const n = chooseNode(s);
       if (!n) break;
       E.enterNode(s, n.id);
+      if (n.type === 'combat') {
+        normalCombats++;
+        if (encounterMetrics) {
+          const stage = n.row <= 1 ? 'early' : n.row <= 4 ? 'mid' : 'late';
+          const key = `${s.act}:${stage}`;
+          const row = encounterMetrics.get(key) || { act: s.act, stage, count: 0, doubles: 0 };
+          row.count++;
+          if (s.combat.enemies.length === 2) row.doubles++;
+          encounterMetrics.set(key, row);
+          const id = s.recentEncounters.at(-1);
+          if (id) encounterMetrics.set(`id:${id}`, (encounterMetrics.get(`id:${id}`) || 0) + 1);
+        }
+      }
     } else if (s.screen === 'combat') {
       if (s.combat.phase === 'player') combatTurn(s, metrics);
       else if (s.combat.phase === 'won') E.finishCombat(s);
@@ -172,12 +186,15 @@ function runOne(charId, seed, asc, metrics) {
   }
   return {
     win: s.screen === 'victory',
+    dead: s.screen === 'gameover',
     act: s.act,
     floor: s.stats.floors,
     hp: s.hp,
     maxHp: s.maxHp,
     deck: s.deck.length,
     kills: s.stats.kills,
+    normalCombats,
+    deathRow: s.screen === 'gameover' ? E.currentNode(s)?.row : null,
     steps,
     stuck: steps >= 3000
   };
@@ -186,12 +203,14 @@ function runOne(charId, seed, asc, metrics) {
 const runs = Number(process.argv[2] || 600);
 const ascension = Number(process.argv[3] || 0);
 const reportCards = process.argv.includes('--report-cards');
+const reportEncounters = process.argv.includes('--report-encounters');
 const cardMetrics = reportCards ? new Map() : null;
+const encounterMetrics = reportEncounters ? new Map() : null;
 const results = [];
 for (const char of ['sword', 'alchemist', 'monk']) {
   for (let i = 0; i < runs / 3; i++) {
     try {
-      results.push(Object.assign({ char }, runOne(char, 10000 + i * 31, ascension, cardMetrics)));
+      results.push(Object.assign({ char }, runOne(char, 10000 + i * 31, ascension, cardMetrics, encounterMetrics)));
     } catch (err) {
       console.error('CRASH', char, i, err && err.stack || err);
       process.exit(1);
@@ -206,6 +225,38 @@ for (const char of ['sword', 'alchemist', 'monk']) {
   console.log(`${char}: 胜率 ${(wins / rs.length * 100).toFixed(1)}% | 平均层数 ${avgFloor} | 平均牌组 ${avgDeck} | 卡死 ${rs.filter(r => r.stuck).length}`);
 }
 console.log('天劫', ascension, '· 总计', results.length, '局，异常 0');
+if (reportEncounters) {
+  console.log('ENCOUNTER_STATS_START');
+  console.log('幕,阶段,普通战斗,双怪');
+  for (const act of [1, 2, 3]) {
+    for (const stage of ['early', 'mid', 'late']) {
+      const row = encounterMetrics.get(`${act}:${stage}`) || { count: 0, doubles: 0 };
+      console.log([act, stage, row.count, row.doubles].join(','));
+    }
+  }
+  console.log('遭遇ID,次数');
+  for (const [key, count] of [...encounterMetrics.entries()].filter(([key]) => key.startsWith('id:')).sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`${key.slice(3)},${count}`);
+  }
+  console.log('死亡幕,剑修,丹修,体修');
+  for (const act of [1, 2, 3]) {
+    console.log([act, ...['sword', 'alchemist', 'monk'].map(char => results.filter(r => r.char === char && r.dead && r.act === act).length)].join(','));
+  }
+  console.log('死亡阶段,剑修,丹修,体修');
+  for (const stage of ['early', 'mid', 'late', 'boss']) {
+    const matches = row => stage === 'boss' ? row === 8 : row != null &&
+      (row <= 1 ? 'early' : row <= 4 ? 'mid' : 'late') === stage && row < 8;
+    console.log([stage, ...['sword', 'alchemist', 'monk'].map(char => results.filter(r => r.char === char && r.dead && matches(r.deathRow)).length)].join(','));
+  }
+  for (const char of ['sword', 'alchemist', 'monk']) {
+    const rows = results.filter(r => r.char === char);
+    const avgCombats = (rows.reduce((sum, r) => sum + r.normalCombats, 0) / rows.length).toFixed(1);
+    const wins = rows.filter(r => r.win);
+    const avgWinHp = wins.length ? (wins.reduce((sum, r) => sum + r.hp, 0) / wins.length).toFixed(1) : '0.0';
+    console.log(`${char}: 平均普通战斗 ${avgCombats} | 通关时平均生命 ${avgWinHp}`);
+  }
+  console.log('ENCOUNTER_STATS_END');
+}
 if (reportCards) {
   console.log('CARD_STATS_START');
   console.log('角色,卡牌ID,奖励出现,奖励选取,手牌回合实例数,实际打出,商店出现,商店购买');
