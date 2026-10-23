@@ -301,6 +301,26 @@
     ]);
   }
 
+  function daoAwakening({ target, element = 'metal' } = {}) {
+    const pos = centerOf(target);
+    if (!pos || reduced()) return Promise.resolve();
+    const animations = [
+      ring(pos.x, pos.y, element, 'fx-ring fx-dao-awakening', 900, 4.1),
+      flash(pos.x, pos.y, element, 'fx-flash fx-dao-awakening', 520, 110)
+    ];
+    for (let i = 0; i < ORDER.length; i++) {
+      const angle = i * Math.PI * 2 / ORDER.length;
+      const startX = pos.x + Math.cos(angle) * 100;
+      const startY = pos.y + Math.sin(angle) * 80;
+      animations.push(animateAndRemove(node('fx-particle fx-dao-awakening-particle', startX, startY, ORDER[i]), [
+        { transform: 'translate(-50%, -50%) scale(1)', opacity: .15 },
+        { transform: `translate(calc(-50% + ${pos.x - startX}px), calc(-50% + ${pos.y - startY}px)) scale(.45)`, opacity: .95, offset: .7 },
+        { transform: `translate(calc(-50% + ${pos.x - startX}px), calc(-50% + ${pos.y - startY}px)) scale(0)`, opacity: 0 }
+      ], { duration: 850, easing: 'ease-in' }));
+    }
+    return Promise.all(animations);
+  }
+
   function statusDetonate({ status, target, source } = {}) {
     if (reduced()) return Promise.resolve();
     const dest = centerOf(target);
@@ -379,5 +399,5 @@
     await Promise.all(animations);
   }
 
-  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, statusDetonate, zhoutian, clear };
+  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, daoAwakening, statusDetonate, zhoutian, clear };
 })();

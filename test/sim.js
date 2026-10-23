@@ -116,6 +116,21 @@ function chooseNode(s) {
   return avail[0];
 }
 
+function chooseDaoForSim(state) {
+  const choices = E.getDaoChoices(state).filter(choice => !choice.disabled);
+  if (!choices.length) return null;
+  const main = E.getBuildIdentity(state).tag;
+  const matched = choices.find(choice => choice.tag === main);
+  if (matched) return matched.tag;
+  const counts = Object.fromEntries(choices.map(choice => [choice.tag, 0]));
+  for (const instance of state.deck) {
+    const card = DATA.cardMap[instance.id];
+    if (!card || card.rarity === 'starter') continue;
+    for (const tag of card.tags || []) if (tag in counts) counts[tag]++;
+  }
+  return choices.reduce((best, choice) => counts[choice.tag] > counts[best.tag] ? choice : best, choices[0]).tag;
+}
+
 function observeEnemyKills(sample, enemies) {
   if (sample.enemyCount !== 2 || !sample.aliveEnemies) return;
   const remaining = new Set(enemies.filter(enemy => enemy.hp > 0).map(enemy => enemy.uid));
@@ -133,6 +148,7 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
   const s = E.createRun({ characterId: charId, seed, ascension: asc });
   let steps = 0;
   let normalCombats = 0;
+  const daoPicks = [];
   let activeNormal = null;
   const highlights = { maxTurnDamage: 0, maxTurnBlock: 0, maxBlock: 0, maxCardsPlayedInTurn: 0,
     maxPoison: 0, maxBurn: 0, maxRegen: 0, maxResource: 0, finisherCount: 0,
@@ -252,6 +268,14 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
       }
       else E.skipReward(s);
       E.continueReward(s);
+    } else if (s.screen === 'dao') {
+      if (!s.dao.pending.chosen) {
+        const tag = chooseDaoForSim(s);
+        if (!tag || !E.chooseDaoBlessing(s, tag).ok) break;
+        daoPicks.push(tag);
+        observer?.onDaoPick?.({ character: charId, act: s.act, tag });
+      }
+      if (!E.continueDao(s).ok) break;
     } else if (s.screen === 'shop') {
       for (const entry of s.shop.cards) tally(metrics, charId, entry.card.id, 'shopOffered');
       const kinds = ['relic', 'card', 'potion'];
@@ -316,9 +340,10 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
     deathRow: deathNode?.row ?? null,
     deathType: deathNode?.type ?? null,
     steps,
-    stuck: steps >= 3000,
+    stuck: s.screen !== 'victory' && s.screen !== 'gameover',
     deckTags,
     payoffTags,
+    daoPicks,
     highlights
   };
 }
@@ -341,6 +366,7 @@ for (const char of ['sword', 'alchemist', 'monk']) {
     }
   }
 }
+const abnormal = results.filter(result => result.stuck);
 for (const char of ['sword', 'alchemist', 'monk']) {
   const rs = results.filter(r => r.char === char);
   const wins = rs.filter(r => r.win).length;
@@ -348,7 +374,14 @@ for (const char of ['sword', 'alchemist', 'monk']) {
   const avgDeck = (rs.reduce((a, r) => a + r.deck, 0) / rs.length).toFixed(1);
   console.log(`${char}: 胜率 ${(wins / rs.length * 100).toFixed(1)}% | 平均层数 ${avgFloor} | 平均牌组 ${avgDeck} | 卡死 ${rs.filter(r => r.stuck).length}`);
 }
-console.log('天劫', ascension, '· 总计', results.length, '局，异常 0');
+console.log('天劫', ascension, '· 总计', results.length, '局，异常', abnormal.length);
+if (abnormal.length) process.exitCode = 1;
+console.log('sim AI 的悟道策略为构筑匹配策略。');
+for (const char of ['sword', 'alchemist', 'monk']) {
+  const picks = results.filter(result => result.char === char).flatMap(result => result.daoPicks);
+  const summary = DATA.daoBlessings.filter(blessing => blessing.character === char).map(blessing => `${blessing.name} ${picks.filter(tag => tag === blessing.tag).length}`).join(' · ');
+  console.log(`${char} 道印选取：${summary}`);
+}
 if (reportEncounters) {
   console.log('ENCOUNTER_STATS_START');
   console.log('幕,阶段,普通战斗,双怪');
@@ -393,4 +426,4 @@ if (reportCards) {
 }
 
 if (require.main === module) runCli();
-module.exports = { runOne, scoreCard, observeEnemyKills };
+module.exports = { runOne, scoreCard, observeEnemyKills, chooseDaoForSim };

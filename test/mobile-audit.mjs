@@ -281,7 +281,19 @@ const SCREENS = [
   },
   {
     name: 'dao-record',
-    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); for(let i=0;i<4;i++) WXEngine.addCardToDeck(st,'ning_feng'); st.victory=true; st.screen='victory'; st.highlights.maxSingleHit=76; st.highlights.maxTurnDamage=94; WX_UI.state=st; WX_UI.screen='victory'; WX_UI.render(); return 1; })()"
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); for(let i=0;i<4;i++) WXEngine.addCardToDeck(st,'ning_feng'); st.dao.blessings.sword_intent=2; st.dao.blessings.sword_chain=1; st.victory=true; st.screen='victory'; st.highlights.maxSingleHit=76; st.highlights.maxTurnDamage=94; WX_UI.state=st; WX_UI.screen='victory'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'dao-ding',
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); st.reward={kind:'boss',cards:[],cardTaken:true,selected:-1}; WXEngine.continueReward(st); WX_UI.state=st; WX_UI.screen='dao'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'dao-wu',
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'alchemist',seed:71}); st.reward={kind:'boss',cards:[],cardTaken:true,selected:-1}; WXEngine.continueReward(st); WXEngine.chooseDaoBlessing(st,'poison'); WXEngine.continueDao(st); st.reward={kind:'boss',cards:[],cardTaken:true,selected:-1}; WXEngine.continueReward(st); for(let i=0;i<4;i++) WXEngine.addCardToDeck(st,'shi_gu_dan'); WX_UI.state=st; WX_UI.screen='dao'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'dao-chosen',
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); st.reward={kind:'boss',cards:[],cardTaken:true,selected:-1}; WXEngine.continueReward(st); WXEngine.chooseDaoBlessing(st,'sword_intent'); WX_UI.state=st; WX_UI.screen='dao'; WX_UI.daoRevealing=false; WX_UI.render(); return 1; })()"
   }
 ];
 
@@ -388,8 +400,25 @@ async function auditAt(cdp, baseUrl, vp) {
     if (screen.name === 'dao-record') {
       const record = await cdp.eval(`(() => ({ title:document.querySelector('.dao-record-title')?.textContent||'',
         deck:document.querySelector('.dao-deck-list')?.children.length||0,
+        blessing:document.querySelector('.dao-record-blessings')?.textContent||'',
         button:!!document.querySelector('[data-action="victory-new"]') }))()`);
-      if (record.title !== '一剑开天' || record.deck < 10 || !record.button) fail(`${tag}: 证道录内容或再入轮回入口缺失`);
+      if (record.title !== '一剑开天' || record.deck < 10 || !record.button || !record.blessing.includes('剑心通明Ⅱ') || !record.blessing.includes('金水交鸣Ⅰ')) fail(`${tag}: 证道录内容或再入轮回入口缺失`);
+    }
+    if (screen.name === 'dao-ding' || screen.name === 'dao-wu') {
+      const dao = await cdp.eval(`(() => { const cards=[...document.querySelectorAll('.dao-card')];
+        const title=document.querySelector('.dao-head h1')?.textContent||'';
+        const screen=document.querySelector('.dao-screen');
+        return { title, count:cards.length, singleColumn:cards.length===3&&Math.abs(cards[0].getBoundingClientRect().left-cards[1].getBoundingClientRect().left)<2,
+          legible:cards.every(card=>{const r=card.getBoundingClientRect();return r.width>250&&r.left>=0&&r.right<=innerWidth&&card.scrollHeight<=card.clientHeight+1;}),
+          scrollable:screen?.scrollHeight>=screen?.clientHeight }; })()`);
+      if (dao.title !== (screen.name === 'dao-ding' ? '定道' : '悟道') || dao.count !== 3 || !dao.singleColumn || !dao.legible || !dao.scrollable) fail(`${tag}: 道印选择卡布局异常 ${JSON.stringify(dao)}`);
+    }
+    if (screen.name === 'dao-chosen') {
+      const chosen = await cdp.eval(`(() => { const button=document.querySelector('[data-action="continue-dao"]');
+        const card=document.querySelector('.dao-card.chosen');
+        return { button:!!button&&!button.disabled&&button.getBoundingClientRect().width>=44,
+          correct:card?.textContent.includes('抽 1 张牌。')&&!card?.textContent.includes('获得 1 点灵气') }; })()`);
+      if (!chosen.button || !chosen.correct) fail(`${tag}: 道印选择后确认入口或已选效果异常 ${JSON.stringify(chosen)}`);
     }
     if (screen.name === 'upgraded-hand') {
       const title = await cdp.eval(`(() => { const el=document.querySelector('.hand .card-name');
