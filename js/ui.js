@@ -32,7 +32,7 @@
     3: '天阙将倾，五行失序。去问一问，这天到底是谁的天。'
   };
   const RARITY_LABEL = { starter: '初始', common: '凡品', uncommon: '灵品', rare: '玄品', curse: '禁制', special: '异数' };
-  const BUILD_TAG_NAMES = { sword_intent: '剑意', sword_cycle: '流云', sword_chain: '金水', poison: '万毒', burn: '焚炉', regen: '生生' };
+  const BUILD_TAG_NAMES = { sword_intent: '剑意', sword_cycle: '流云', sword_chain: '金水', poison: '万毒', burn: '焚炉', regen: '生生', monk_block: '镇岳', monk_thorns: '金刚', monk_ritual: '蓄势' };
   function buildNames(card) { return (card.tags || []).map(tag => BUILD_TAG_NAMES[tag]).filter(Boolean); }
   function resourceName(id) { return D.characters.find(character => character.resource?.id === id)?.resource.name || id; }
   const CHAR_STYLE = { sword: '连携爆发 · 直伤抽牌', alchemist: '持续伤害 · 中毒回春', monk: '厚甲反伤 · 稳健推进' };
@@ -141,7 +141,11 @@
       if (preview.cross) live.push('<span class="live live-cross">克制</span>');
       if (preview.chainAfter > 0 && preview.linked) live.push(`<span class="live live-chain">连携 ${preview.chainAfter}</span>`);
       if (preview.poison) live.push(`<span class="live live-poison">毒 ${preview.poison}</span>`);
-      if (preview.detonateDamage) live.push(`<span class="live live-dmg">${{ poison: '毒爆', burn: '焚炉', regen: '生机化攻' }[preview.detonateStatus] || '爆发'} ${preview.detonateDamage}${preview.detonateHits > 1 ? `（${preview.detonateHits}段）` : ''}</span>`);
+      if (preview.detonateDamage && preview.detonateStatus !== 'thorns') live.push(`<span class="live live-dmg">${{ poison: '毒爆', burn: '焚炉', regen: '生机化攻' }[preview.detonateStatus] || '爆发'} ${preview.detonateDamage}${preview.detonateHits > 1 ? `（${preview.detonateHits}段）` : ''}</span>`);
+      if (preview.damageAll) live.push(`<span class="live live-dmg">每敌 ${preview.damageAll}</span>`);
+      if (preview.blockConsumed) live.push(`<span class="live live-block">耗甲 ${preview.blockConsumed}</span>`);
+      if (preview.statusConsumed && preview.detonateStatus === 'thorns') live.push(`<span class="live live-block">耗荆棘 ${preview.statusConsumed}</span>`);
+      if (preview.resourceConsumed && UI.state?.characterId === 'monk') live.push(`<span class="live live-block">耗战势 ${preview.resourceConsumed}</span>`);
       if (preview.heal) live.push(`<span class="live live-heal">愈 ${preview.heal}</span>`);
       if (preview.draw) live.push(`<span class="live live-draw">抽 ${preview.draw}</span>`);
     }
@@ -520,7 +524,7 @@
           await Promise.race([flight, sleep(300)]);
           await Promise.all([
             flight,
-            visual('finisher', { target: destination, element: cardData.element, kind: this.state.characterId }),
+            visual('finisher', { target: destination, source: document.getElementById('player-panel'), element: cardData.element, kind: this.state.characterId, cardId: cardData.id }),
             this.fx(res.events)
           ]);
         } else {
@@ -801,6 +805,7 @@
           }
           case 'potion': this.sfx('potion'); await sleep(60); break;
           case 'resource': {
+            if (ev.id === 'battleMomentum') break;
             const el = document.querySelector('.character-resource');
             this.floatAt(el, `${resourceName(ev.id)} ${ev.delta > 0 ? '+' : ''}${ev.delta}`, 'fx-resource');
             await sleep(35);
@@ -811,11 +816,19 @@
             this.floatAt(el, `${resourceName(ev.id)}已满`, 'fx-resource-ready');
             break;
           }
+          case 'momentumSummary': {
+            if (ev.generated) this.floatAt(document.querySelector('.character-resource'), `挡伤 ${ev.blocked} · 战势 +${ev.generated}`, 'fx-resource');
+            break;
+          }
+          case 'blockCashout': {
+            this.floatAt(document.getElementById('player-panel'), `砸甲 -${ev.consumed}`, 'fx-block-cashout');
+            break;
+          }
           case 'statusDetonate': {
             const source = document.getElementById('player-panel');
             const target = ev.target === 'player' ? document.querySelector('.enemy-zone') : document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
-            const label = { poison: '毒爆', burn: '焚炉', regen: '生机化攻' }[ev.status] || '状态爆发';
-            this.floatAt(ev.target === 'player' ? source : target, `${label} ${ev.damage || ''}`, 'fx-status-detonate');
+            const label = { poison: '毒爆', burn: '焚炉', regen: '生机化攻', thorns: '金刚震怒' }[ev.status] || '状态爆发';
+            this.floatAt(ev.target === 'player' ? source : target, `${label} ${ev.damageAll ? `每敌 ${ev.damageAll}` : ev.damage || ''}`, 'fx-status-detonate');
             await visual('statusDetonate', { status: ev.status, target, source });
             break;
           }
@@ -1646,7 +1659,10 @@
         if (d.action === 'play-card' && this.state && this.state.combat) {
           const p = E.getPreview(this.state, d.index, this.targetIndex);
           const values = p ? [p.damage != null ? `预计伤害 ${p.damage}${p.hits > 1 ? ' × ' + p.hits : ''}` : '',
-            p.detonateDamage ? `预计${{ poison: '毒爆', burn: '焚炉', regen: '生机化攻' }[p.detonateStatus] || '爆发'} ${p.detonateDamage}` : '',
+            p.damageAll ? `预计每名敌人最多 ${p.damageAll} 点` : p.detonateDamage ? `预计${{ poison: '毒爆', burn: '焚炉', regen: '生机化攻' }[p.detonateStatus] || '爆发'} ${p.detonateDamage}` : '',
+            p.blockConsumed ? `预计消耗 ${p.blockConsumed} 护甲` : '',
+            p.statusConsumed && p.detonateStatus === 'thorns' ? `荆棘将减少 ${p.statusConsumed} 层` : '',
+            p.resourceConsumed && this.state.characterId === 'monk' ? `战势将消耗 ${p.resourceConsumed}` : '',
             p.heal ? `预计回复 ${p.heal}` : '',
             p.block != null ? `预计护甲 ${p.block}` : '', p.cross ? '克制破防' : '',
             p.linked ? `连携 ${p.chainAfter}` : ''].filter(Boolean) : [];

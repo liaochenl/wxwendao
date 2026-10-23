@@ -134,12 +134,25 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
   let steps = 0;
   let normalCombats = 0;
   let activeNormal = null;
-  const highlights = { maxTurnDamage: 0, maxTurnBlock: 0, maxCardsPlayedInTurn: 0,
+  const highlights = { maxTurnDamage: 0, maxTurnBlock: 0, maxBlock: 0, maxCardsPlayedInTurn: 0,
     maxPoison: 0, maxBurn: 0, maxRegen: 0, maxResource: 0, finisherCount: 0,
-    detonationCount: 0, maxDetonationDamage: 0 };
+    maxBattleMomentum: 0, resourceWasteRate: 0,
+    detonationCount: 0, maxDetonationDamage: 0, maxThorns: 0, maxStrength: 0, maxRitual: 0,
+    blockedDamage: 0, momentumGenerated: 0, momentumWasted: 0,
+    blockCashoutDamage: 0, thornsCashoutDamage: 0 };
   let highlightCombat = null;
   let highlightTurn = 0;
   let turnDamage = 0;
+  function capturePeaks(combat) {
+    if (!combat) return;
+    highlights.maxTurnBlock = Math.max(highlights.maxTurnBlock, combat.block);
+    highlights.maxBlock = highlights.maxTurnBlock;
+    highlights.maxResource = Math.max(highlights.maxResource, combat.characterResource?.value || 0);
+    if (charId === 'monk') highlights.maxBattleMomentum = highlights.maxResource;
+    highlights.maxThorns = Math.max(highlights.maxThorns, combat.statuses.thorns || 0);
+    highlights.maxStrength = Math.max(highlights.maxStrength, combat.statuses.strength || 0);
+    highlights.maxRitual = Math.max(highlights.maxRitual, combat.statuses.ritual || 0);
+  }
   function observePlay(card, played, combat) {
     if (highlightCombat !== combat || highlightTurn !== combat.turn) {
       highlightCombat = combat;
@@ -149,9 +162,8 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
     turnDamage += played.events.filter(event => event.t === 'damage' && event.target === 'enemy')
       .reduce((sum, event) => sum + Math.max(0, event.amount - (event.blocked || 0)), 0);
     highlights.maxTurnDamage = Math.max(highlights.maxTurnDamage, turnDamage);
-    highlights.maxTurnBlock = Math.max(highlights.maxTurnBlock, combat.block);
+    capturePeaks(combat);
     highlights.maxCardsPlayedInTurn = Math.max(highlights.maxCardsPlayedInTurn, combat.cardsPlayedThisTurn);
-    highlights.maxResource = Math.max(highlights.maxResource, combat.characterResource?.value || 0);
     highlights.maxRegen = Math.max(highlights.maxRegen, combat.statuses.regen || 0);
     if (DATA.cardMap[card.id]?.finisher) highlights.finisherCount++;
     for (const event of played.events) if (event.t === 'statusDetonate') {
@@ -164,11 +176,18 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
     }
   }
   function recordCombatEvents(result) {
-    if (!activeNormal) return;
-    if (s.combat) observeEnemyKills(activeNormal, s.combat.enemies);
+    capturePeaks(s.combat);
+    if (activeNormal && s.combat) observeEnemyKills(activeNormal, s.combat.enemies);
     if (!result?.events) return;
     for (const event of result.events) {
-      if (event.t === 'damage' && event.target === 'player' && event.direct) {
+      if (event.t === 'momentumSummary') {
+        highlights.blockedDamage += event.blocked;
+        highlights.momentumGenerated += event.generated;
+        highlights.momentumWasted += event.wasted;
+      }
+      if (event.t === 'blockCashout') highlights.blockCashoutDamage += event.damage;
+      if (event.t === 'statusDetonate' && event.status === 'thorns') highlights.thornsCashoutDamage += event.damage;
+      if (activeNormal && event.t === 'damage' && event.target === 'player' && event.direct) {
         activeNormal.directDamageTaken += event.amount;
       }
     }
@@ -274,12 +293,16 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
   }
   finishNormalSample();
   const deathNode = s.screen === 'gameover' ? E.currentNode(s) : null;
-  const deckTags = { sword_intent: 0, sword_cycle: 0, sword_chain: 0, poison: 0, burn: 0, regen: 0 };
-  const payoffTags = { sword_intent: false, sword_cycle: false, sword_chain: false, poison: false, burn: false, regen: false };
+  const deckTags = { sword_intent: 0, sword_cycle: 0, sword_chain: 0, poison: 0, burn: 0, regen: 0,
+    monk_block: 0, monk_thorns: 0, monk_ritual: 0 };
+  const payoffTags = { sword_intent: false, sword_cycle: false, sword_chain: false, poison: false, burn: false, regen: false,
+    monk_block: false, monk_thorns: false, monk_ritual: false };
   for (const card of s.deck) for (const tag of DATA.cardMap[card.id]?.rarity === 'starter' ? [] : DATA.cardMap[card.id]?.tags || []) {
     if (deckTags[tag] != null) deckTags[tag]++;
     if (payoffTags[tag] != null && DATA.cardMap[card.id].rarity === 'rare' && DATA.cardMap[card.id].finisher) payoffTags[tag] = true;
   }
+  const potentialMomentum = highlights.momentumGenerated + highlights.momentumWasted;
+  highlights.resourceWasteRate = potentialMomentum ? highlights.momentumWasted / potentialMomentum : 0;
   return {
     win: s.screen === 'victory',
     dead: s.screen === 'gameover',

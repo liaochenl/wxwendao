@@ -37,7 +37,7 @@ test('炉火从零开始，毒火治疗回春各得一，养元丹单牌最多�
   const sword = battle('sword');
   const monk = battle('monk');
   assert.equal(sword.combat.characterResource.id, 'swordIntent');
-  assert.equal(monk.combat.characterResource, undefined);
+  assert.deepEqual(monk.combat.characterResource, { id: 'battleMomentum', value: 0, max: 10 });
   const oldSave = battle();
   delete oldSave.combat.characterResource;
   assert.deepEqual(E.deserialize(E.serialize(oldSave)).combat.characterResource, { id: 'furnaceFire', value: 0, max: 8 });
