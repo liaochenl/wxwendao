@@ -566,6 +566,8 @@
       firstCardUsed: false,
       encounterType: type || 'combat',
       characterResource: getCharacter(state).resource ? { id: getCharacter(state).resource.id, value: 0, max: getCharacter(state).resource.max } : undefined,
+      momentumBlockedThisEnemyTurn: 0,
+      momentumGainedThisEnemyTurn: 0,
       relicUsed: {},
       log: []
     };
@@ -661,6 +663,18 @@
     return Math.max(0, dmg);
   }
 
+  function blockDamageBonus(effect, block, resource) {
+    if (effect.perBlock == null) return 0;
+    const hot = resource >= (effect.resourceAtLeast ?? Infinity);
+    const rate = hot ? (effect.hotPerBlock ?? effect.perBlock) : effect.perBlock;
+    const max = hot ? (effect.hotMaxBlockBonus ?? effect.maxBlockBonus ?? Infinity) : (effect.maxBlockBonus ?? Infinity);
+    return Math.min(max, Math.floor(block * rate));
+  }
+
+  function selfStatusDamageBonus(effect, statuses) {
+    return effect.perSelfStatus ? (statuses[effect.perSelfStatus.status] || 0) * (effect.perSelfStatus.value || 0) : 0;
+  }
+
   function hurtEnemy(state, enemy, base, opts) {
     opts = opts || {};
     if (!enemy || enemy.hp <= 0) return 0;
@@ -673,7 +687,8 @@
     const loss = dmg - blocked;
     enemy.hp = Math.max(0, enemy.hp - loss);
     state.stats.damageDealt += loss;
-    emit({ t: 'damage', target: 'enemy', uid: enemy.uid, amount: dmg, blocked, hp: enemy.hp, cross: !!opts.cross, element: opts.element || null });
+    emit({ t: 'damage', target: 'enemy', uid: enemy.uid, amount: dmg, blocked, hp: enemy.hp, cross: !!opts.cross,
+      element: opts.element || null, source: opts.source || undefined });
     afterEnemyHpChange(state, enemy);
     return loss;
   }
@@ -697,6 +712,10 @@
     const loss = dmg - blocked;
     state.hp = Math.max(0, state.hp - loss);
     state.stats.damageTaken += loss;
+    if (enemy && c.phase === 'enemy' && state.characterId === 'monk' && blocked > 0) {
+      c.momentumBlockedThisEnemyTurn = (c.momentumBlockedThisEnemyTurn || 0) + blocked;
+      c.momentumGainedThisEnemyTurn = Math.min(3, Math.floor(c.momentumBlockedThisEnemyTurn / 5));
+    }
     emit({ t: 'damage', target: 'player', amount: dmg, blocked, hp: state.hp, enemy: enemy ? enemy.uid : null });
     checkEnd(state);
     return loss;
@@ -861,10 +880,11 @@
   function resolveEffects(state, data, target, chainBonus, chainInfo, targetStatusesBefore) {
     const c = state.combat;
     let didDetonate = false;
+    const blockBefore = c.block;
     for (const effect of (data.effects || [])) {
       if (c.phase !== 'player' && effect.op !== 'consumeResource') break;
       if (effect.cond?.detonationOccurred && !didDetonate) continue;
-      if (effect.cond && !checkCond(state, effect.cond, target, chainInfo?.linked, targetStatusesBefore)) continue;
+      if (effect.cond && !checkCond(state, effect.cond, target, chainInfo?.linked, targetStatusesBefore, blockBefore)) continue;
       switch (effect.op) {
         case 'damage': {
           const isAll = effect.target === 'all';
@@ -874,23 +894,35 @@
           const chainExtra = chainBonus || 0;
           const resourceBonus = (effect.perResource || 0) * resource + (effect.bonusAtResource != null && resource >= effect.bonusAtResource ? effect.bonusDamage || 0 : 0);
           const cardsBonus = (effect.perCardsPlayed || 0) * Math.min(Math.max(0, c.cardsPlayedThisTurn - 1), effect.maxCardsPlayedBonus || 99);
+          const blockBeforeStrike = c.block;
+          const blockBonus = blockDamageBonus(effect, blockBeforeStrike, resource);
+          const statusBonus = selfStatusDamageBonus(effect, c.statuses);
+          let dealt = 0;
           if (effect.consumeResource) changeCharacterResource(state, -resource);
           for (const enemy of targets) {
             for (let h = 0; h < hits; h++) {
               if (enemy.hp <= 0) break;
               if (state.hp <= 0) break;
-              const perHitBase = (effect.value || 0) + (effect.perChain || 0) * c.chain + resourceBonus + cardsBonus;
+              const perHitBase = (effect.value || 0) + (effect.perChain || 0) * c.chain + resourceBonus + cardsBonus + blockBonus + statusBonus;
               const cross = isCross(data.element, enemy.element);
-              hurtEnemy(state, enemy, perHitBase, {
+              const hpBeforeHit = enemy.hp;
+              const hitDamage = hurtEnemy(state, enemy, perHitBase, {
                 strength: data.type === 'attack',
                 attackDamage: data.type === 'attack',
                 fireAttackDamage: data.type === 'attack' && data.element === 'fire',
                 chainBonus: chainExtra,
                 pierce: !!effect.pierce || (effect.pierceAtResource != null && resource >= effect.pierceAtResource),
                 cross: !!cross,
-                element: data.element
+                element: data.element,
+                source: effect.perBlock != null ? 'blockCashout' : undefined
               });
+              dealt += Math.min(hpBeforeHit, hitDamage);
             }
+          }
+          if (effect.consumeBlockFraction != null) {
+            const consumed = Math.min(c.block, Math.ceil(blockBeforeStrike * effect.consumeBlockFraction));
+            c.block -= consumed;
+            emit({ t: 'blockCashout', before: blockBeforeStrike, consumed, total: c.block, bonus: blockBonus, damage: dealt });
           }
           break;
         }
@@ -1003,12 +1035,14 @@
     const hot = (ensureCharacterResource(state)?.value || 0) >= (effect.resourceAtLeast ?? Infinity);
     const damagePerStack = hot ? (effect.hotDamagePerStack ?? effect.damagePerStack ?? 0) : (effect.damagePerStack || 0);
     const randomPerStack = hot ? (effect.hotRandomDamagePerStack ?? effect.randomDamagePerStack ?? 0) : (effect.randomDamagePerStack || 0);
+    const allPerStack = hot ? (effect.hotDamageAllPerStack ?? effect.damageAllPerStack ?? 0) : (effect.damageAllPerStack || 0);
+    const damageAll = Math.floor(stacks * allPerStack);
     const damage = target ? Math.min(target.hp, Math.floor(stacks * damagePerStack)) : 0;
     const heal = stacks * (effect.healPerStack || 0);
     const consumed = Math.min(stacks, Math.ceil(stacks * (effect.consumeFraction ?? 1)));
     owner.statuses[effect.status] = stacks - consumed;
     const detonationEvent = { t: 'statusDetonate', status: effect.status, target: self ? 'player' : 'enemy', uid: self ? undefined : target.uid,
-      stacks, consumed, damage, heal, hits: randomPerStack ? 0 : (damage ? 1 : 0) };
+      stacks, consumed, damage, damageAll, heal, hits: randomPerStack || damageAll ? 0 : (damage ? 1 : 0) };
     if (!self) emit(detonationEvent);
     emit({ t: 'status', target: self ? 'player' : 'enemy', uid: self ? undefined : target.uid,
       key: effect.status, amount: -consumed, total: owner.statuses[effect.status] });
@@ -1030,10 +1064,19 @@
         directEnemyDamage(state, enemy, amount, effect.status);
       }
     }
+    if (damageAll) {
+      for (const enemy of aliveEnemies(state)) {
+        const amount = Math.min(enemy.hp, damageAll);
+        detonationEvent.damage += amount;
+        detonationEvent.hits++;
+        state.stats.damageDealt += amount;
+        directEnemyDamage(state, enemy, amount, effect.status);
+      }
+    }
     return true;
   }
 
-  function checkCond(state, cond, target, linked, targetStatusesBefore) {
+  function checkCond(state, cond, target, linked, targetStatusesBefore, blockBefore) {
     const c = state.combat;
     if (cond.chainAtLeast != null && c.chain < cond.chainAtLeast) return false;
     if (cond.chainBelow != null && c.chain >= cond.chainBelow) return false;
@@ -1042,6 +1085,7 @@
     if (cond.resourceAtLeast != null && (c.characterResource?.value || 0) < cond.resourceAtLeast) return false;
     if (cond.resourceBelow != null && (c.characterResource?.value || 0) >= cond.resourceBelow) return false;
     if (cond.targetStatusBefore && (targetStatusesBefore?.[cond.targetStatusBefore] || 0) < (cond.targetStatusBeforeAtLeast || 1)) return false;
+    if (cond.blockBeforeAtLeast != null && (blockBefore ?? c.block) < cond.blockBeforeAtLeast) return false;
     return true;
   }
 
@@ -1065,16 +1109,19 @@
     const chainBonus = linked ? chainAfter : 0;
     let damage = null, hits = 1, block = null, cross = false, heal = null, draw = null, poison = null;
     let detonateDamage = 0, detonateHits = 0, detonateStatusName = null;
+    let blockConsumed = 0, resourceConsumed = 0, statusConsumed = 0, damageAll = 0, previewDidDetonate = false;
     let previewTargetHp = target?.hp ?? 0;
     let previewTargetBlock = target?.block ?? 0;
     for (const effect of data.effects || []) {
-      if (effect.cond && !checkCond(state, effect.cond, target, linked, target?.statuses)) continue;
+      if (effect.cond?.detonationOccurred && !previewDidDetonate) continue;
+      if (effect.cond && !checkCond(state, effect.cond, target, linked, target?.statuses, c.block)) continue;
       if (effect.op === 'damage' && damage == null) {
         const resource = c.characterResource?.value || 0;
         let per = (effect.value || 0) + (effect.perChain || 0) * chainAfter +
           (effect.perResource || 0) * resource +
           (effect.bonusAtResource != null && resource >= effect.bonusAtResource ? effect.bonusDamage || 0 : 0) +
-          (effect.perCardsPlayed || 0) * Math.min(c.cardsPlayedThisTurn, effect.maxCardsPlayedBonus || 99);
+          (effect.perCardsPlayed || 0) * Math.min(c.cardsPlayedThisTurn, effect.maxCardsPlayedBonus || 99) +
+          blockDamageBonus(effect, c.block, resource) + selfStatusDamageBonus(effect, c.statuses);
         const tgt = effect.target === 'all' ? target : target;
         if (tgt) cross = isCross(data.element, tgt.element);
         per = calcPlayerHit(state, per, {
@@ -1086,6 +1133,8 @@
           target: tgt
         });
         damage = per;
+        if (effect.consumeBlockFraction != null) blockConsumed = Math.min(c.block, Math.ceil(c.block * effect.consumeBlockFraction));
+        if (effect.consumeResource) resourceConsumed = resource;
         hits = (effect.hits || 1) + (effect.extraHitsAtResource != null && resource >= effect.extraHitsAtResource ? effect.extraHits || 0 : 0) + (linked ? effect.extraHitsOnLink || 0 : 0);
         if (target && effect.target !== 'all') {
           const pierce = !!effect.pierce || (effect.pierceAtResource != null && resource >= effect.pierceAtResource);
@@ -1106,15 +1155,22 @@
         const hot = (c.characterResource?.value || 0) >= (effect.resourceAtLeast ?? Infinity);
         const per = hot ? (effect.hotDamagePerStack ?? effect.damagePerStack ?? 0) : (effect.damagePerStack || 0);
         const random = hot ? (effect.hotRandomDamagePerStack ?? effect.randomDamagePerStack ?? 0) : (effect.randomDamagePerStack || 0);
+        const allPer = hot ? (effect.hotDamageAllPerStack ?? effect.damageAllPerStack ?? 0) : (effect.damageAllPerStack || 0);
         const randomHits = random ? planRandomStatusHits({ rng: state.rng }, c.enemies, stacks, random) : [];
-        detonateDamage = Math.min(previewTargetHp, Math.floor(stacks * per)) + randomHits.reduce((total, hit) => total + hit.amount, 0);
-        detonateHits = random ? randomHits.length : detonateDamage ? 1 : 0;
+        damageAll = Math.floor(stacks * allPer);
+        const allDamage = damageAll ? c.enemies.filter(enemy => enemy.hp > 0).reduce((sum, enemy) => sum + Math.min(enemy.hp, damageAll), 0) : 0;
+        detonateDamage = Math.min(previewTargetHp, Math.floor(stacks * per)) + randomHits.reduce((total, hit) => total + hit.amount, 0) + allDamage;
+        detonateHits = random ? randomHits.length : damageAll ? c.enemies.filter(enemy => enemy.hp > 0).length : detonateDamage ? 1 : 0;
         detonateStatusName = effect.status;
+        statusConsumed = Math.min(stacks, Math.ceil(stacks * (effect.consumeFraction ?? 1)));
+        previewDidDetonate = stacks > 0;
         heal = (heal || 0) + stacks * (effect.healPerStack || 0);
       }
+      if (effect.op === 'consumeResource') resourceConsumed = Math.min(c.characterResource?.value || 0, effect.value || c.characterResource?.value || 0);
     }
     return { damage, hits, block, cross, heal, draw, poison, detonateDamage, detonateHits,
-      detonateStatus: detonateStatusName, chainAfter, linked, cost: canPlayCard(state, handIndex).cost };
+      detonateStatus: detonateStatusName, damageAll, blockConsumed, resourceConsumed, statusConsumed,
+      chainAfter, linked, cost: canPlayCard(state, handIndex).cost };
   }
 
   /* ---------------- 敌人意图 / 行动 ---------------- */
@@ -1166,7 +1222,7 @@
       const hits = move.hits || 1;
       for (let h = 0; h < hits; h++) {
         if (state.hp <= 0 || enemy.hp <= 0) break;
-        hurtPlayer(state, move.damage, enemy);
+        hurtPlayer(state, move.damage, enemy, { pierce: !!move.pierce });
         if (state.hp > 0 && c.statuses.thorns > 0 && enemy.hp > 0) {
           directEnemyDamage(state, enemy, c.statuses.thorns, 'thorns');
         }
@@ -1252,6 +1308,8 @@
     clearEvents();
     const c = state.combat;
     if (!c || c.phase !== 'enemy') return result(false, '现在不是敌人回合');
+    c.momentumBlockedThisEnemyTurn = 0;
+    c.momentumGainedThisEnemyTurn = 0;
     for (const enemy of c.enemies) {
       if (c.phase === 'lost' || c.phase === 'won') break;
       if (enemy.hp <= 0) continue;
@@ -1278,6 +1336,12 @@
         enemy.element = idx < 0 ? order[0] : order[(idx + 1) % order.length];
         emit({ t: 'elementShift', uid: enemy.uid, element: enemy.element, name: enemy.name });
       }
+    }
+    if (state.characterId === 'monk' && c.momentumBlockedThisEnemyTurn > 0) {
+      const potential = c.phase === 'enemy' ? c.momentumGainedThisEnemyTurn : 0;
+      const generated = potential ? changeCharacterResource(state, potential) : 0;
+      emit({ t: 'momentumSummary', blocked: c.momentumBlockedThisEnemyTurn,
+        generated, wasted: potential - generated, potential });
     }
     if (c.phase === 'enemy') {
       if (state.hp <= 0) { c.phase = 'lost'; emit({ t: 'lose' }); }

@@ -190,8 +190,8 @@ test('普通战后奖励更容易出现角色专属牌，仍不重复且不串�
       assert.ok(offers.every(card => !DATA.cardMap[card.id].character || DATA.cardMap[card.id].character === characterId));
       if (offers.some(card => DATA.cardMap[card.id].character === characterId)) seen++;
     }
-    // 剑修与丹修专属卡池均为 9 张、基础权重 ×1.3；体修保持旧卡池。
-    const [minimum, maximum] = characterId === 'monk' ? [180, 300] : [400, 520];
+    // 三角色专属卡池均为 9 张、基础权重 ×1.3。
+    const [minimum, maximum] = [400, 520];
     assert.ok(seen >= minimum, `${characterId} 只有 ${seen}/1000 次奖励出现专属牌`);
     assert.ok(seen <= maximum, `${characterId} 有 ${seen}/1000 次奖励出现专属牌，专属权重过高`);
   }

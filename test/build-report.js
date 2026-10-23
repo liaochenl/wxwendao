@@ -4,8 +4,10 @@ const DATA = require('../js/data.js');
 
 const runs = Math.max(1, Number(process.argv[2] || 3000));
 const ascension = Number(process.argv[3] || 0);
-const character = process.argv[4] === 'alchemist' ? 'alchemist' : 'sword';
-const tags = character === 'alchemist' ? [
+const character = ['alchemist', 'monk'].includes(process.argv[4]) ? process.argv[4] : 'sword';
+const tags = character === 'monk' ? [
+  ['monk_block', '镇岳'], ['monk_thorns', '金刚'], ['monk_ritual', '蓄势']
+] : character === 'alchemist' ? [
   ['poison', '万毒'], ['burn', '焚炉'], ['regen', '生生']
 ] : [
   ['sword_intent', '金锋·剑意'],
@@ -30,7 +32,7 @@ const mean = values => values.reduce((sum, value) => sum + value, 0) / values.le
 const percent = count => `${(count / runs * 100).toFixed(1)}%`;
 const peak = key => Math.max(...results.map(result => result.highlights[key]));
 
-console.log(`${character === 'sword' ? '剑修' : '丹修'}构筑 V2 · 天劫 ${ascension} · ${runs} 局`);
+console.log(`${{ sword: '剑修', alchemist: '丹修', monk: '体修' }[character]}构筑 V2 · 天劫 ${ascension} · ${runs} 局`);
 console.log(`通关率 ${percent(results.filter(result => result.win).length)} · 平均牌组 ${mean(results.map(result => result.deck)).toFixed(1)} · 卡死 ${results.filter(result => result.stuck).length}`);
 console.log(`第一幕同系奖励出现 2–4 次的对局 ${percent(firstActOffers.filter(count => count >= 2 && count <= 4).length)} · 平均最多同系出现 ${mean(firstActOffers).toFixed(1)} 次（重复卡牌分别计数）`);
 for (const [tag, name] of tags) {
@@ -44,4 +46,11 @@ if (character === 'sword') console.log(`剑意到达上限的对局 ${percent(re
 if (character === 'alchemist') {
   console.log(`最大毒层 ${peak('maxPoison')} · 最大灼烧 ${peak('maxBurn')} · 最大回春 ${peak('maxRegen')} · 炉火到顶 ${percent(results.filter(result => result.highlights.maxResource >= 8).length)}`);
   console.log(`状态爆发 ${results.reduce((sum, result) => sum + result.highlights.detonationCount, 0)} 次 · 最大单次爆发 ${peak('maxDetonationDamage')} · 终结牌打出 ${results.reduce((sum, result) => sum + result.highlights.finisherCount, 0)} 次`);
+}
+if (character === 'monk') {
+  const sum = key => results.reduce((total, result) => total + result.highlights[key], 0);
+  const potential = sum('momentumGenerated') + sum('momentumWasted');
+  console.log(`战势峰值 ${peak('maxBattleMomentum')} · 战势到顶 ${percent(results.filter(result => result.highlights.maxBattleMomentum >= 10).length)} · 荆棘峰值 ${peak('maxThorns')} · 锐气峰值 ${peak('maxStrength')} · 蓄势峰值 ${peak('maxRitual')}`);
+  console.log(`挡伤总量 ${sum('blockedDamage')} · 战势获得 ${sum('momentumGenerated')} · 战势浪费 ${sum('momentumWasted')} · 战势浪费率 ${potential ? (sum('momentumWasted') / potential * 100).toFixed(1) : '0.0'}%`);
+  console.log(`撼山实际伤害 ${sum('blockCashoutDamage')} · 震怒实际伤害 ${sum('thornsCashoutDamage')} · 终结牌打出 ${sum('finisherCount')} 次`);
 }

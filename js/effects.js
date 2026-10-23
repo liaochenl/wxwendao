@@ -225,9 +225,46 @@
     ]);
   }
 
-  function finisher({ target, element = 'metal' } = {}) {
+  function monkFinisher({ target, source, cardId, element }) {
+    const pos = centerOf(target);
+    if (!pos) return Promise.resolve();
+    const origin = centerOf(source) || { x: window.innerWidth / 2, y: window.innerHeight * .68 };
+    const style = `fx-monk-${cardId.replaceAll('_', '-')}`;
+    const isBlock = cardId === 'han_shan_shi';
+    const isThorns = cardId === 'jin_gang_zhen_nu';
+    const color = isThorns ? 'metal' : element;
+    const animations = [
+      ring(pos.x, pos.y, color, `fx-ring ${style}`, isThorns ? 500 : 570, isThorns ? 3.2 : 3.8),
+      flash(pos.x, pos.y, color, `fx-flash ${style}`, isThorns ? 220 : 270, isThorns ? 60 : 120)
+    ];
+    if (isThorns) animations.push(ring(origin.x, origin.y, color, `fx-ring ${style}`, 460, 2.7));
+    else animations.push(ring(pos.x, pos.y, color, `fx-ring ${style}`, 520, 2.7, 55));
+    for (let i = 0; i < (isThorns ? 8 : 6); i++) {
+      const angle = i * Math.PI * 2 / (isThorns ? 8 : 6);
+      const dx = Math.cos(angle) * (isThorns ? 115 : 80);
+      const dy = Math.sin(angle) * (isThorns ? 85 : 68);
+      const x = isBlock || isThorns ? origin.x : pos.x;
+      const y = isBlock || isThorns ? origin.y : pos.y;
+      const particle = node(`fx-particle fx-finisher-particle ${style}`, x, y, color);
+      animations.push(animateAndRemove(particle, isBlock ? [
+        { transform: 'translate(-50%, -50%) scale(.3)', opacity: 0 },
+        { transform: `translate(calc(-50% + ${(pos.x - origin.x) * .55 + dx * .2}px), calc(-50% + ${(pos.y - origin.y) * .55 + dy * .2}px)) scale(1)`, opacity: 1, offset: .52 },
+        { transform: `translate(calc(-50% + ${pos.x - origin.x + dx * .2}px), calc(-50% + ${pos.y - origin.y + dy * .2}px)) scale(.1)`, opacity: 0 }
+      ] : [
+        { transform: 'translate(-50%, -50%) scale(.2)', opacity: 0 },
+        { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(1.1)`, opacity: 1, offset: .42 },
+        { transform: `translate(calc(-50% + ${dx * 1.3}px), calc(-50% + ${dy * 1.3}px)) scale(.15)`, opacity: 0 }
+      ], { duration: isThorns ? 480 : 590, easing: 'ease-out' }));
+    }
+    return Promise.all(animations);
+  }
+
+  function finisher({ target, source, element = 'metal', kind, cardId } = {}) {
     const pos = centerOf(target);
     if (!pos || reduced()) return Promise.resolve();
+    if (kind === 'monk' && ['han_shan_shi', 'jin_gang_zhen_nu', 'beng_tian_shi'].includes(cardId)) {
+      return monkFinisher({ target, source, cardId, element });
+    }
     const slash = node('fx-slash fx-finisher-slash', pos.x, pos.y, element);
     const animations = [
       ring(pos.x, pos.y, element, 'fx-ring fx-finisher-ring', 520, 3.2),
@@ -255,11 +292,11 @@
   function statusDetonate({ status, target, source } = {}) {
     if (reduced()) return Promise.resolve();
     const dest = centerOf(target);
-    if (!dest || !['poison', 'burn', 'regen'].includes(status)) return Promise.resolve();
-    const element = status === 'burn' ? 'fire' : 'wood';
+    if (!dest || !['poison', 'burn', 'regen', 'thorns'].includes(status)) return Promise.resolve();
+    const element = status === 'burn' ? 'fire' : status === 'thorns' ? 'metal' : 'wood';
     const origin = centerOf(source) || dest;
     const animations = [
-      ring(dest.x, dest.y, element, `fx-ring fx-detonate-${status}`, status === 'burn' ? 450 : 420, status === 'burn' ? 3.6 : 3.1),
+      ring(dest.x, dest.y, element, `fx-ring fx-detonate-${status}`, status === 'burn' || status === 'thorns' ? 450 : 420, status === 'burn' || status === 'thorns' ? 3.6 : 3.1),
       flash(dest.x, dest.y, element, `fx-flash fx-detonate-${status}`, 230, 90)
     ];
     for (let index = 0; index < 8; index++) {

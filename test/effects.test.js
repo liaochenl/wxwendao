@@ -118,6 +118,25 @@ test('毒爆火爆和生机化攻分别有独立粒子，并在结束后清理',
   assert.equal(reduced.created.length, 0);
 });
 
+test('体修三种终结牌有不同演出，荆棘震怒可环形波及多个目标', async () => {
+  for (const cardId of ['han_shan_shi', 'jin_gang_zhen_nu', 'beng_tian_shi']) {
+    const { FX, layer, created } = loadEffects();
+    await FX.finisher({ target: { x: 190, y: 210 }, element: 'earth', kind: 'monk', cardId });
+    const nodes = created.filter(el => el.className.includes(`fx-monk-${cardId.replaceAll('_', '-')}`));
+    assert.ok(nodes.length >= 2, cardId);
+    assert.ok(nodes.every(el => el.animations[0].options.duration < 700), cardId);
+    assert.equal(layer.children.length, 0, cardId);
+  }
+  const thorns = loadEffects();
+  await thorns.FX.statusDetonate({ status: 'thorns', target: { x: 190, y: 210 }, source: { x: 90, y: 350 } });
+  assert.ok(thorns.created.some(el => el.className.includes('fx-detonate-thorns')));
+  assert.equal(thorns.layer.children.length, 0);
+  const reduced = loadEffects(true);
+  await reduced.FX.finisher({ target: { x: 190, y: 210 }, kind: 'monk', cardId: 'beng_tian_shi' });
+  await reduced.FX.statusDetonate({ status: 'thorns', target: { x: 190, y: 210 } });
+  assert.equal(reduced.created.length, 0);
+});
+
 test('特效模块复制出牌卡到独立图层，飞行完成后清理且不移动原卡', async () => {
   const { FX, layer } = loadEffects();
   const card = makeNode();

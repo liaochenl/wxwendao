@@ -258,6 +258,11 @@ const SCREENS = [
     name: 'alchemist-resource',
     combat: true,
     prepare: "(() => { WX_UI.overlay=null; WX_UI.state=WXEngine.createRun({characterId:'alchemist',seed:71}); WXEngine.startCombat(WX_UI.state,{enemies:[{id:'shan_xiao'}]},'combat'); WX_UI.state.combat.characterResource.value=8; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'monk-resource',
+    combat: true,
+    prepare: "(() => { WX_UI.overlay=null; WX_UI.state=WXEngine.createRun({characterId:'monk',seed:71}); WXEngine.startCombat(WX_UI.state,{enemies:[{id:'shan_xiao'}]},'combat'); WX_UI.state.combat.characterResource.value=10; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
   }
 ];
 
@@ -336,9 +341,10 @@ async function auditAt(cdp, baseUrl, vp) {
       if (r.endTurnOverlap) fail(`${tag}: 结束回合与手牌相交`);
       if (r.handFont != null && r.handFont < 11) fail(`${tag}: 手牌字号 ${r.handFont}px < 11px`);
     }
-    if (screen.name === 'alchemist-resource') {
+    if (screen.name === 'alchemist-resource' || screen.name === 'monk-resource') {
+      const monk = screen.name === 'monk-resource';
       const resource = await cdp.eval(`(() => {
-        const bar=document.querySelector('.resource-furnaceFire');
+        const bar=document.querySelector('.resource-${monk ? 'battleMomentum' : 'furnaceFire'}');
         const pips=bar?.querySelector('.character-resource-pips');
         const info=document.querySelector('.player-info');
         const hp=document.querySelector('.player-info .hpbar');
@@ -347,8 +353,8 @@ async function auditAt(cdp, baseUrl, vp) {
           within:!!br&&!!pr&&!!ir&&br.left>=ir.left-1&&pr.right<=ir.right+1,
           belowHp:!hr||!!br&&br.top>=hr.bottom-1 };
       })()`);
-      if (!resource.text.includes('炉火 8/8') || resource.count !== 8 || !resource.within || !resource.belowHp) {
-        fail(`${tag}: 炉火条与头像或生命条重叠、八格不完整 ${JSON.stringify(resource)}`);
+      if (!resource.text.includes(monk ? '战势 10/10' : '炉火 8/8') || resource.count !== (monk ? 10 : 8) || !resource.within || !resource.belowHp) {
+        fail(`${tag}: 角色资源条与头像或生命条重叠、格数不完整 ${JSON.stringify(resource)}`);
       }
     }
     if (screen.name === 'upgraded-hand') {

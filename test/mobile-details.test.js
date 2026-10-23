@@ -133,6 +133,39 @@ test('丹修显示八格炉火并预览热炉状态爆发及构筑方向', () =>
   for (const name of ['万毒', '焚炉', '生生']) assert.match(reward, new RegExp(name));
 });
 
+test('体修十格战势与三种兑现预览显示消耗和构筑方向', () => {
+  const ui = makeUI(393);
+  ui.state = E.createRun({ characterId: 'monk', seed: 42 });
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  const c = ui.state.combat;
+  c.enemies[0].hp = c.enemies[0].maxHp = 999;
+  c.enemies[0].element = 'fire';
+  c.characterResource.value = 8;
+  c.block = 40;
+  c.hand = [{ uid: 'han', id: 'han_shan_shi', up: false }];
+  const combat = ui.combatHTML();
+  assert.match(combat, /resource-battleMomentum/);
+  assert.match(combat, /战势 8\/10/);
+  assert.match(combat, /36 伤/);
+  assert.match(combat, /耗甲 20/);
+  assert.match(combat, /耗战势 4/);
+  c.statuses.thorns = 8;
+  c.hand = [{ uid: 'nu', id: 'jin_gang_zhen_nu', up: false }];
+  assert.match(ui.combatHTML(), /每敌 32/);
+  assert.match(ui.combatHTML(), /耗荆棘 4/);
+  c.statuses.strength = 6;
+  c.hand = [{ uid: 'beng', id: 'beng_tian_shi', up: false }];
+  assert.match(ui.combatHTML(), /60 伤/);
+  assert.match(ui.combatHTML(), /耗战势 8/);
+  ui.state.reward = { kind: 'combat', gold: 10, cards: [
+    { uid: 'a', id: 'zhen_yue_zhuang', up: false },
+    { uid: 'b', id: 'jie_li_fan_zhen', up: false },
+    { uid: 'c', id: 'bao_yuan_shou_yi', up: false }
+  ], cardTaken: false, selected: -1 };
+  const reward = ui.rewardHTML();
+  for (const name of ['镇岳', '金刚', '蓄势']) assert.match(reward, new RegExp(name));
+});
+
 test('角色图鉴直接展示三位修士立绘，且保持可点开的角色入口', () => {
   const ui = makeUI();
   ui.compTab = 'characters';
