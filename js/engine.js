@@ -118,11 +118,17 @@
   }
   function awardCharacterResourceForPlayedCard(state, data, target, chainInfo) {
     const resource = ensureCharacterResource(state);
-    if (resource?.id !== 'swordIntent' || data.type !== 'attack') return;
-    // 消耗剑意的终结牌在出牌结算后保持清空，不返还本次攻击的基础剑意。
-    if (data.effects.some(effect => effect.consumeResource)) return;
-    changeCharacterResource(state, 1 + (chainInfo.linked ? 1 : 0) +
-      (target && isCross(data.element, target.element) ? 1 : 0));
+    if (!resource) return;
+    // 消耗资源的终结牌在出牌结算后保持清空，不返还本次行为的基础资源。
+    if (data.effects.some(effect => effect.consumeResource || effect.op === 'consumeResource')) return;
+    if (resource.id === 'swordIntent' && data.type === 'attack') {
+      changeCharacterResource(state, 1 + (chainInfo.linked ? 1 : 0) +
+        (target && isCross(data.element, target.element) ? 1 : 0));
+    } else if (resource.id === 'furnaceFire' && data.effects.some(effect =>
+      (effect.op === 'status' && ['poison', 'burn', 'regen'].includes(effect.status)) ||
+      (effect.op === 'multiplyStatus' && effect.status === 'poison') || effect.op === 'heal')) {
+      changeCharacterResource(state, 1);
+    }
   }
   function hasRelic(state, id) { return state.relics.includes(id); }
   function relicPassive(state, key) {
@@ -783,7 +789,8 @@
     if (!data) return false;
     return data.effects.some(e => (e.op === 'damage' && (e.target || 'enemy') === 'enemy') ||
       (e.op === 'status' && (e.target || 'enemy') === 'enemy') ||
-      (e.op === 'multiplyStatus' && (e.target || 'enemy') === 'enemy'));
+      (e.op === 'multiplyStatus' && (e.target || 'enemy') === 'enemy') ||
+      (e.op === 'detonateStatus' && e.target === 'enemy'));
   }
   function pickTarget(state, targetIndex) {
     const alive = aliveEnemies(state);
@@ -833,7 +840,7 @@
 
     const info = advanceChain(state, data.element);
     const chainBonus = info.chainBonus;
-    resolveEffects(state, data, target, chainBonus, info);
+    resolveEffects(state, data, target, chainBonus, info, target ? { ...target.statuses } : null);
     awardCharacterResourceForPlayedCard(state, data, target, info);
     delete c.resourceGainedThisCard;
 
@@ -851,11 +858,13 @@
     return result(true);
   }
 
-  function resolveEffects(state, data, target, chainBonus, chainInfo) {
+  function resolveEffects(state, data, target, chainBonus, chainInfo, targetStatusesBefore) {
     const c = state.combat;
+    let didDetonate = false;
     for (const effect of (data.effects || [])) {
-      if (c.phase !== 'player') break;
-      if (effect.cond && !checkCond(state, effect.cond, target, chainInfo?.linked)) continue;
+      if (c.phase !== 'player' && effect.op !== 'consumeResource') break;
+      if (effect.cond?.detonationOccurred && !didDetonate) continue;
+      if (effect.cond && !checkCond(state, effect.cond, target, chainInfo?.linked, targetStatusesBefore)) continue;
       switch (effect.op) {
         case 'damage': {
           const isAll = effect.target === 'all';
@@ -900,6 +909,9 @@
           break;
         case 'consumeResource':
           changeCharacterResource(state, -(effect.value || ensureCharacterResource(state)?.value || 0));
+          break;
+        case 'detonateStatus':
+          didDetonate = detonateStatus(state, effect, target) || didDetonate;
           break;
         case 'heal':
           healPlayer(state, effect.value || 0);
@@ -967,12 +979,69 @@
     }
   }
 
-  function checkCond(state, cond, target, linked) {
+  function planRandomStatusHits(rngState, enemies, stacks, perHit) {
+    if (perHit <= 0) return [];
+    const remaining = new Map(enemies.filter(enemy => enemy.hp > 0).map(enemy => [enemy, enemy.hp]));
+    const hits = [];
+    for (let i = 0; i < stacks && remaining.size; i++) {
+      const enemy = pick(rngState, [...remaining.keys()]);
+      const amount = Math.min(remaining.get(enemy), perHit);
+      hits.push({ enemy, amount });
+      const hp = remaining.get(enemy) - amount;
+      if (hp > 0) remaining.set(enemy, hp);
+      else remaining.delete(enemy);
+    }
+    return hits;
+  }
+
+  function detonateStatus(state, effect, target) {
+    const self = effect.target === 'player';
+    const owner = self ? state.combat : target;
+    if (!owner || (!self && owner.hp <= 0)) return false;
+    const stacks = owner.statuses[effect.status] || 0;
+    if (stacks <= 0) return false;
+    const hot = (ensureCharacterResource(state)?.value || 0) >= (effect.resourceAtLeast ?? Infinity);
+    const damagePerStack = hot ? (effect.hotDamagePerStack ?? effect.damagePerStack ?? 0) : (effect.damagePerStack || 0);
+    const randomPerStack = hot ? (effect.hotRandomDamagePerStack ?? effect.randomDamagePerStack ?? 0) : (effect.randomDamagePerStack || 0);
+    const damage = target ? Math.min(target.hp, Math.floor(stacks * damagePerStack)) : 0;
+    const heal = stacks * (effect.healPerStack || 0);
+    const consumed = Math.min(stacks, Math.ceil(stacks * (effect.consumeFraction ?? 1)));
+    owner.statuses[effect.status] = stacks - consumed;
+    const detonationEvent = { t: 'statusDetonate', status: effect.status, target: self ? 'player' : 'enemy', uid: self ? undefined : target.uid,
+      stacks, consumed, damage, heal, hits: randomPerStack ? 0 : (damage ? 1 : 0) };
+    if (!self) emit(detonationEvent);
+    emit({ t: 'status', target: self ? 'player' : 'enemy', uid: self ? undefined : target.uid,
+      key: effect.status, amount: -consumed, total: owner.statuses[effect.status] });
+    if (heal) healPlayer(state, heal);
+    if (self) emit(detonationEvent);
+    if (damage && target) {
+      state.stats.damageDealt += Math.min(target.hp, damage);
+      directEnemyDamage(state, target, damage, effect.status);
+    }
+    if (randomPerStack) {
+      for (let i = 0; i < stacks; i++) {
+        const alive = aliveEnemies(state);
+        if (!alive.length) break;
+        const enemy = pick(state, alive);
+        const amount = Math.min(enemy.hp, randomPerStack);
+        detonationEvent.damage += amount;
+        detonationEvent.hits++;
+        state.stats.damageDealt += amount;
+        directEnemyDamage(state, enemy, amount, effect.status);
+      }
+    }
+    return true;
+  }
+
+  function checkCond(state, cond, target, linked, targetStatusesBefore) {
     const c = state.combat;
     if (cond.chainAtLeast != null && c.chain < cond.chainAtLeast) return false;
     if (cond.chainBelow != null && c.chain >= cond.chainBelow) return false;
     if (cond.enemyPoisoned && (!target || !target.statuses.poison)) return false;
     if (cond.linked != null && !!linked !== cond.linked) return false;
+    if (cond.resourceAtLeast != null && (c.characterResource?.value || 0) < cond.resourceAtLeast) return false;
+    if (cond.resourceBelow != null && (c.characterResource?.value || 0) >= cond.resourceBelow) return false;
+    if (cond.targetStatusBefore && (targetStatusesBefore?.[cond.targetStatusBefore] || 0) < (cond.targetStatusBeforeAtLeast || 1)) return false;
     return true;
   }
 
@@ -995,8 +1064,11 @@
     }
     const chainBonus = linked ? chainAfter : 0;
     let damage = null, hits = 1, block = null, cross = false, heal = null, draw = null, poison = null;
+    let detonateDamage = 0, detonateHits = 0, detonateStatusName = null;
+    let previewTargetHp = target?.hp ?? 0;
+    let previewTargetBlock = target?.block ?? 0;
     for (const effect of data.effects || []) {
-      if (effect.cond && !checkCond(state, effect.cond, target, linked)) continue;
+      if (effect.cond && !checkCond(state, effect.cond, target, linked, target?.statuses)) continue;
       if (effect.op === 'damage' && damage == null) {
         const resource = c.characterResource?.value || 0;
         let per = (effect.value || 0) + (effect.perChain || 0) * chainAfter +
@@ -1015,13 +1087,34 @@
         });
         damage = per;
         hits = (effect.hits || 1) + (effect.extraHitsAtResource != null && resource >= effect.extraHitsAtResource ? effect.extraHits || 0 : 0) + (linked ? effect.extraHitsOnLink || 0 : 0);
+        if (target && effect.target !== 'all') {
+          const pierce = !!effect.pierce || (effect.pierceAtResource != null && resource >= effect.pierceAtResource);
+          for (let i = 0; i < hits && previewTargetHp > 0; i++) {
+            const blocked = pierce || cross ? 0 : Math.min(previewTargetBlock, per);
+            previewTargetBlock -= blocked;
+            previewTargetHp = Math.max(0, previewTargetHp - (per - blocked));
+          }
+        }
       }
       if (effect.op === 'block' && block == null) block = (effect.value || 0) + (c.statuses.dexterity || 0) + chainBonus + relicPassive(state, 'blockBonus');
       if (effect.op === 'heal') heal = effect.value || 0;
       if (effect.op === 'draw') draw = effect.value || 0;
       if (effect.op === 'status' && effect.status === 'poison') poison = effect.value || 0;
+      if (effect.op === 'detonateStatus') {
+        const owner = effect.target === 'player' ? c : target;
+        const stacks = effect.target === 'player' || previewTargetHp > 0 ? (owner?.statuses[effect.status] || 0) : 0;
+        const hot = (c.characterResource?.value || 0) >= (effect.resourceAtLeast ?? Infinity);
+        const per = hot ? (effect.hotDamagePerStack ?? effect.damagePerStack ?? 0) : (effect.damagePerStack || 0);
+        const random = hot ? (effect.hotRandomDamagePerStack ?? effect.randomDamagePerStack ?? 0) : (effect.randomDamagePerStack || 0);
+        const randomHits = random ? planRandomStatusHits({ rng: state.rng }, c.enemies, stacks, random) : [];
+        detonateDamage = Math.min(previewTargetHp, Math.floor(stacks * per)) + randomHits.reduce((total, hit) => total + hit.amount, 0);
+        detonateHits = random ? randomHits.length : detonateDamage ? 1 : 0;
+        detonateStatusName = effect.status;
+        heal = (heal || 0) + stacks * (effect.healPerStack || 0);
+      }
     }
-    return { damage, hits, block, cross, heal, draw, poison, chainAfter, linked, cost: canPlayCard(state, handIndex).cost };
+    return { damage, hits, block, cross, heal, draw, poison, detonateDamage, detonateHits,
+      detonateStatus: detonateStatusName, chainAfter, linked, cost: canPlayCard(state, handIndex).cost };
   }
 
   /* ---------------- 敌人意图 / 行动 ---------------- */
@@ -1319,13 +1412,18 @@
   }
 
   function getCardRewardWeight(state, card) {
-    const base = card.character === state.characterId ? (state.characterId === 'sword' ? 3 * 1.3 : 3) : 1;
+    const base = card.character === state.characterId ? (getCharacter(state).resource ? 3 * 1.3 : 3) : 1;
     if (!card.tags?.length) return base;
+    const buildTags = getCharacter(state).buildTags || [];
+    const candidateTags = card.tags.filter(tag => buildTags.includes(tag));
+    if (!candidateTags.length) return base;
     const tagCounts = {};
     for (const instance of state.deck) {
-      for (const tag of DATA.cardMap[instance.id]?.tags || []) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+      const cardData = DATA.cardMap[instance.id];
+      if (cardData?.rarity === 'starter') continue;
+      for (const tag of cardData?.tags || []) if (buildTags.includes(tag)) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
     }
-    const strongest = Math.max(0, ...card.tags.map(tag => tagCounts[tag] || 0));
+    const strongest = Math.max(0, ...candidateTags.map(tag => tagCounts[tag] || 0));
     return base * (strongest >= 4 ? 1.4 : strongest >= 2 ? 1.25 : 1);
   }
 

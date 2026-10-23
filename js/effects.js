@@ -252,6 +252,37 @@
     return Promise.all(animations);
   }
 
+  function statusDetonate({ status, target, source } = {}) {
+    if (reduced()) return Promise.resolve();
+    const dest = centerOf(target);
+    if (!dest || !['poison', 'burn', 'regen'].includes(status)) return Promise.resolve();
+    const element = status === 'burn' ? 'fire' : 'wood';
+    const origin = centerOf(source) || dest;
+    const animations = [
+      ring(dest.x, dest.y, element, `fx-ring fx-detonate-${status}`, status === 'burn' ? 450 : 420, status === 'burn' ? 3.6 : 3.1),
+      flash(dest.x, dest.y, element, `fx-flash fx-detonate-${status}`, 230, 90)
+    ];
+    for (let index = 0; index < 8; index++) {
+      const angle = 2 * Math.PI * index / 8;
+      const spread = status === 'burn' ? 104 : 80;
+      const dx = Math.cos(angle) * spread;
+      const dy = Math.sin(angle) * spread;
+      const x = status === 'regen' ? origin.x : dest.x;
+      const y = status === 'regen' ? origin.y : dest.y;
+      const particle = node(`fx-particle fx-detonate-particle fx-detonate-${status}`, x, y, element);
+      animations.push(animateAndRemove(particle, status === 'regen' ? [
+        { transform: 'translate(-50%, -50%) scale(.3)', opacity: 0 },
+        { transform: `translate(calc(-50% + ${(dest.x - origin.x) * .45 + dx * .2}px), calc(-50% + ${(dest.y - origin.y) * .45 + dy * .2}px)) scale(1.1)`, opacity: 1, offset: .45 },
+        { transform: `translate(calc(-50% + ${dest.x - origin.x + dx}px), calc(-50% + ${dest.y - origin.y + dy}px)) scale(.25)`, opacity: 0 }
+      ] : [
+        { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(.6)`, opacity: 0 },
+        { transform: 'translate(-50%, -50%) scale(1.2)', opacity: 1, offset: .38 },
+        { transform: `translate(calc(-50% + ${dx * 1.25}px), calc(-50% + ${dy * 1.25}px)) scale(.2)`, opacity: 0 }
+      ], { duration: status === 'burn' ? 440 : 420, easing: 'ease-out' }));
+    }
+    return Promise.all(animations);
+  }
+
   async function zhoutian() {
     if (reduced() || !ensureLayer()) return;
     const x = window.innerWidth / 2;
@@ -299,5 +330,5 @@
     await Promise.all(animations);
   }
 
-  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, zhoutian, clear };
+  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, statusDetonate, zhoutian, clear };
 })();

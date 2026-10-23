@@ -39,7 +39,7 @@ test('剑意由攻击、相生和克制积累，单牌最多三点，上限十�
   assert.ok(second.events.some(event => event.t === 'resourceReady'));
   const other = battle('alchemist');
   assert.ok(play(other, 'chan_si').ok);
-  assert.equal(other.combat.characterResource, undefined);
+  assert.deepEqual(other.combat.characterResource, { id: 'furnaceFire', value: 1, max: 8 });
 });
 
 test('旧存档战斗缺少剑意字段时仍能出牌并恢复资源结构', () => {

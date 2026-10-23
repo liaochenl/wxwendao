@@ -4,15 +4,18 @@ const DATA = require('../js/data.js');
 
 const runs = Math.max(1, Number(process.argv[2] || 3000));
 const ascension = Number(process.argv[3] || 0);
-const tags = [
+const character = process.argv[4] === 'alchemist' ? 'alchemist' : 'sword';
+const tags = character === 'alchemist' ? [
+  ['poison', '万毒'], ['burn', '焚炉'], ['regen', '生生']
+] : [
   ['sword_intent', '金锋·剑意'],
   ['sword_cycle', '流云·循环'],
   ['sword_chain', '金水·连携']
 ];
 const firstActOffers = [];
 const results = Array.from({ length: runs }, (_, index) => {
-  const offers = { sword_intent: 0, sword_cycle: 0, sword_chain: 0 };
-  const result = runOne('sword', 10000 + 31 * index, ascension, null, null, {
+  const offers = Object.fromEntries(tags.map(([tag]) => [tag, 0]));
+  const result = runOne(character, 10000 + 31 * index, ascension, null, null, {
     onReward({ act, cards }) {
       if (act !== 1) return;
       for (const id of cards) for (const tag of DATA.cardMap[id]?.tags || []) {
@@ -27,7 +30,7 @@ const mean = values => values.reduce((sum, value) => sum + value, 0) / values.le
 const percent = count => `${(count / runs * 100).toFixed(1)}%`;
 const peak = key => Math.max(...results.map(result => result.highlights[key]));
 
-console.log(`剑修构筑 V2 · 天劫 ${ascension} · ${runs} 局`);
+console.log(`${character === 'sword' ? '剑修' : '丹修'}构筑 V2 · 天劫 ${ascension} · ${runs} 局`);
 console.log(`通关率 ${percent(results.filter(result => result.win).length)} · 平均牌组 ${mean(results.map(result => result.deck)).toFixed(1)} · 卡死 ${results.filter(result => result.stuck).length}`);
 console.log(`第一幕同系奖励出现 2–4 次的对局 ${percent(firstActOffers.filter(count => count >= 2 && count <= 4).length)} · 平均最多同系出现 ${mean(firstActOffers).toFixed(1)} 次（重复卡牌分别计数）`);
 for (const [tag, name] of tags) {
@@ -37,4 +40,8 @@ for (const [tag, name] of tags) {
 }
 console.log(`峰值伤害 ${peak('maxTurnDamage')} · 平均单局最高回合伤害 ${mean(results.map(result => result.highlights.maxTurnDamage)).toFixed(1)}`);
 console.log(`峰值护甲 ${peak('maxTurnBlock')} · 单回合最多出牌 ${peak('maxCardsPlayedInTurn')} · 达到 7 张的对局 ${percent(results.filter(result => result.highlights.maxCardsPlayedInTurn >= 7).length)}`);
-console.log(`剑意到达上限的对局 ${percent(results.filter(result => result.highlights.maxResource >= 10).length)} · 终结牌打出 ${results.reduce((sum, result) => sum + result.highlights.finisherCount, 0)} 次`);
+if (character === 'sword') console.log(`剑意到达上限的对局 ${percent(results.filter(result => result.highlights.maxResource >= 10).length)} · 终结牌打出 ${results.reduce((sum, result) => sum + result.highlights.finisherCount, 0)} 次`);
+if (character === 'alchemist') {
+  console.log(`最大毒层 ${peak('maxPoison')} · 最大灼烧 ${peak('maxBurn')} · 最大回春 ${peak('maxRegen')} · 炉火到顶 ${percent(results.filter(result => result.highlights.maxResource >= 8).length)}`);
+  console.log(`状态爆发 ${results.reduce((sum, result) => sum + result.highlights.detonationCount, 0)} 次 · 最大单次爆发 ${peak('maxDetonationDamage')} · 终结牌打出 ${results.reduce((sum, result) => sum + result.highlights.finisherCount, 0)} 次`);
+}
