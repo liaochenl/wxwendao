@@ -42,7 +42,7 @@ test('成势提示每条道途只在首次进入战斗时出现，旧存档可�
   const state = run('monk');
   for (let i = 0; i < 4; i++) E.addCardToDeck(state, 'zhen_yue_zhuang');
   E.startCombat(state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
-  assert.equal(state.attraction.awakenedTags.includes('monk_block'), true);
+  assert.equal(state.attraction.buildMilestones.monk_block, 2);
   assert.equal(E.startCombat(state, { enemies: [{ id: 'shan_xiao' }] }, 'combat').events.some(ev => ev.t === 'buildAwakened'), false);
   const legacy = run('monk');
   for (let i = 0; i < 4; i++) E.addCardToDeck(legacy, 'zhen_yue_zhuang');

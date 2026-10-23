@@ -33,6 +33,8 @@
   };
   const RARITY_LABEL = { starter: '初始', common: '凡品', uncommon: '灵品', rare: '玄品', curse: '禁制', special: '异数' };
   const BUILD_TAG_NAMES = { sword_intent: '剑意', sword_cycle: '流云', sword_chain: '金水', poison: '万毒', burn: '焚炉', regen: '生生', monk_block: '镇岳', monk_thorns: '金刚', monk_ritual: '蓄势' };
+  const DAO_RANK_NAMES = ['未得', '一重', '二重'];
+  const DAO_RANK_MARKS = ['', 'Ⅰ', 'Ⅱ'];
   function buildNames(card) { return (card.tags || []).map(tag => BUILD_TAG_NAMES[tag]).filter(Boolean); }
   function resourceName(id) { return D.characters.find(character => character.resource?.id === id)?.resource.name || id; }
   const CHAR_STYLE = { sword: '连携爆发 · 直伤抽牌', alchemist: '持续伤害 · 中毒回春', monk: '厚甲反伤 · 稳健推进' };
@@ -133,8 +135,8 @@
     const faceName = D.cardMap[inst.id] ? D.cardMap[inst.id].name : data.name;
     const isHand = mode === 'hand';
     const canPlay = isHand ? E.canPlayCard(UI.state, opts.index) : null;
-    const cost = canPlay && canPlay.ok ? canPlay.cost : data.cost;
-    const discounted = isHand && canPlay && canPlay.ok && cost < data.cost;
+    const cost = isHand ? E.getCardCost(UI.state, data) : data.cost;
+    const discounted = isHand && cost < data.cost;
     let preview = null;
     if (isHand && UI.state && UI.state.combat && UI.state.combat.phase === 'player') {
       try { preview = E.getPreview(UI.state, opts.index, UI.targetIndex); } catch (err) { preview = null; }
@@ -325,6 +327,9 @@
           break;
         case 'skip-card': this.skipReward(); break;
         case 'continue-reward': this.continueReward(); break;
+        case 'choose-dao': void this.chooseDao(el.dataset.tag); break;
+        case 'continue-dao': this.continueDao(); break;
+        case 'view-dao': this.overlay = 'dao'; this.render(); break;
         case 'shop-buy': this.buy(el.dataset.kind, Number(el.dataset.index)); break;
         case 'shop-remove': this.openRemovePicker(); break;
         case 'shop-leave': this.leaveShop(); break;
@@ -636,6 +641,29 @@
         setTimeout(() => this.banner(E.getActName(this.state.act) + ' · 新的去路', 'gold'), 150);
       }
     },
+    async chooseDao(tag) {
+      if (!this.state || this.screen !== 'dao') return;
+      const res = E.chooseDaoBlessing(this.state, tag);
+      if (!res.ok) { this.toast(res.reason || '无法选择道印'); return; }
+      this.daoRevealing = true;
+      this.commit();
+      const blessing = E.getDaoBlessing(this.state, tag);
+      this.sfx('upgrade');
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      await Promise.all([
+        visual('daoAwakening', { target: document.querySelector('.dao-card.chosen'), element: blessing?.element || 'metal' }),
+        sleep(reduced ? 80 : 900)
+      ]);
+      this.daoRevealing = false;
+      if (this.screen === 'dao') this.render();
+    },
+    continueDao() {
+      if (!this.state) return;
+      const res = E.continueDao(this.state);
+      if (!res.ok) { this.toast(res.reason || '请先选择道印'); return; }
+      this.commit();
+      this.banner(E.getActName(this.state.act) + ' · 新的去路', 'gold');
+    },
     buy(kind, index) {
       const res = E.buyItem(this.state, kind, index);
       if (!res.ok) { this.toast(res.reason || '无法购买'); return; }
@@ -828,6 +856,10 @@
             void visual('buildAwakening', { target: el });
             break;
           }
+          case 'daoTrigger': {
+            this.floatAt(document.getElementById('player-panel'), ev.name, 'fx-dao-trigger');
+            break;
+          }
           case 'momentumSummary': {
             if (ev.generated) this.floatAt(document.querySelector('.character-resource'), `挡伤 ${ev.blocked} · 战势 +${ev.generated}`, 'fx-resource');
             break;
@@ -969,6 +1001,7 @@
         case 'map': html = this.state ? this.mapHTML() : this.titleHTML(); break;
         case 'combat': html = this.state && this.state.combat ? this.combatHTML() : this.mapHTML(); break;
         case 'reward': html = this.state && this.state.reward ? this.rewardHTML() : this.mapHTML(); break;
+        case 'dao': html = this.state && this.state.dao?.pending ? this.daoHTML() : this.mapHTML(); break;
         case 'shop': html = this.state && this.state.shop ? this.shopHTML() : this.mapHTML(); break;
         case 'rest': html = this.state ? this.restHTML() : this.mapHTML(); break;
         case 'event': html = this.state && this.state.event ? this.eventHTML() : this.mapHTML(); break;
@@ -1144,6 +1177,12 @@
         </div>
       </header>`;
     },
+    daoInfoHTML(compact = false) {
+      const owned = E.getDaoChoices(this.state).filter(choice => choice.rank > 0);
+      if (!owned.length) return '';
+      const full = owned.map(choice => `${choice.name}${DAO_RANK_MARKS[choice.rank]}：${choice.ranks[choice.rank - 1].text}`).join('\n');
+      return `<button class="dao-info ${compact ? 'compact' : ''}" data-action="view-dao" title="${esc(full)}" aria-label="查看道印：${esc(full)}"><span class="dao-info-full">道印 · ${owned.map(choice => `${esc(choice.name)}${DAO_RANK_MARKS[choice.rank]}`).join(' · ')}</span><span class="dao-info-mobile">道印 ×${owned.length}</span></button>`;
+    },
     miniStatusHTML() {
       return `<span class="mini-hp">${hpBarHTML(this.state.hp, this.state.maxHp)}</span>${goldHTML(this.state.gold)}`;
     },
@@ -1213,6 +1252,7 @@
                 return `<span class="legend-row"><i class="legend-dot type-${t}">${m.glyph}</i>${m.name}</span>`;
               }).join('')}
             </div>
+            ${this.daoInfoHTML(true)}
             <div class="map-actions">
               <button class="btn btn-ghost btn-sm" data-action="view-deck">查看牌组</button>
               <button class="btn btn-ghost btn-sm" data-action="view-relics">查看遗物</button>
@@ -1298,6 +1338,7 @@
                 <span class="character-resource-pips">${Array.from({ length: c.characterResource.max }, (_, i) => `<i class="${i < c.characterResource.value ? 'on' : ''}"></i>`).join('')}</span>
               </div>` : ''}
               <div class="build-identity ${identity.level >= 2 ? 'formed' : ''}">${identity.level ? `道途 · ${esc(identity.name)} · ${esc(identity.levelName)}` : '道途未定'}</div>
+              ${this.daoInfoHTML()}
               <div class="player-sub">
                 ${c.block > 0 ? `<span class="block-pill" title="护甲">甲 ${c.block}</span>` : ''}
                 <span class="statuses">${statusChips(c.statuses, 'player')}</span>
@@ -1393,6 +1434,36 @@
           <div class="chain-hint">${hint}</div>
         </div>
       </div>`;
+    },
+
+    /* ---------------- 定道 / 悟道 ---------------- */
+    daoHTML() {
+      const st = this.state;
+      const pending = st.dao.pending;
+      const ding = pending.stage === 'dingdao';
+      const chosen = pending.chosen && E.getDaoBlessing(st, pending.chosen);
+      const title = ding ? '定道' : '悟道';
+      const choices = E.getDaoChoices(st);
+      return `<main class="screen dao-screen ${chosen ? 'dao-chosen' : ''}">
+        <div class="dao-haze" aria-hidden="true"></div>
+        <header class="dao-head"><div class="dao-seal" aria-hidden="true">道</div><small>第 ${st.act} 幕 · ${esc(E.getCharacter(st).name)}</small><h1>${title}</h1><p>${ding ? '三途并陈，择一道印于心。' : '道心既成，可一意精进，亦可旁参他途。'}</p></header>
+        <section class="dao-choice-grid" aria-label="选择道印">${choices.map(choice => {
+          const selected = pending.chosen === choice.tag;
+          const disabled = !!pending.chosen || choice.disabled;
+          const beforeRank = selected ? choice.rank - 1 : choice.rank;
+          const next = selected ? choice.rank : choice.nextRank;
+          const rankText = selected ? `已铭刻 · ${DAO_RANK_NAMES[next]}` : `${DAO_RANK_NAMES[beforeRank]} <em>→</em> ${DAO_RANK_NAMES[next]}`;
+          const ariaRank = selected ? `已铭刻${DAO_RANK_NAMES[next]}` : `${DAO_RANK_NAMES[beforeRank]}至${DAO_RANK_NAMES[next]}`;
+          return `<button type="button" class="dao-card ${selected ? 'chosen' : ''} ${pending.chosen && !selected ? 'faded' : ''} ${choice.matching ? 'matching' : ''}" data-action="choose-dao" data-tag="${choice.tag}" ${disabled ? 'disabled' : ''} aria-label="${esc(choice.path)} · ${esc(choice.name)}，${ariaRank}：${esc(choice.ranks[next - 1]?.text || '')}">
+            <span class="dao-card-top"><span class="dao-path">${esc(choice.path)}</span><span class="dao-card-badges">${choice.matching ? '<i>当前道途</i>' : ''}${!ding ? `<i>${choice.rank ? '深悟' : '兼修'}</i>` : ''}</span></span>
+            <strong>${esc(choice.name)}</strong><span class="dao-rank">${rankText}</span>
+            <span class="dao-rule">${esc(choice.ranks[next - 1]?.text || '')}</span><span class="dao-select-label">${selected ? '已铭刻' : choice.disabled ? '已至二重' : '选择此道印'}</span>
+          </button>`;
+        }).join('')}</section>
+        ${chosen ? `<div class="dao-choice-result" role="status">${title} · ${esc(chosen.name)} · ${DAO_RANK_NAMES[E.getDaoRank(st, pending.chosen)]}</div>` : ''}
+        ${chosen && !this.daoRevealing ? '<button class="btn btn-primary btn-lg dao-continue" data-action="continue-dao">踏入下一幕</button>' : ''}
+        <p class="dao-hint">${ding ? '此选择不会锁定后续构筑。第二幕结束后仍可深悟此道，或兼修另一道。' : '深悟强化原有道印；兼修开启第二条道途。'}</p>
+      </main>`;
     },
 
     /* ---------------- 奖励 / 商店 / 休整 ---------------- */
@@ -1596,7 +1667,8 @@
         : st?.characterId === 'monk'
           ? [['最大护甲', h.maxBlock], ['最大荆棘', h.maxThorns], ['单回合最高伤害', h.maxTurnDamage], ['最高战势', h.maxResource], ['遗物', s.relicCount]]
           : [['最高单击', h.maxSingleHit], ['单回合最高伤害', h.maxTurnDamage], ['最长五行连携', h.maxChain], ['最高剑意', h.maxResource], ['遗物', s.relicCount]];
-      const daoRecord = win && st ? `<section class="dao-record" aria-label="证道录"><div class="dao-record-kicker">证 道</div><div class="dao-record-title">${esc(s.title)}</div><div class="dao-record-character">${esc(s.character)} · ${esc(path)}</div><div class="dao-highlight-grid">${metrics.map(([label, value]) => `<div><b>${Number(value) || 0}</b><small>${esc(label)}</small></div>`).join('')}</div><p class="dao-record-more">战斗 ${s.combats} 场 · 击杀 ${s.kills} · 总伤害 ${s.damageDealt || 0}</p><div class="dao-final-deck"><b>最终牌组 · ${s.deckSize} 张</b><div class="dao-deck-list">${s.deck.map(card => `<span>${esc(D.cardMap[card.id]?.name || card.id)}${card.up ? '·悟' : ''}</span>`).join('')}</div></div></section>` : '';
+      const daoNames = st ? E.getDaoChoices(st).filter(choice => choice.rank > 0).map(choice => `${esc(choice.name)}${DAO_RANK_MARKS[choice.rank]}`).join(' · ') : '';
+      const daoRecord = win && st ? `<section class="dao-record" aria-label="证道录"><div class="dao-record-kicker">证 道</div><div class="dao-record-title">${esc(s.title)}</div><div class="dao-record-character">${esc(s.character)} · ${esc(path)}</div>${daoNames ? `<div class="dao-record-blessings">道印 · ${daoNames}</div>` : ''}<div class="dao-highlight-grid">${metrics.map(([label, value]) => `<div><b>${Number(value) || 0}</b><small>${esc(label)}</small></div>`).join('')}</div><p class="dao-record-more">战斗 ${s.combats} 场 · 击杀 ${s.kills} · 总伤害 ${s.damageDealt || 0}</p><div class="dao-final-deck"><b>最终牌组 · ${s.deckSize} 张</b><div class="dao-deck-list">${s.deck.map(card => `<span>${esc(D.cardMap[card.id]?.name || card.id)}${card.up ? '·悟' : ''}</span>`).join('')}</div></div></section>` : '';
       return `
       <main class="screen end-screen ${win ? 'victory' : 'defeat'}">
         <div class="end-glow"></div>
@@ -1679,6 +1751,7 @@
       if (d.kind === 'card') {
         const data = cardData({ id: d.id, up: !!d.up });
         if (!data) return '';
+        const currentCost = d.action === 'play-card' && this.state?.combat ? E.getCardCost(this.state, data) : data.cost;
         const other = data.up ? cardData({ id: d.id, up: !d.up }) : null;
         title = data.name;
         const traits = [data.exhaust ? '消耗' : '', data.retain ? '保留' : ''].filter(Boolean);
@@ -1696,7 +1769,7 @@
           if (values.length) preview = `<div class="detail-note">${values.map(esc).join(' · ')}</div>`;
         }
         body = `<div class="card-current-label" style="--el:${elem(data.element).color}">${other ? d.up ? '已升级 · 当前效果' : '升级前 · 当前效果' : '当前效果'}</div>
-          <div class="detail-meta">${elemBadge(data.element)}<span>${TYPE_NAMES[data.type] || ''}</span><span>${RARITY_LABEL[data.rarity] || ''}</span><span>灵气 ${data.cost}</span>${d.up ? '<span>已悟</span>' : ''}</div>
+          <div class="detail-meta">${elemBadge(data.element)}<span>${TYPE_NAMES[data.type] || ''}</span><span>${RARITY_LABEL[data.rarity] || ''}</span><span>灵气 ${currentCost}</span>${currentCost < data.cost ? '<span>当前减费</span>' : ''}${d.up ? '<span>已悟</span>' : ''}</div>
           <p class="card-detail-text">${formatText(data.text)}</p>
           ${traits.length ? `<p class="detail-note">关键词：${traits.join(' · ')}</p>` : ''}${preview}
           ${other ? `<section class="card-upgrade-preview" aria-label="${d.up ? '升级前' : '升级后'}效果">
@@ -1778,6 +1851,9 @@
           return `<div class="overlay-relic">${relicEmblem(id)}<div><b>${esc(r.name)}</b><p>${esc(r.desc)}</p></div></div>`;
         }).join('');
         body = relics || '<p class="dim">尚未拾得遗物。</p>';
+      } else if (this.overlay === 'dao') {
+        title = '本局道印';
+        body = E.getDaoChoices(this.state).filter(choice => choice.rank > 0).map(choice => `<div class="overlay-relic"><div class="dao-overlay-seal">${esc(choice.path.slice(0, 1))}</div><div><b>${esc(choice.name)}${DAO_RANK_MARKS[choice.rank]} · ${esc(choice.path)}</b><p>${esc(choice.ranks[choice.rank - 1].text)}</p></div></div>`).join('') || '<p class="dim">尚未获得道印。</p>';
       } else if (this.overlay === 'piles') {
         const c = this.state.combat;
         const map = { draw: c.drawPile, discard: c.discardPile, exhaust: c.exhaustPile };

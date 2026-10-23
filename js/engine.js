@@ -110,6 +110,82 @@
     const level = count >= 6 && finishers.has(tag) ? 3 : count >= 4 ? 2 : count >= 2 ? 1 : 0;
     return { tag, name: tag ? BUILD_NAMES[tag] : '未定', count, level, levelName: ['未定', '初窥', '成势', '大成'][level] };
   }
+  function ensureDao(state) {
+    if (!state.dao || typeof state.dao !== 'object') state.dao = {};
+    if (!state.dao.blessings || typeof state.dao.blessings !== 'object') state.dao.blessings = {};
+    if (!Array.isArray(state.dao.history)) state.dao.history = [];
+    if (!state.dao.pending || typeof state.dao.pending !== 'object') state.dao.pending = null;
+    return state.dao;
+  }
+  function getDaoRank(state, tag) { return Math.max(0, Math.min(2, Number(ensureDao(state).blessings[tag]) || 0)); }
+  function getDaoBlessing(state, tag) { return DATA.daoBlessings.find(blessing => blessing.character === state.characterId && blessing.tag === tag) || null; }
+  function getDaoChoices(state) {
+    const identity = getBuildIdentity(state);
+    const current = identity.level > 0 ? identity.tag : null;
+    return DATA.daoBlessings.filter(blessing => blessing.character === state.characterId).map(blessing => {
+      const rank = getDaoRank(state, blessing.tag);
+      return { ...blessing, rank, nextRank: Math.min(2, rank + 1), disabled: rank >= 2, matching: current === blessing.tag };
+    });
+  }
+  function daoCombatUsed(state, tag) { return Number(state.combat?.daoUsed?.[tag]) || 0; }
+  function markDaoCombatUsed(state, tag) {
+    if (!state.combat.daoUsed) state.combat.daoUsed = {};
+    state.combat.daoUsed[tag] = daoCombatUsed(state, tag) + 1;
+  }
+  function triggerDao(state, tag) {
+    const blessing = getDaoBlessing(state, tag);
+    if (blessing) emit({ t: 'daoTrigger', id: blessing.id, name: blessing.name });
+  }
+  function grantDaoEnergy(state) {
+    state.combat.energy++;
+    emit({ t: 'energy', amount: 1, energy: state.combat.energy });
+  }
+  function triggerDaoChain(state) {
+    const c = state.combat;
+    const rank = getDaoRank(state, 'sword_chain');
+    if (!c.daoTurnUsed) c.daoTurnUsed = {};
+    if (c.phase !== 'player' || !rank || c.chain < 3 || c.daoTurnUsed.sword_chain) return;
+    c.daoTurnUsed.sword_chain = true;
+    triggerDao(state, 'sword_chain');
+    itemDraw(state, 1);
+    if (rank >= 2) grantDaoEnergy(state);
+  }
+  function prepareDaoChoice(state) {
+    const dao = ensureDao(state);
+    dao.pending = { act: state.act, stage: state.act === 1 ? 'dingdao' : 'wudao', chosen: null };
+    state.screen = 'dao';
+  }
+  function chooseDaoBlessing(state, tag) {
+    clearEvents();
+    const dao = ensureDao(state);
+    if (state.screen !== 'dao' || !dao.pending || dao.pending.act !== state.act || dao.pending.chosen) return result(false, '现在不能选择道印');
+    const blessing = getDaoBlessing(state, tag);
+    if (!blessing) return result(false, '此道印不属于当前角色');
+    const rank = getDaoRank(state, tag);
+    if (rank >= 2) return result(false, '此道印已至二重');
+    dao.blessings[tag] = rank + 1;
+    dao.pending.chosen = tag;
+    dao.history.push({ act: state.act, stage: dao.pending.stage, id: tag, rank: rank + 1 });
+    emit({ t: 'daoChosen', id: blessing.id, name: blessing.name, rank: rank + 1, stage: dao.pending.stage });
+    return result(true);
+  }
+  function continueDao(state) {
+    clearEvents();
+    const pending = ensureDao(state).pending;
+    if (state.screen !== 'dao' || !pending || pending.act !== state.act || !pending.chosen) return result(false, '请先选择一道印');
+    state.dao.pending = null;
+    nextAct(state);
+    return result(true);
+  }
+  function ensureBuildMilestones(state) {
+    if (!state.attraction || typeof state.attraction !== 'object') state.attraction = {};
+    if (!state.attraction.buildMilestones || typeof state.attraction.buildMilestones !== 'object') {
+      state.attraction.buildMilestones = {};
+      for (const tag of state.attraction.awakenedTags || []) state.attraction.buildMilestones[tag] = 2;
+    }
+    delete state.attraction.awakenedTags;
+    return state.attraction.buildMilestones;
+  }
   function ensureHighlights(state) {
     if (!state.highlights || typeof state.highlights !== 'object') state.highlights = {};
     for (const key of HIGHLIGHT_KEYS) if (!Number.isFinite(state.highlights[key])) state.highlights[key] = 0;
@@ -149,6 +225,19 @@
       if (actual > 0 && state.combat.resourceGainedThisCard != null) state.combat.resourceGainedThisCard += actual;
       emit({ t: 'resource', id: resource.id, before, after: resource.value, delta: actual });
       if (before < resource.max && resource.value === resource.max) emit({ t: 'resourceReady', id: resource.id });
+      if (before < resource.max && resource.value === resource.max) {
+        if (resource.id === 'swordIntent' && getDaoRank(state, 'sword_intent') && !daoCombatUsed(state, 'sword_intent')) {
+          markDaoCombatUsed(state, 'sword_intent');
+          triggerDao(state, 'sword_intent');
+          itemDraw(state, 1);
+          if (getDaoRank(state, 'sword_intent') >= 2) grantDaoEnergy(state);
+        }
+        if (resource.id === 'battleMomentum' && getDaoRank(state, 'monk_ritual') && !daoCombatUsed(state, 'monk_ritual')) {
+          markDaoCombatUsed(state, 'monk_ritual');
+          state.combat.daoFinisherDiscount = getDaoRank(state, 'monk_ritual');
+          triggerDao(state, 'monk_ritual');
+        }
+      }
     }
     return actual;
   }
@@ -240,7 +329,8 @@
       recentEncounters: [],
       stats: { floors: 0, kills: 0, elites: 0, cardsPlayed: 0, damageDealt: 0, damageTaken: 0 },
       highlights: Object.fromEntries(HIGHLIGHT_KEYS.map(key => [key, 0])),
-      attraction: { awakenedTags: [] },
+      attraction: { buildMilestones: {} },
+      dao: { blessings: {}, history: [], pending: null },
       victory: false,
       startedAt: Date.now()
     };
@@ -604,6 +694,9 @@
       currentElement: null,
       chain: 0,
       cardsPlayedThisTurn: 0,
+      daoUsed: {},
+      daoTurnUsed: {},
+      daoFinisherDiscount: 0,
       firstAttackUsed: false,
       firstCardUsed: false,
       encounterType: type || 'combat',
@@ -619,10 +712,10 @@
     itemDraw(state, 5 + relicPassive(state, 'extraDraw') - relicPassive(state, 'drawPenalty'));
     triggerRelic(state, 'combatStart');
     emit({ t: 'combatStart', enemies: c.enemies.map(e => ({ uid: e.uid, name: e.name, element: e.element })) });
-    if (!state.attraction || !Array.isArray(state.attraction.awakenedTags)) state.attraction = { awakenedTags: [] };
+    const milestones = ensureBuildMilestones(state);
     const identity = getBuildIdentity(state);
-    if (identity.level >= 2 && !state.attraction.awakenedTags.includes(identity.tag)) {
-      state.attraction.awakenedTags.push(identity.tag);
+    if (identity.level >= 2 && identity.level > (milestones[identity.tag] || 0)) {
+      milestones[identity.tag] = identity.level;
       emit({ t: 'buildAwakened', tag: identity.tag, name: identity.name, levelName: identity.levelName });
     }
     checkEnd(state);
@@ -835,6 +928,7 @@
     c.currentElement = element;
     ensureHighlights(state).maxChain = Math.max(state.highlights.maxChain, c.chain);
     emit({ t: 'chain', chain: c.chain, linked, element, current: c.currentElement, prev });
+    triggerDaoChain(state);
     if (linked) triggerRelic(state, 'chainReached', { chain: c.chain, element });
     return { linked, chainBonus: linked ? c.chain : 0, zhoutian: c.chain === 5, chain: c.chain };
   }
@@ -844,6 +938,7 @@
     c.chain = Math.min(5, Math.max(0, c.chain + amount));
     ensureHighlights(state).maxChain = Math.max(state.highlights.maxChain, c.chain);
     emit({ t: 'chain', chain: c.chain, linked: amount > 0, element: null, current: c.currentElement });
+    triggerDaoChain(state);
     triggerRelic(state, 'chainReached', { chain: c.chain, element: c.currentElement });
     if (trigger && c.chain >= 5) return true;
     return false;
@@ -884,11 +979,17 @@
     if (!inst) return { ok: false, reason: '没有这张牌' };
     const data = getCardData(inst);
     if (!data || data.unplayable || data.type === 'curse' || data.type === 'status') return { ok: false, reason: '这张牌无法打出' };
-    let cost = data.cost;
-    if (!c.firstCardUsed && relicPassive(state, 'firstCardDiscount')) cost = Math.max(0, cost - relicPassive(state, 'firstCardDiscount'));
+    const cost = getCardCost(state, data);
     if (cost > c.energy) return { ok: false, reason: '灵气不足' };
     if (cardNeedsTarget(data) && !firstEnemy(state)) return { ok: false, reason: '没有目标' };
     return { ok: true, cost };
+  }
+  function getCardCost(state, data) {
+    const c = state.combat;
+    let cost = data.cost;
+    if (!c.firstCardUsed && relicPassive(state, 'firstCardDiscount')) cost = Math.max(0, cost - relicPassive(state, 'firstCardDiscount'));
+    if (state.characterId === 'monk' && data.finisher && c.daoFinisherDiscount > 0) cost = Math.max(1, cost - c.daoFinisherDiscount);
+    return cost;
   }
 
   function playCard(state, handIndex, targetIndex) {
@@ -906,6 +1007,14 @@
     c.hand.splice(handIndex, 1);
     c.energy -= cost;
     c.cardsPlayedThisTurn++;
+    if (!c.daoTurnUsed) c.daoTurnUsed = {};
+    if (c.cardsPlayedThisTurn === 4 && getDaoRank(state, 'sword_cycle') && !c.daoTurnUsed.sword_cycle) {
+      c.daoTurnUsed.sword_cycle = true;
+      triggerDao(state, 'sword_cycle');
+      grantDaoEnergy(state);
+      if (getDaoRank(state, 'sword_cycle') >= 2) itemDraw(state, 1);
+    }
+    if (state.characterId === 'monk' && data.finisher && c.daoFinisherDiscount > 0) c.daoFinisherDiscount = 0;
     c.resourceGainedThisCard = 0;
     state.stats.cardsPlayed++;
     const isFirstAttack = !c.firstAttackUsed && data.type === 'attack';
@@ -978,8 +1087,11 @@
             }
           }
           if (effect.consumeBlockFraction != null) {
-            const consumed = Math.min(c.block, Math.ceil(blockBeforeStrike * effect.consumeBlockFraction));
+            const daoBlock = getDaoRank(state, 'monk_block') && daoCombatUsed(state, 'monk_block') < getDaoRank(state, 'monk_block');
+            const fraction = daoBlock ? .25 : effect.consumeBlockFraction;
+            const consumed = Math.min(c.block, Math.ceil(blockBeforeStrike * fraction));
             c.block -= consumed;
+            if (daoBlock) { markDaoCombatUsed(state, 'monk_block'); triggerDao(state, 'monk_block'); }
             emit({ t: 'blockCashout', before: blockBeforeStrike, consumed, total: c.block, bonus: blockBonus, damage: dealt });
           }
           break;
@@ -1101,7 +1213,15 @@
     const damageAll = Math.floor(stacks * allPerStack);
     const damage = target ? Math.min(target.hp, Math.floor(stacks * damagePerStack)) : 0;
     const heal = stacks * (effect.healPerStack || 0);
-    const consumed = Math.min(stacks, Math.ceil(stacks * (effect.consumeFraction ?? 1)));
+    const daoTag = effect.status === 'thorns' ? 'monk_thorns' : effect.status;
+    const rank = getDaoRank(state, daoTag);
+    const used = daoCombatUsed(state, daoTag);
+    const daoActive = rank > 0 && (daoTag === 'monk_thorns' ? used < rank : used === 0);
+    const poisonFraction = effect.status === 'poison' && daoActive ? (rank === 2 ? .2 : .35) : effect.consumeFraction ?? 1;
+    const thornFraction = effect.status === 'thorns' && daoActive ? .25 : effect.consumeFraction ?? 1;
+    let consumed = Math.min(stacks, Math.ceil(stacks * (effect.status === 'poison' ? poisonFraction : thornFraction)));
+    if (effect.status === 'burn' && daoActive) consumed = stacks - Math.min(stacks, rank === 2 ? 6 : 3);
+    const overheal = effect.status === 'regen' && daoActive ? Math.max(0, heal - (state.maxHp - state.hp)) : 0;
     owner.statuses[effect.status] = stacks - consumed;
     const detonationEvent = { t: 'statusDetonate', status: effect.status, target: self ? 'player' : 'enemy', uid: self ? undefined : target.uid,
       stacks, consumed, damage, damageAll, heal, hits: randomPerStack || damageAll ? 0 : (damage ? 1 : 0) };
@@ -1109,6 +1229,18 @@
     emit({ t: 'status', target: self ? 'player' : 'enemy', uid: self ? undefined : target.uid,
       key: effect.status, amount: -consumed, total: owner.statuses[effect.status] });
     if (heal) healPlayer(state, heal);
+    if (daoActive) {
+      markDaoCombatUsed(state, daoTag);
+      triggerDao(state, daoTag);
+      if (effect.status === 'regen' && overheal > 0) {
+        const amount = Math.min(rank === 2 ? 20 : 12, Math.floor(overheal * (rank === 2 ? 1 : .5)));
+        if (amount > 0) {
+          state.combat.block += amount;
+          ensureHighlights(state).maxBlock = Math.max(state.highlights.maxBlock, state.combat.block);
+          emit({ t: 'block', target: 'player', amount, total: state.combat.block });
+        }
+      }
+    }
     if (self) emit(detonationEvent);
     if (damage && target) {
       state.stats.damageDealt += Math.min(target.hp, damage);
@@ -1195,7 +1327,10 @@
           target: tgt
         });
         damage = per;
-        if (effect.consumeBlockFraction != null) blockConsumed = Math.min(c.block, Math.ceil(c.block * effect.consumeBlockFraction));
+        if (effect.consumeBlockFraction != null) {
+          const daoBlock = getDaoRank(state, 'monk_block') && daoCombatUsed(state, 'monk_block') < getDaoRank(state, 'monk_block');
+          blockConsumed = Math.min(c.block, Math.ceil(c.block * (daoBlock ? .25 : effect.consumeBlockFraction)));
+        }
         if (effect.consumeResource) resourceConsumed = resource;
         hits = (effect.hits || 1) + (effect.extraHitsAtResource != null && resource >= effect.extraHitsAtResource ? effect.extraHits || 0 : 0) + (linked ? effect.extraHitsOnLink || 0 : 0);
         if (target && effect.target !== 'all') {
@@ -1224,15 +1359,26 @@
         detonateDamage = Math.min(previewTargetHp, Math.floor(stacks * per)) + randomHits.reduce((total, hit) => total + hit.amount, 0) + allDamage;
         detonateHits = random ? randomHits.length : damageAll ? c.enemies.filter(enemy => enemy.hp > 0).length : detonateDamage ? 1 : 0;
         detonateStatusName = effect.status;
-        statusConsumed = Math.min(stacks, Math.ceil(stacks * (effect.consumeFraction ?? 1)));
+        const daoTag = effect.status === 'thorns' ? 'monk_thorns' : effect.status;
+        const rank = getDaoRank(state, daoTag);
+        const used = daoCombatUsed(state, daoTag);
+        const active = rank > 0 && (daoTag === 'monk_thorns' ? used < rank : used === 0);
+        const fraction = active && effect.status === 'poison' ? (rank === 2 ? .2 : .35) :
+          active && effect.status === 'thorns' ? .25 : effect.consumeFraction ?? 1;
+        statusConsumed = active && effect.status === 'burn' ? stacks - Math.min(stacks, rank === 2 ? 6 : 3) :
+          Math.min(stacks, Math.ceil(stacks * fraction));
         previewDidDetonate = stacks > 0;
         heal = (heal || 0) + stacks * (effect.healPerStack || 0);
+        if (active && effect.status === 'regen') {
+          const overheal = Math.max(0, stacks * (effect.healPerStack || 0) - (state.maxHp - state.hp));
+          block = (block || 0) + Math.min(rank === 2 ? 20 : 12, Math.floor(overheal * (rank === 2 ? 1 : .5)));
+        }
       }
       if (effect.op === 'consumeResource') resourceConsumed = Math.min(c.characterResource?.value || 0, effect.value || c.characterResource?.value || 0);
     }
     return { damage, hits, block, cross, heal, draw, poison, detonateDamage, detonateHits,
       detonateStatus: detonateStatusName, damageAll, blockConsumed, resourceConsumed, statusConsumed,
-      chainAfter, linked, cost: canPlayCard(state, handIndex).cost };
+      chainAfter, linked, cost: getCardCost(state, data) };
   }
 
   /* ---------------- 敌人意图 / 行动 ---------------- */
@@ -1423,6 +1569,7 @@
     c.firstAttackUsed = false;
     c.firstCardUsed = false;
     c.cardsPlayedThisTurn = 0;
+    c.daoTurnUsed = {};
     emit({ t: 'turnStart', turn: c.turn, block: c.block });
     tickStartStatuses(state, { statuses: c.statuses }, true);
     if (state.hp <= 0) { c.phase = 'lost'; return; }
@@ -1623,7 +1770,7 @@
       if (state.act >= 3) {
         state.screen = 'victory';
       } else {
-        nextAct(state);
+        prepareDaoChoice(state);
       }
     } else {
       state.screen = 'map';
@@ -1962,8 +2109,14 @@
       const legacyTotalDamage = state.highlights?.totalDamage == null;
       ensureHighlights(state);
       if (legacyTotalDamage) state.highlights.totalDamage = Math.max(0, Number(state.stats?.damageDealt) || 0);
-      if (!state.attraction || !Array.isArray(state.attraction.awakenedTags)) state.attraction = { awakenedTags: [] };
-      if (state.combat) ensureCharacterResource(state);
+      ensureBuildMilestones(state);
+      ensureDao(state);
+      if (state.combat) {
+        ensureCharacterResource(state);
+        if (!state.combat.daoUsed) state.combat.daoUsed = {};
+        if (!state.combat.daoTurnUsed) state.combat.daoTurnUsed = {};
+        if (!Number.isFinite(state.combat.daoFinisherDiscount)) state.combat.daoFinisherDiscount = 0;
+      }
       return state;
     } catch (err) { return null; }
   }
@@ -2015,6 +2168,7 @@
     startCombat,
     playCard,
     canPlayCard,
+    getCardCost,
     getPreview,
     endPlayerTurn,
     runEnemyTurn,
@@ -2026,6 +2180,12 @@
     takeRewardCard,
     skipReward,
     continueReward,
+    ensureDao,
+    getDaoRank,
+    getDaoBlessing,
+    getDaoChoices,
+    chooseDaoBlessing,
+    continueDao,
     nextAct,
     generateShop,
     buyItem,

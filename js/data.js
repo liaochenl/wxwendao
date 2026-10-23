@@ -899,12 +899,34 @@
     }
   ];
 
+  const DAO_BLESSINGS = [
+    { id: 'dao_sword_intent', character: 'sword', tag: 'sword_intent', path: '藏锋', name: '剑心通明', ranks: [
+      { text: '每场第一次剑意满时，抽 1 张牌。' }, { text: '每场第一次剑意满时，抽 1 张牌并获得 1 点灵气。' }] },
+    { id: 'dao_sword_cycle', character: 'sword', tag: 'sword_cycle', path: '行云', name: '云行无迹', ranks: [
+      { text: '每回合打出第 4 张牌时，获得 1 点灵气。' }, { text: '每回合打出第 4 张牌时，获得 1 点灵气并抽 1 张牌。' }] },
+    { id: 'dao_sword_chain', character: 'sword', tag: 'sword_chain', path: '剑阵', name: '金水交鸣', ranks: [
+      { text: '每回合第一次连携达到 3 层时，抽 1 张牌。' }, { text: '每回合第一次连携达到 3 层时，抽 1 张牌并获得 1 点灵气。' }] },
+    { id: 'dao_poison', character: 'alchemist', tag: 'poison', path: '万毒', name: '百毒不绝', ranks: [
+      { text: '每场第一次毒爆只消耗 35% 中毒。' }, { text: '每场第一次毒爆只消耗 20% 中毒。' }] },
+    { id: 'dao_burn', character: 'alchemist', tag: 'burn', path: '焚炉', name: '炉火不熄', ranks: [
+      { text: '每场第一次灼烧爆发后保留 3 层灼烧。' }, { text: '每场第一次灼烧爆发后保留 6 层灼烧。' }] },
+    { id: 'dao_regen', character: 'alchemist', tag: 'regen', path: '生生', name: '青帝余泽', ranks: [
+      { text: '每场第一次主动兑现回春时，溢出治疗的 50% 转为护甲，最多 12 点。' }, { text: '每场第一次主动兑现回春时，溢出治疗全部转为护甲，最多 20 点。' }] },
+    { id: 'dao_monk_block', character: 'monk', tag: 'monk_block', path: '镇岳', name: '山河不动', ranks: [
+      { text: '每场第一次护甲兑现只损失 25% 护甲。' }, { text: '每场前两次护甲兑现均只损失 25% 护甲。' }] },
+    { id: 'dao_monk_thorns', character: 'monk', tag: 'monk_thorns', path: '金刚', name: '反震无极', ranks: [
+      { text: '每场第一次荆棘兑现只损失 25% 荆棘。' }, { text: '每场前两次荆棘兑现均只损失 25% 荆棘。' }] },
+    { id: 'dao_monk_ritual', character: 'monk', tag: 'monk_ritual', path: '蓄势', name: '一力破天', ranks: [
+      { text: '每场第一次战势满时，下一张体修终结牌费用 -1，最低为 1。' }, { text: '每场第一次战势满时，下一张体修终结牌费用 -2，最低为 1。' }] }
+  ];
+
   const DATA = {
     version: 1,
     elements: ELEMENTS,
     elementOrder: ELEMENT_ORDER,
     statuses: STATUSES,
     characters: CHARACTERS,
+    daoBlessings: DAO_BLESSINGS,
     cards: CARDS,
     cardMap: CARD_MAP,
     relics: RELICS,

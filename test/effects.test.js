@@ -151,6 +151,16 @@ test('道途大成让终结演出略强，悟道提示在减少动态效果时�
   assert.equal(reduced.created.length, 0);
 });
 
+test('获得道印演出约九百毫秒并尊重减少动态效果', async () => {
+  const normal = loadEffects();
+  await normal.FX.daoAwakening({ target: { x: 190, y: 210 }, element: 'water' });
+  assert.ok(normal.created.some(node => node.className.includes('fx-dao-awakening')));
+  assert.equal(normal.layer.children.length, 0);
+  const reduced = loadEffects(true);
+  await reduced.FX.daoAwakening({ target: { x: 190, y: 210 }, element: 'water' });
+  assert.equal(reduced.created.length, 0);
+});
+
 test('特效模块复制出牌卡到独立图层，飞行完成后清理且不移动原卡', async () => {
   const { FX, layer } = loadEffects();
   const card = makeNode();

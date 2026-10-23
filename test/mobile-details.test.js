@@ -29,6 +29,60 @@ function makeUI(width = 393, effects = null) {
   return ui;
 }
 
+test('定道和悟道页展示三种道印、契合与深悟兼修，选择后保留继续入口', async () => {
+  const ui = makeUI(393);
+  ui.state.reward = { kind: 'boss', cards: [], cardTaken: true, selected: -1 };
+  E.continueReward(ui.state);
+  ui.screen = 'dao';
+  let html = ui.daoHTML();
+  for (const name of ['定道', '剑心通明', '云行无迹', '金水交鸣', '未得', '一重']) assert.match(html, new RegExp(name));
+  assert.equal((html.match(/data-action="choose-dao"/g) || []).length, 3);
+  await ui.chooseDao('sword_intent');
+  assert.match(ui.daoHTML(), /踏入下一幕/);
+  const chosenCard = ui.daoHTML().match(/<button[^>]*class="dao-card chosen[\s\S]*?<\/button>/)?.[0] || '';
+  assert.match(chosenCard, /每场第一次剑意满时，抽 1 张牌。/);
+  assert.doesNotMatch(chosenCard, /抽 1 张牌并获得 1 点灵气/);
+  assert.match(chosenCard, /已铭刻 · 一重/);
+  assert.doesNotMatch(chosenCard, /未得 <em>→<\/em> 一重/);
+  ui.banner = () => {};
+  ui.continueDao();
+  ui.state.reward = { kind: 'boss', cards: [], cardTaken: true, selected: -1 };
+  E.continueReward(ui.state);
+  ui.screen = 'dao';
+  for (let i = 0; i < 4; i++) E.addCardToDeck(ui.state, 'ning_feng');
+  html = ui.daoHTML();
+  for (const name of ['悟道', '一重', '二重', '深悟', '兼修', '当前道途']) assert.match(html, new RegExp(name));
+});
+
+test('道印在战斗、地图和证道录可见，移动端可点开完整规则', async () => {
+  const ui = makeUI(393);
+  ui.state.dao.blessings.sword_intent = 1;
+  ui.state.dao.blessings.sword_chain = 1;
+  assert.match(ui.combatHTML(), /道印 ×2/);
+  assert.match(ui.combatHTML(), /data-action="view-dao"/);
+  assert.match(ui.mapHTML(), /剑心通明/);
+  assert.match(ui.endHTML(true), /金水交鸣Ⅰ/);
+  ui.overlay = 'dao';
+  assert.match(ui.overlayHTML(), /每场第一次剑意满时/);
+  const shown = [];
+  ui.floatAt = (_el, message) => shown.push(message);
+  await ui.fx([{ t: 'daoTrigger', name: '剑心通明' }]);
+  assert.deepEqual(shown, ['剑心通明']);
+});
+
+test('一力破天折扣在手牌与出牌确认详情中一致，即使当前灵气不足', () => {
+  const ui = makeUI(393);
+  ui.state = E.createRun({ characterId: 'monk', seed: 42 });
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  ui.state.dao.blessings.monk_ritual = 2;
+  ui.state.combat.daoFinisherDiscount = 2;
+  ui.state.combat.energy = 0;
+  ui.state.combat.hand = [{ uid: 'finisher', id: 'beng_tian_shi', up: false }];
+  assert.match(ui.combatHTML(), /card-cost discounted">1</);
+  ui.detail = { kind: 'card', id: 'beng_tian_shi', up: false, action: 'play-card', index: 0, uid: 'finisher' };
+  assert.match(ui.detailHTML(), /灵气 1/);
+});
+
 test('道途大成时觉醒提示显示实际境界', async () => {
   const ui = makeUI();
   const shown = [];
