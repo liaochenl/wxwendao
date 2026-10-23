@@ -263,6 +263,25 @@ const SCREENS = [
     name: 'monk-resource',
     combat: true,
     prepare: "(() => { WX_UI.overlay=null; WX_UI.state=WXEngine.createRun({characterId:'monk',seed:71}); WXEngine.startCombat(WX_UI.state,{enemies:[{id:'shan_xiao'}]},'combat'); WX_UI.state.combat.characterResource.value=10; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'formed-sword',
+    combat: true,
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); for(let i=0;i<4;i++) WXEngine.addCardToDeck(st,'ning_feng'); WXEngine.startCombat(st,{enemies:[{id:'shan_xiao'}]},'combat'); st.combat.characterResource.value=10; WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'formed-alchemist',
+    combat: true,
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'alchemist',seed:71}); for(let i=0;i<4;i++) WXEngine.addCardToDeck(st,'shi_gu_dan'); WXEngine.startCombat(st,{enemies:[{id:'shan_xiao'}]},'combat'); st.combat.enemies[0].statuses.poison=24; st.combat.characterResource.value=8; WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'formed-monk',
+    combat: true,
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'monk',seed:71}); for(let i=0;i<4;i++) WXEngine.addCardToDeck(st,'zhen_yue_zhuang'); WXEngine.startCombat(st,{enemies:[{id:'shan_xiao'}]},'combat'); st.combat.block=40; st.combat.characterResource.value=10; WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'dao-record',
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); for(let i=0;i<4;i++) WXEngine.addCardToDeck(st,'ning_feng'); st.victory=true; st.screen='victory'; st.highlights.maxSingleHit=76; st.highlights.maxTurnDamage=94; WX_UI.state=st; WX_UI.screen='victory'; WX_UI.render(); return 1; })()"
   }
 ];
 
@@ -311,6 +330,10 @@ async function auditAt(cdp, baseUrl, vp) {
       if (!hero.loaded) fail(`${tag}: 已选修士立绘未加载`);
       if (!hero.startVisible) fail(`${tag}: 开始按钮未在首屏完整显示`);
       if (hero.selected !== 1) fail(`${tag}: 已选修士数量异常`);
+      const promises = await cdp.eval(`(() => ({ count:document.querySelectorAll('.char-promise').length,
+        visible:document.querySelector('.char-card.selected .char-promise')?.getBoundingClientRect().width>0,
+        text:[...document.querySelectorAll('.char-promise')].map(el=>el.textContent).join(' ') }))()`);
+      if (promises.count !== 3 || !promises.visible || !promises.text.includes('快、连、爆') || !promises.text.includes('养、叠、炸') || !promises.text.includes('扛、蓄、崩')) fail(`${tag}: 角色核心体验不完整`);
       const changed = await cdp.eval(`(() => {
         document.querySelector('.char-card[data-char="alchemist"]')?.click();
         const chosen = document.querySelector('.char-card.selected');
@@ -356,6 +379,17 @@ async function auditAt(cdp, baseUrl, vp) {
       if (!resource.text.includes(monk ? '战势 10/10' : '炉火 8/8') || resource.count !== (monk ? 10 : 8) || !resource.within || !resource.belowHp) {
         fail(`${tag}: 角色资源条与头像或生命条重叠、格数不完整 ${JSON.stringify(resource)}`);
       }
+    }
+    if (screen.name.startsWith('formed-')) {
+      const formed = await cdp.eval(`(() => ({ text:document.querySelector('.build-identity')?.textContent||'',
+        level:document.querySelector('.combat-screen')?.className||'' }))()`);
+      if (!formed.text.includes('成势') || !formed.level.includes('path-level-2')) fail(`${tag}: 成型道途反馈缺失`);
+    }
+    if (screen.name === 'dao-record') {
+      const record = await cdp.eval(`(() => ({ title:document.querySelector('.dao-record-title')?.textContent||'',
+        deck:document.querySelector('.dao-deck-list')?.children.length||0,
+        button:!!document.querySelector('[data-action="victory-new"]') }))()`);
+      if (record.title !== '一剑开天' || record.deck < 10 || !record.button) fail(`${tag}: 证道录内容或再入轮回入口缺失`);
     }
     if (screen.name === 'upgraded-hand') {
       const title = await cdp.eval(`(() => { const el=document.querySelector('.hand .card-name');

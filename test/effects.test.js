@@ -137,6 +137,20 @@ test('体修三种终结牌有不同演出，荆棘震怒可环形波及多个�
   assert.equal(reduced.created.length, 0);
 });
 
+test('道途大成让终结演出略强，悟道提示在减少动态效果时不生成粒子', async () => {
+  const normal = loadEffects();
+  await normal.FX.finisher({ target: { x: 190, y: 210 }, element: 'earth', kind: 'monk', cardId: 'beng_tian_shi' });
+  const empowered = loadEffects();
+  await empowered.FX.finisher({ target: { x: 190, y: 210 }, element: 'earth', kind: 'monk', cardId: 'beng_tian_shi', empowered: true });
+  assert.ok(empowered.created.length > normal.created.length);
+  await empowered.FX.buildAwakening({ target: { x: 190, y: 210 } });
+  assert.ok(empowered.created.some(el => el.className.includes('fx-build-awakening')));
+  assert.equal(empowered.layer.children.length, 0);
+  const reduced = loadEffects(true);
+  await reduced.FX.buildAwakening({ target: { x: 190, y: 210 } });
+  assert.equal(reduced.created.length, 0);
+});
+
 test('特效模块复制出牌卡到独立图层，飞行完成后清理且不移动原卡', async () => {
   const { FX, layer } = loadEffects();
   const card = makeNode();

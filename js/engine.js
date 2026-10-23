@@ -34,6 +34,9 @@
   const CHARACTER_IDS = DATA.characters.map(c => c.id);
   const CURSE_IDS = ['xin_mo', 'za_nian', 'zou_huo'];
   const START_CURSES = ['za_nian', 'xin_mo'];
+  const BUILD_NAMES = { sword_intent: '藏锋', sword_cycle: '行云', sword_chain: '剑阵', poison: '万毒', burn: '焚炉', regen: '生生', monk_block: '镇岳', monk_thorns: '金刚', monk_ritual: '蓄势' };
+  const BUILD_TITLES = { sword_intent: '一剑开天', sword_cycle: '流云无尽', sword_chain: '天河剑主', poison: '百毒丹尊', burn: '赤炉真君', regen: '青帝丹心', monk_block: '镇岳真身', monk_thorns: '不动明王', monk_ritual: '崩天武尊' };
+  const HIGHLIGHT_KEYS = ['maxTurnDamage', 'maxSingleHit', 'maxBlock', 'maxResource', 'maxPoison', 'maxBurn', 'maxThorns', 'maxChain', 'combats', 'turnDamage', 'totalDamage'];
 
   let EVENTS = [];
   function emit(ev) { EVENTS.push(ev); }
@@ -89,6 +92,38 @@
     });
   }
   function getCharacter(state) { return DATA.characters.find(c => c.id === state.characterId) || DATA.characters[0]; }
+  function getBuildIdentity(state) {
+    const tags = getCharacter(state).buildTags || [];
+    const counts = Object.fromEntries(tags.map(tag => [tag, 0]));
+    const finishers = new Set();
+    for (const instance of state.deck || []) {
+      const card = DATA.cardMap[instance.id];
+      if (!card || card.rarity === 'starter') continue;
+      for (const tag of card.tags || []) {
+        if (!(tag in counts)) continue;
+        counts[tag]++;
+        if (card.rarity === 'rare' && card.finisher) finishers.add(tag);
+      }
+    }
+    const tag = tags.reduce((best, candidate) => counts[candidate] > (counts[best] || 0) ? candidate : best, null);
+    const count = tag ? counts[tag] : 0;
+    const level = count >= 6 && finishers.has(tag) ? 3 : count >= 4 ? 2 : count >= 2 ? 1 : 0;
+    return { tag, name: tag ? BUILD_NAMES[tag] : '未定', count, level, levelName: ['未定', '初窥', '成势', '大成'][level] };
+  }
+  function ensureHighlights(state) {
+    if (!state.highlights || typeof state.highlights !== 'object') state.highlights = {};
+    for (const key of HIGHLIGHT_KEYS) if (!Number.isFinite(state.highlights[key])) state.highlights[key] = 0;
+    return state.highlights;
+  }
+  function recordDamageHighlight(state, damage) {
+    const h = ensureHighlights(state);
+    h.totalDamage += damage;
+    h.maxSingleHit = Math.max(h.maxSingleHit, damage);
+    if (state.combat?.phase === 'player') {
+      h.turnDamage += damage;
+      h.maxTurnDamage = Math.max(h.maxTurnDamage, h.turnDamage);
+    }
+  }
   function ensureCharacterResource(state) {
     const spec = getCharacter(state).resource;
     if (!state.combat || !spec) return null;
@@ -109,6 +144,7 @@
     const adjusted = delta > 0 ? Math.min(delta, cardCap) : delta;
     resource.value = Math.max(0, Math.min(resource.max, before + adjusted));
     const actual = resource.value - before;
+    ensureHighlights(state).maxResource = Math.max(state.highlights.maxResource, resource.value);
     if (actual) {
       if (actual > 0 && state.combat.resourceGainedThisCard != null) state.combat.resourceGainedThisCard += actual;
       emit({ t: 'resource', id: resource.id, before, after: resource.value, delta: actual });
@@ -162,6 +198,7 @@
   }
   function directEnemyDamage(state, enemy, n, source) {
     if (n <= 0 || enemy.hp <= 0) return;
+    recordDamageHighlight(state, Math.min(enemy.hp, n));
     enemy.hp = Math.max(0, enemy.hp - n);
     emit({ t: 'damage', target: 'enemy', uid: enemy.uid, amount: n, blocked: 0, hp: enemy.hp, direct: true, source: source || 'effect' });
     afterEnemyHpChange(state, enemy);
@@ -202,6 +239,8 @@
       usedEvents: [],
       recentEncounters: [],
       stats: { floors: 0, kills: 0, elites: 0, cardsPlayed: 0, damageDealt: 0, damageTaken: 0 },
+      highlights: Object.fromEntries(HIGHLIGHT_KEYS.map(key => [key, 0])),
+      attraction: { awakenedTags: [] },
       victory: false,
       startedAt: Date.now()
     };
@@ -547,6 +586,9 @@
 
   function startCombat(state, encounter, type) {
     clearEvents();
+    const highlights = ensureHighlights(state);
+    highlights.combats++;
+    highlights.turnDamage = 0;
     const c = {
       turn: 1,
       phase: 'player',
@@ -577,6 +619,12 @@
     itemDraw(state, 5 + relicPassive(state, 'extraDraw') - relicPassive(state, 'drawPenalty'));
     triggerRelic(state, 'combatStart');
     emit({ t: 'combatStart', enemies: c.enemies.map(e => ({ uid: e.uid, name: e.name, element: e.element })) });
+    if (!state.attraction || !Array.isArray(state.attraction.awakenedTags)) state.attraction = { awakenedTags: [] };
+    const identity = getBuildIdentity(state);
+    if (identity.level >= 2 && !state.attraction.awakenedTags.includes(identity.tag)) {
+      state.attraction.awakenedTags.push(identity.tag);
+      emit({ t: 'buildAwakened', tag: identity.tag, name: identity.name, levelName: identity.levelName });
+    }
     checkEnd(state);
     return result(true);
   }
@@ -617,6 +665,7 @@
     if (!n) return;
     const c = state.combat;
     c.statuses[key] = Math.max(0, (c.statuses[key] || 0) + n);
+    if (key === 'thorns') ensureHighlights(state).maxThorns = Math.max(state.highlights.maxThorns, c.statuses[key]);
     emit({ t: 'status', target: 'player', key, amount: n, total: c.statuses[key] });
   }
   function addEnemyStatus(state, enemy, key, n) {
@@ -627,6 +676,10 @@
       amount += relicPassive(state, 'poisonBonus');
     }
     enemy.statuses[key] = Math.max(0, (enemy.statuses[key] || 0) + amount);
+    if (key === 'poison' || key === 'burn') {
+      const field = key === 'poison' ? 'maxPoison' : 'maxBurn';
+      ensureHighlights(state)[field] = Math.max(state.highlights[field], enemy.statuses[key]);
+    }
     emit({ t: 'status', target: 'enemy', uid: enemy.uid, key, amount, total: enemy.statuses[key] });
   }
   function cleansePlayer(state) {
@@ -641,6 +694,7 @@
     const amount = Math.max(0, base + (c.statuses.dexterity || 0) + (chainBonus || 0) + relicPassive(state, 'blockBonus'));
     if (amount <= 0) return 0;
     c.block += amount;
+    ensureHighlights(state).maxBlock = Math.max(state.highlights.maxBlock, c.block);
     emit({ t: 'block', target: 'player', amount, total: c.block });
     return amount;
   }
@@ -685,8 +739,10 @@
       enemy.block -= blocked;
     }
     const loss = dmg - blocked;
+    const actual = Math.min(enemy.hp, loss);
     enemy.hp = Math.max(0, enemy.hp - loss);
     state.stats.damageDealt += loss;
+    recordDamageHighlight(state, actual);
     emit({ t: 'damage', target: 'enemy', uid: enemy.uid, amount: dmg, blocked, hp: enemy.hp, cross: !!opts.cross,
       element: opts.element || null, source: opts.source || undefined });
     afterEnemyHpChange(state, enemy);
@@ -777,6 +833,7 @@
       c.chain = 0;
     }
     c.currentElement = element;
+    ensureHighlights(state).maxChain = Math.max(state.highlights.maxChain, c.chain);
     emit({ t: 'chain', chain: c.chain, linked, element, current: c.currentElement, prev });
     if (linked) triggerRelic(state, 'chainReached', { chain: c.chain, element });
     return { linked, chainBonus: linked ? c.chain : 0, zhoutian: c.chain === 5, chain: c.chain };
@@ -785,6 +842,7 @@
   function gainChain(state, amount, trigger) {
     const c = state.combat;
     c.chain = Math.min(5, Math.max(0, c.chain + amount));
+    ensureHighlights(state).maxChain = Math.max(state.highlights.maxChain, c.chain);
     emit({ t: 'chain', chain: c.chain, linked: amount > 0, element: null, current: c.currentElement });
     triggerRelic(state, 'chainReached', { chain: c.chain, element: c.currentElement });
     if (trigger && c.chain >= 5) return true;
@@ -960,6 +1018,10 @@
             const before = target.statuses[effect.status] || 0;
             target.statuses[effect.status] = Math.max(0, before * (effect.factor || 2));
             const gained = target.statuses[effect.status] - before;
+            if (effect.status === 'poison' || effect.status === 'burn') {
+              const field = effect.status === 'poison' ? 'maxPoison' : 'maxBurn';
+              ensureHighlights(state)[field] = Math.max(state.highlights[field], target.statuses[effect.status]);
+            }
             if (gained) emit({ t: 'status', target: 'enemy', uid: target.uid, key: effect.status, amount: gained, total: target.statuses[effect.status] });
           }
           break;
@@ -1355,6 +1417,7 @@
     const c = state.combat;
     c.phase = 'player';
     c.turn++;
+    ensureHighlights(state).turnDamage = 0;
     c.block = state.characterId === 'monk' ? Math.min(c.block, 4) : 0;
     c.energy = maxEnergy(state);
     c.firstAttackUsed = false;
@@ -1597,6 +1660,7 @@
         if (!state.combat) return;
         const amount = n + relicPassive(state, 'blockBonus');
         state.combat.block += amount;
+        ensureHighlights(state).maxBlock = Math.max(state.highlights.maxBlock, state.combat.block);
         emit({ t: 'block', target: 'player', amount, total: state.combat.block, relic: true });
       },
       status(target, key, n) { if (target === 'player' && state.combat) addPlayerStatus(state, key, n); },
@@ -1614,6 +1678,7 @@
       setChain(amount, element) {
         if (!c) return;
         c.chain = Math.max(0, Math.min(5, amount));
+        ensureHighlights(state).maxChain = Math.max(state.highlights.maxChain, c.chain);
         if (element) c.currentElement = element;
         emit({ t: 'chain', chain: c.chain, linked: true, element, current: c.currentElement });
       },
@@ -1894,12 +1959,17 @@
       if (!state.characterId || !state.deck || !state.map) return null;
       if (typeof state.nextUid !== 'number') state.nextUid = 100000;
       if (!Array.isArray(state.recentEncounters)) state.recentEncounters = [];
+      const legacyTotalDamage = state.highlights?.totalDamage == null;
+      ensureHighlights(state);
+      if (legacyTotalDamage) state.highlights.totalDamage = Math.max(0, Number(state.stats?.damageDealt) || 0);
+      if (!state.attraction || !Array.isArray(state.attraction.awakenedTags)) state.attraction = { awakenedTags: [] };
       if (state.combat) ensureCharacterResource(state);
       return state;
     } catch (err) { return null; }
   }
 
   function getRunSummary(state) {
+    const identity = getBuildIdentity(state);
     return {
       character: getCharacter(state).name,
       act: state.act,
@@ -1910,7 +1980,14 @@
       maxHp: state.maxHp,
       deckSize: state.deck.length,
       ascension: state.ascension,
-      victory: !!state.victory
+      victory: !!state.victory,
+      build: identity,
+      title: identity.level >= 2 ? BUILD_TITLES[identity.tag] : '五行行者',
+      highlights: { ...ensureHighlights(state) },
+      relicCount: state.relics.length,
+      combats: state.highlights.combats,
+      damageDealt: ensureHighlights(state).totalDamage,
+      deck: state.deck.map(card => ({ id: card.id, up: !!card.up }))
     };
   }
 
@@ -1965,6 +2042,7 @@
     getEnemyIntent,
     getCardData,
     getCharacter,
+    getBuildIdentity,
     elementData,
     isCross,
     emptyStatuses,
