@@ -29,6 +29,14 @@ function makeUI(width = 393, effects = null) {
   return ui;
 }
 
+test('道途大成时觉醒提示显示实际境界', async () => {
+  const ui = makeUI();
+  const shown = [];
+  ui.floatAt = (_element, message) => shown.push(message);
+  await ui.fx([{ t: 'buildAwakened', name: '藏锋', levelName: '大成' }]);
+  assert.deepEqual(shown, ['藏锋大成']);
+});
+
 test('出牌前复制卡牌，视觉失败也会完成规则结算并解除忙碌状态', async () => {
   const order = [];
   const effects = {
@@ -164,6 +172,40 @@ test('体修十格战势与三种兑现预览显示消耗和构筑方向', () =>
   ], cardTaken: false, selected: -1 };
   const reward = ui.rewardHTML();
   for (const name of ['镇岳', '金刚', '蓄势']) assert.match(reward, new RegExp(name));
+});
+
+test('选角页突出三种爽点，只有选中角色展示循环示意', () => {
+  const ui = makeUI(1280);
+  ui.selectedChar = 'sword';
+  const html = ui.selectHTML();
+  for (const phrase of ['快、连、爆', '养、叠、炸', '扛、蓄、崩', '核心体验']) assert.match(html, new RegExp(phrase));
+  assert.equal((html.match(/promise-active/g) || []).length, 1);
+  assert.match(html, /剑意 10/);
+  assert.match(html, /一剑开天/);
+});
+
+test('战斗道途与成型视觉按牌组、资源和状态变化，未成型时无持续特效', () => {
+  const ui = makeUI();
+  assert.match(ui.combatHTML(), /道途未定/);
+  assert.doesNotMatch(ui.combatHTML(), /path-sword-intent/);
+  for (let i = 0; i < 4; i++) E.addCardToDeck(ui.state, 'ning_feng');
+  ui.state.combat.characterResource.value = 10;
+  const html = ui.combatHTML();
+  assert.match(html, /道途 · 藏锋 · 成势/);
+  assert.match(html, /path-sword-intent/);
+  assert.match(html, /resource-full/);
+});
+
+test('通关证道录显示称号、道途、最终牌组及高光，并提供再入轮回', () => {
+  const ui = makeUI(393);
+  for (let i = 0; i < 4; i++) E.addCardToDeck(ui.state, 'ning_feng');
+  ui.state.highlights.maxSingleHit = 78;
+  ui.state.highlights.maxTurnDamage = 92;
+  ui.state.highlights.maxResource = 10;
+  const html = ui.endHTML(true);
+  for (const phrase of ['证 道', '一剑开天', '藏锋 · 成势', '最终牌组', '凝锋诀', '最高单击', '92', '再入轮回']) assert.match(html, new RegExp(phrase));
+  assert.match(html, /data-action="victory-new"/);
+  assert.doesNotMatch(ui.endHTML(false), /证 道/);
 });
 
 test('角色图鉴直接展示三位修士立绘，且保持可点开的角色入口', () => {

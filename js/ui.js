@@ -36,6 +36,11 @@
   function buildNames(card) { return (card.tags || []).map(tag => BUILD_TAG_NAMES[tag]).filter(Boolean); }
   function resourceName(id) { return D.characters.find(character => character.resource?.id === id)?.resource.name || id; }
   const CHAR_STYLE = { sword: '连携爆发 · 直伤抽牌', alchemist: '持续伤害 · 中毒回春', monk: '厚甲反伤 · 稳健推进' };
+  const CHAR_PROMISE = {
+    sword: { motto: '快、连、爆', desc: '连续出牌积蓄剑意，剑意大成后以终结剑式一击破敌。', steps: ['剑意 10', '一剑开天', '60+'] },
+    alchemist: { motto: '养、叠、炸', desc: '积累毒、火与炉火，在最合适的时机主动开炉引爆。', steps: ['中毒 28 + 炉火 6', '百毒归元', '毒爆'] },
+    monk: { motto: '扛、蓄、崩', desc: '用护甲接下重击，将挡下的伤害化为战势，再以重拳反击。', steps: ['护甲 40 + 战势 8', '崩天式', '重拳'] }
+  };
   const CHAR_TIPS = {
     sword: '先金后水接链，遇到木属敌人时，断链打相克往往更赚。',
     alchemist: '叠毒之后靠灼烧与回春拖长战线，别急着和敌人换血。',
@@ -407,6 +412,7 @@
       this.selected = null;
       this.targetIndex = 0;
       this.commit();
+      if (res.events?.some(ev => ev.t === 'buildAwakened')) void this.fx(res.events);
     },
     onCardClick(index) {
       if (!this.state || !this.state.combat || this.busy) return;
@@ -524,7 +530,7 @@
           await Promise.race([flight, sleep(300)]);
           await Promise.all([
             flight,
-            visual('finisher', { target: destination, source: document.getElementById('player-panel'), element: cardData.element, kind: this.state.characterId, cardId: cardData.id }),
+            visual('finisher', { target: destination, source: document.getElementById('player-panel'), element: cardData.element, kind: this.state.characterId, cardId: cardData.id, empowered: E.getBuildIdentity(this.state).level === 3 && cardData.tags?.includes(E.getBuildIdentity(this.state).tag) }),
             this.fx(res.events)
           ]);
         } else {
@@ -727,9 +733,9 @@
               this.sfx(ev.blocked > 0 && amount === 0 ? 'block' : 'hurt');
             } else {
               this.hitPulse(el);
-              this.floatAt(el, ev.cross ? '克制 -' + amount : '-' + amount, `${ev.cross ? 'fx-cross' : 'fx-damage'}${amount >= 40 ? ' fx-burst-number' : ''}`);
+              this.floatAt(el, ev.cross ? '克制 -' + amount : '-' + amount, `${ev.cross ? 'fx-cross' : 'fx-damage'}${amount >= 70 ? ' fx-legend-number' : amount >= 40 ? ' fx-burst-number' : amount >= 20 ? ' fx-strong-number' : ''}`);
               this.sfx(ev.cross ? 'cross' : 'hit');
-              void visual('impact', { target: el, element: ev.element, heavy: ev.cross || amount >= 20 });
+              void visual('impact', { target: el, element: ev.element, heavy: ev.cross || amount >= 20, legend: amount >= 70 });
               if (ev.cross) void visual('overcomeBurst', { target: el, element: ev.element });
             }
             await sleep(ev.target === 'player' ? 110 : 85);
@@ -814,6 +820,12 @@
           case 'resourceReady': {
             const el = document.querySelector('.character-resource');
             this.floatAt(el, `${resourceName(ev.id)}已满`, 'fx-resource-ready');
+            break;
+          }
+          case 'buildAwakened': {
+            const el = document.getElementById('player-panel');
+            this.floatAt(el, `${ev.name}${ev.levelName}`, 'fx-awakening-text');
+            void visual('buildAwakening', { target: el });
             break;
           }
           case 'momentumSummary': {
@@ -1078,6 +1090,7 @@
     },
     charCardHTML(ch) {
       const selected = this.selectedChar === ch.id;
+      const promise = CHAR_PROMISE[ch.id];
       const deck = ch.deck.map(d => {
         const data = D.cardMap[d.id];
         return `<span class="deck-chip el-${data.element}">${esc(data.name)}<b>×${d.count}</b></span>`;
@@ -1085,7 +1098,7 @@
       const relic = D.relicMap[ch.relic];
       return `
       <div class="char-entry ${selected ? 'selected' : ''}">
-      <button class="char-card ${selected ? 'selected' : ''}" data-action="select-char" data-char="${ch.id}" style="--accent:${ch.accent}" aria-pressed="${selected}">
+      <button class="char-card ${selected ? 'selected promise-active' : ''}" data-action="select-char" data-char="${ch.id}" style="--accent:${ch.accent}" aria-pressed="${selected}">
         <span class="char-choose">${selected ? '已选' : '选择'}</span>
         <span class="char-visual" aria-hidden="true">
           <img class="char-portrait" src="${CHAR_PORTRAITS[ch.id]}" alt="" loading="eager" decoding="async">
@@ -1097,6 +1110,7 @@
         <span class="char-elems">${ch.elements.map(e => elemBadge(e)).join('')}</span>
         <span class="char-hp">生命 ${ch.maxHp}</span>
         <span class="char-style">${CHAR_STYLE[ch.id]}</span>
+        <span class="char-promise"><b><small>核心体验</small>${esc(promise.motto)}</b><span class="char-promise-desc">${esc(promise.desc)}</span>${selected ? `<span class="char-promise-demo" aria-hidden="true">${promise.steps.map((step, i) => `<i style="--step:${i}">${esc(step)}</i>`).join('')}</span>` : ''}</span>
         <span class="char-passive"><b>${esc(ch.passive)}</b>　${esc(ch.passiveText)}</span>
         <span class="char-tip">${CHAR_TIPS[ch.id]}</span>
         <span class="char-label deck-label">初始牌组</span>
@@ -1233,6 +1247,9 @@
       const st = this.state;
       const c = st.combat;
       const ch = E.getCharacter(st);
+      const identity = E.getBuildIdentity(st);
+      const pathClass = identity.level >= 2 && identity.tag ? `path-${identity.tag.replaceAll('_', '-')}` : '';
+      const fullResource = c.characterResource?.value >= c.characterResource?.max;
       const alive = c.enemies.filter(e => e.hp > 0);
       const targetIdx = this.targetIndex < c.enemies.length && c.enemies[this.targetIndex] && c.enemies[this.targetIndex].hp > 0 ? this.targetIndex : c.enemies.indexOf(alive[0]);
       this.targetIndex = targetIdx >= 0 ? targetIdx : 0;
@@ -1257,7 +1274,7 @@
             ? (mobileUI ? `当前目标：${esc(focusName)} · 点按手牌查看详情，确认后选敌人` : `当前目标：${esc(focusName)} · 点击卡牌后点敌人切换 · 数字键直接出牌`)
             : `${mobileUI ? '点按手牌查看详情并确认出牌' : '点击卡牌出牌 · 数字键 1–9 · E 结束回合'}`));
       return `
-      <main class="screen combat-screen ${c.phase === 'enemy' ? 'enemy-phase' : ''}">
+      <main class="screen combat-screen ${c.phase === 'enemy' ? 'enemy-phase' : ''} ${pathClass} path-level-${identity.level} ${fullResource ? 'resource-full' : ''} ${c.cardsPlayedThisTurn >= 5 ? 'combo-fast' : ''} ${c.chain >= 3 ? 'chain-formed' : ''}">
         <header class="combat-top">
           <div class="turn-tag">第 ${c.turn} 回合</div>
           <div class="combat-act">${esc(E.getActName(st.act))}</div>
@@ -1271,7 +1288,7 @@
           ${enemyHTML}
         </section>
         <section class="battle-mid">
-          <div class="player-panel" id="player-panel">
+          <div class="player-panel ${identity.tag === 'monk_block' && c.block >= 25 ? 'armor-aura' : ''} ${identity.tag === 'monk_block' && c.block >= 40 ? 'armor-aura-strong' : ''} ${identity.tag === 'monk_thorns' && c.statuses.thorns >= 5 ? 'thorn-aura' : ''} ${identity.tag === 'monk_ritual' && c.characterResource?.value >= 7 ? 'ritual-aura' : ''} ${identity.tag === 'regen' && c.statuses.regen >= 5 ? 'life-aura' : ''}" id="player-panel">
             <div class="player-portrait"><span>${characterSigil(ch.id)}</span></div>
             <div class="player-info">
               <div class="player-name">${esc(ch.name)} <small>${esc(ch.passive)}</small></div>
@@ -1280,6 +1297,7 @@
                 <span class="character-resource-label">${esc(ch.resource.name)} ${c.characterResource.value}/${c.characterResource.max}</span>
                 <span class="character-resource-pips">${Array.from({ length: c.characterResource.max }, (_, i) => `<i class="${i < c.characterResource.value ? 'on' : ''}"></i>`).join('')}</span>
               </div>` : ''}
+              <div class="build-identity ${identity.level >= 2 ? 'formed' : ''}">${identity.level ? `道途 · ${esc(identity.name)} · ${esc(identity.levelName)}` : '道途未定'}</div>
               <div class="player-sub">
                 ${c.block > 0 ? `<span class="block-pill" title="护甲">甲 ${c.block}</span>` : ''}
                 <span class="statuses">${statusChips(c.statuses, 'player')}</span>
@@ -1331,7 +1349,7 @@
         intent.addCards.length ? '塞入业障' : ''
       ].filter(Boolean).join(' · ') : '';
       return `
-      <div class="enemy-unit ${alive ? '' : 'dead'} ${targetable ? 'targetable' : ''} ${i === targetIdx && alive ? 'focused' : ''} ${showTarget ? 'show-target' : ''}" style="--enemy-index:${i};--enemy-element:${elem(e.element).color}" data-enemy-uid="${e.uid}" data-action="enemy" data-index="${i}">
+      <div class="enemy-unit ${alive ? '' : 'dead'} ${targetable ? 'targetable' : ''} ${i === targetIdx && alive ? 'focused' : ''} ${showTarget ? 'show-target' : ''} ${e.statuses.poison >= 10 ? 'poison-aura' : ''} ${e.statuses.poison >= 20 ? 'poison-aura-strong' : ''} ${e.statuses.poison >= 30 ? 'poison-aura-glow' : ''} ${e.statuses.burn >= 10 ? 'burn-aura' : ''}" style="--enemy-index:${i};--enemy-element:${elem(e.element).color}" data-enemy-uid="${e.uid}" data-action="enemy" data-index="${i}">
         ${alive ? `<button class="entity-info enemy-info-btn" data-action="inspect-enemy" data-id="${esc(e.id)}" data-index="${i}" aria-label="查看${esc(e.name)}详情">详情</button>` : ''}
         <div class="intent ${intent && intent.damage ? 'intent-attack' : ''}" title="${intent ? esc(intent.name + '：' + intent.label) : ''}">
           <span class="intent-icon">${intent ? esc(intent.icon) : '？'}</span>
@@ -1571,12 +1589,21 @@
     endHTML(win) {
       const st = this.state;
       const s = st ? E.getRunSummary(st) : { character: '无名', floor: 0, kills: 0, deckSize: 0, gold: 0, ascension: 0 };
+      const h = s.highlights || {};
+      const path = s.build?.level ? `${s.build.name} · ${s.build.levelName}` : '道途未定';
+      const metrics = st?.characterId === 'alchemist'
+        ? [['最大中毒', h.maxPoison], ['最大灼烧', h.maxBurn], ['单回合最高伤害', h.maxTurnDamage], ['最高炉火', h.maxResource], ['遗物', s.relicCount]]
+        : st?.characterId === 'monk'
+          ? [['最大护甲', h.maxBlock], ['最大荆棘', h.maxThorns], ['单回合最高伤害', h.maxTurnDamage], ['最高战势', h.maxResource], ['遗物', s.relicCount]]
+          : [['最高单击', h.maxSingleHit], ['单回合最高伤害', h.maxTurnDamage], ['最长五行连携', h.maxChain], ['最高剑意', h.maxResource], ['遗物', s.relicCount]];
+      const daoRecord = win && st ? `<section class="dao-record" aria-label="证道录"><div class="dao-record-kicker">证 道</div><div class="dao-record-title">${esc(s.title)}</div><div class="dao-record-character">${esc(s.character)} · ${esc(path)}</div><div class="dao-highlight-grid">${metrics.map(([label, value]) => `<div><b>${Number(value) || 0}</b><small>${esc(label)}</small></div>`).join('')}</div><p class="dao-record-more">战斗 ${s.combats} 场 · 击杀 ${s.kills} · 总伤害 ${s.damageDealt || 0}</p><div class="dao-final-deck"><b>最终牌组 · ${s.deckSize} 张</b><div class="dao-deck-list">${s.deck.map(card => `<span>${esc(D.cardMap[card.id]?.name || card.id)}${card.up ? '·悟' : ''}</span>`).join('')}</div></div></section>` : '';
       return `
       <main class="screen end-screen ${win ? 'victory' : 'defeat'}">
         <div class="end-glow"></div>
         <span class="end-mark">${win ? '道' : '陨'}</span>
         <h1>${win ? '此身合道' : '道途未竟'}</h1>
         <p class="end-sub">${win ? '五行归元，天阙重开。你终于走到了问心之处。' : '山风收走了最后一缕气息。道还在，人再来。'}</p>
+        ${daoRecord}
         <div class="end-stats">
           <span><b>${esc(s.character)}</b><small>修士</small></span>
           <span><b>${s.floor}</b><small>层数</small></span>

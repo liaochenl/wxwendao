@@ -153,7 +153,7 @@
     return Promise.all(animations);
   }
 
-  async function impact({ target, element, heavy = false } = {}) {
+  async function impact({ target, element, heavy = false, legend = false } = {}) {
     const pos = centerOf(target);
     if (!pos || reduced()) return;
     try {
@@ -173,7 +173,8 @@
     } catch (_) {}
     return Promise.all([
       ring(pos.x, pos.y, element, heavy ? 'fx-ring fx-impact fx-impact-heavy' : 'fx-ring fx-impact', heavy ? 340 : 315, heavy ? 2.9 : 2.2),
-      heavy ? flash(pos.x, pos.y, element, 'fx-flash fx-impact-flash', 180) : Promise.resolve()
+      heavy ? flash(pos.x, pos.y, element, 'fx-flash fx-impact-flash', legend ? 260 : 180) : Promise.resolve(),
+      legend ? ring(pos.x, pos.y, element, 'fx-ring fx-impact-legend', 390, 3.7) : Promise.resolve()
     ]);
   }
 
@@ -225,7 +226,7 @@
     ]);
   }
 
-  function monkFinisher({ target, source, cardId, element }) {
+  function monkFinisher({ target, source, cardId, element, empowered }) {
     const pos = centerOf(target);
     if (!pos) return Promise.resolve();
     const origin = centerOf(source) || { x: window.innerWidth / 2, y: window.innerHeight * .68 };
@@ -234,13 +235,14 @@
     const isThorns = cardId === 'jin_gang_zhen_nu';
     const color = isThorns ? 'metal' : element;
     const animations = [
-      ring(pos.x, pos.y, color, `fx-ring ${style}`, isThorns ? 500 : 570, isThorns ? 3.2 : 3.8),
+      ring(pos.x, pos.y, color, `fx-ring ${style}${empowered ? ' fx-empowered' : ''}`, isThorns ? 500 : 570, empowered ? 4.3 : isThorns ? 3.2 : 3.8),
       flash(pos.x, pos.y, color, `fx-flash ${style}`, isThorns ? 220 : 270, isThorns ? 60 : 120)
     ];
     if (isThorns) animations.push(ring(origin.x, origin.y, color, `fx-ring ${style}`, 460, 2.7));
     else animations.push(ring(pos.x, pos.y, color, `fx-ring ${style}`, 520, 2.7, 55));
-    for (let i = 0; i < (isThorns ? 8 : 6); i++) {
-      const angle = i * Math.PI * 2 / (isThorns ? 8 : 6);
+    const particleCount = (isThorns ? 8 : 6) + (empowered ? 2 : 0);
+    for (let i = 0; i < particleCount; i++) {
+      const angle = i * Math.PI * 2 / particleCount;
       const dx = Math.cos(angle) * (isThorns ? 115 : 80);
       const dy = Math.sin(angle) * (isThorns ? 85 : 68);
       const x = isBlock || isThorns ? origin.x : pos.x;
@@ -259,15 +261,15 @@
     return Promise.all(animations);
   }
 
-  function finisher({ target, source, element = 'metal', kind, cardId } = {}) {
+  function finisher({ target, source, element = 'metal', kind, cardId, empowered = false } = {}) {
     const pos = centerOf(target);
     if (!pos || reduced()) return Promise.resolve();
     if (kind === 'monk' && ['han_shan_shi', 'jin_gang_zhen_nu', 'beng_tian_shi'].includes(cardId)) {
-      return monkFinisher({ target, source, cardId, element });
+      return monkFinisher({ target, source, cardId, element, empowered });
     }
     const slash = node('fx-slash fx-finisher-slash', pos.x, pos.y, element);
     const animations = [
-      ring(pos.x, pos.y, element, 'fx-ring fx-finisher-ring', 520, 3.2),
+      ring(pos.x, pos.y, element, `fx-ring fx-finisher-ring${empowered ? ' fx-empowered' : ''}`, 520, empowered ? 3.8 : 3.2),
       ring(pos.x, pos.y, element, 'fx-ring fx-finisher-ring fx-finisher-echo', 480, 2.6, 35),
       flash(pos.x, pos.y, element, 'fx-flash fx-finisher-flash', 260, 110),
       animateAndRemove(slash, [
@@ -276,8 +278,9 @@
         { transform: 'translate(10%, -50%) rotate(-34deg) scaleX(.8)', opacity: 0 }
       ], { duration: 510, easing: 'ease-out' })
     ];
-    for (let index = 0; index < 6; index++) {
-      const angle = Math.PI * 2 * index / 6;
+    const particleCount = empowered ? 8 : 6;
+    for (let index = 0; index < particleCount; index++) {
+      const angle = Math.PI * 2 * index / particleCount;
       const dx = Math.cos(angle) * 95;
       const dy = Math.sin(angle) * 75;
       animations.push(animateAndRemove(node('fx-particle fx-element-metal fx-finisher-particle', pos.x, pos.y, element), [
@@ -287,6 +290,15 @@
       ], { duration: 410, easing: 'ease-in' }));
     }
     return Promise.all(animations);
+  }
+
+  function buildAwakening({ target } = {}) {
+    const pos = centerOf(target);
+    if (!pos || reduced()) return Promise.resolve();
+    return Promise.all([
+      ring(pos.x, pos.y, 'metal', 'fx-ring fx-build-awakening', 900, 3.8),
+      flash(pos.x, pos.y, 'metal', 'fx-flash fx-build-awakening', 360, 80)
+    ]);
   }
 
   function statusDetonate({ status, target, source } = {}) {
@@ -367,5 +379,5 @@
     await Promise.all(animations);
   }
 
-  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, statusDetonate, zhoutian, clear };
+  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, statusDetonate, zhoutian, clear };
 })();
