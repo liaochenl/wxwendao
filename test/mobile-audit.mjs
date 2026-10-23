@@ -253,6 +253,11 @@ const SCREENS = [
   {
     name: 'monster-detail',
     prepare: "(() => { WX_UI.detail={kind:'enemy',id:'tai_xu'}; WX_UI.overlay='detail'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'alchemist-resource',
+    combat: true,
+    prepare: "(() => { WX_UI.overlay=null; WX_UI.state=WXEngine.createRun({characterId:'alchemist',seed:71}); WXEngine.startCombat(WX_UI.state,{enemies:[{id:'shan_xiao'}]},'combat'); WX_UI.state.combat.characterResource.value=8; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
   }
 ];
 
@@ -330,6 +335,21 @@ async function auditAt(cdp, baseUrl, vp) {
     if (screen.combat) {
       if (r.endTurnOverlap) fail(`${tag}: 结束回合与手牌相交`);
       if (r.handFont != null && r.handFont < 11) fail(`${tag}: 手牌字号 ${r.handFont}px < 11px`);
+    }
+    if (screen.name === 'alchemist-resource') {
+      const resource = await cdp.eval(`(() => {
+        const bar=document.querySelector('.resource-furnaceFire');
+        const pips=bar?.querySelector('.character-resource-pips');
+        const info=document.querySelector('.player-info');
+        const hp=document.querySelector('.player-info .hpbar');
+        const br=bar?.getBoundingClientRect(), pr=pips?.getBoundingClientRect(), ir=info?.getBoundingClientRect(), hr=hp?.getBoundingClientRect();
+        return { text:bar?.textContent||'', count:pips?.children.length||0,
+          within:!!br&&!!pr&&!!ir&&br.left>=ir.left-1&&pr.right<=ir.right+1,
+          belowHp:!hr||!!br&&br.top>=hr.bottom-1 };
+      })()`);
+      if (!resource.text.includes('炉火 8/8') || resource.count !== 8 || !resource.within || !resource.belowHp) {
+        fail(`${tag}: 炉火条与头像或生命条重叠、八格不完整 ${JSON.stringify(resource)}`);
+      }
     }
     if (screen.name === 'upgraded-hand') {
       const title = await cdp.eval(`(() => { const el=document.querySelector('.hand .card-name');

@@ -32,7 +32,7 @@
     3: '天阙将倾，五行失序。去问一问，这天到底是谁的天。'
   };
   const RARITY_LABEL = { starter: '初始', common: '凡品', uncommon: '灵品', rare: '玄品', curse: '禁制', special: '异数' };
-  const BUILD_TAG_NAMES = { sword_intent: '剑意', sword_cycle: '流云', sword_chain: '金水' };
+  const BUILD_TAG_NAMES = { sword_intent: '剑意', sword_cycle: '流云', sword_chain: '金水', poison: '万毒', burn: '焚炉', regen: '生生' };
   function buildNames(card) { return (card.tags || []).map(tag => BUILD_TAG_NAMES[tag]).filter(Boolean); }
   function resourceName(id) { return D.characters.find(character => character.resource?.id === id)?.resource.name || id; }
   const CHAR_STYLE = { sword: '连携爆发 · 直伤抽牌', alchemist: '持续伤害 · 中毒回春', monk: '厚甲反伤 · 稳健推进' };
@@ -141,6 +141,7 @@
       if (preview.cross) live.push('<span class="live live-cross">克制</span>');
       if (preview.chainAfter > 0 && preview.linked) live.push(`<span class="live live-chain">连携 ${preview.chainAfter}</span>`);
       if (preview.poison) live.push(`<span class="live live-poison">毒 ${preview.poison}</span>`);
+      if (preview.detonateDamage) live.push(`<span class="live live-dmg">${{ poison: '毒爆', burn: '焚炉', regen: '生机化攻' }[preview.detonateStatus] || '爆发'} ${preview.detonateDamage}${preview.detonateHits > 1 ? `（${preview.detonateHits}段）` : ''}</span>`);
       if (preview.heal) live.push(`<span class="live live-heal">愈 ${preview.heal}</span>`);
       if (preview.draw) live.push(`<span class="live live-draw">抽 ${preview.draw}</span>`);
     }
@@ -494,7 +495,7 @@
       try { captured = FX?.captureCard(cardEl, cardData?.element); } catch (_) {}
       const allEnemies = cardData?.effects?.some(effect => effect.op === 'damage' && effect.target === 'all');
       let targetEl = null;
-      if (cardData?.type === 'attack') {
+      if (E.cardNeedsTarget(cardData)) {
         targetEl = allEnemies ? document.querySelector('.enemy-zone') :
           document.querySelector('[data-enemy-uid="' + c.enemies[target]?.uid + '"]') ||
           document.querySelector('.enemy-unit[data-index="' + target + '"]');
@@ -808,6 +809,14 @@
           case 'resourceReady': {
             const el = document.querySelector('.character-resource');
             this.floatAt(el, `${resourceName(ev.id)}已满`, 'fx-resource-ready');
+            break;
+          }
+          case 'statusDetonate': {
+            const source = document.getElementById('player-panel');
+            const target = ev.target === 'player' ? document.querySelector('.enemy-zone') : document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
+            const label = { poison: '毒爆', burn: '焚炉', regen: '生机化攻' }[ev.status] || '状态爆发';
+            this.floatAt(ev.target === 'player' ? source : target, `${label} ${ev.damage || ''}`, 'fx-status-detonate');
+            await visual('statusDetonate', { status: ev.status, target, source });
             break;
           }
           case 'energy': this.sfx('energy'); await sleep(45); break;
@@ -1254,7 +1263,7 @@
             <div class="player-info">
               <div class="player-name">${esc(ch.name)} <small>${esc(ch.passive)}</small></div>
               ${hpBarHTML(st.hp, st.maxHp)}
-              ${ch.resource && c.characterResource ? `<div class="character-resource ${c.characterResource.value >= c.characterResource.max ? 'ready' : ''}" title="${esc(ch.resource.name)}：强化角色专属牌">
+              ${ch.resource && c.characterResource ? `<div class="character-resource resource-${esc(c.characterResource.id)} ${c.characterResource.value >= c.characterResource.max ? 'ready' : ''}" title="${esc(ch.resource.name)}：强化角色专属牌">
                 <span class="character-resource-label">${esc(ch.resource.name)} ${c.characterResource.value}/${c.characterResource.max}</span>
                 <span class="character-resource-pips">${Array.from({ length: c.characterResource.max }, (_, i) => `<i class="${i < c.characterResource.value ? 'on' : ''}"></i>`).join('')}</span>
               </div>` : ''}
@@ -1637,6 +1646,8 @@
         if (d.action === 'play-card' && this.state && this.state.combat) {
           const p = E.getPreview(this.state, d.index, this.targetIndex);
           const values = p ? [p.damage != null ? `预计伤害 ${p.damage}${p.hits > 1 ? ' × ' + p.hits : ''}` : '',
+            p.detonateDamage ? `预计${{ poison: '毒爆', burn: '焚炉', regen: '生机化攻' }[p.detonateStatus] || '爆发'} ${p.detonateDamage}` : '',
+            p.heal ? `预计回复 ${p.heal}` : '',
             p.block != null ? `预计护甲 ${p.block}` : '', p.cross ? '克制破防' : '',
             p.linked ? `连携 ${p.chainAfter}` : ''].filter(Boolean) : [];
           if (values.length) preview = `<div class="detail-note">${values.map(esc).join(' · ')}</div>`;

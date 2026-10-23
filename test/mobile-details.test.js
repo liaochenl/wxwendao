@@ -113,6 +113,26 @@ test('剑修奖励在手机和桌面标明构筑方向', () => {
   }
 });
 
+test('丹修显示八格炉火并预览热炉状态爆发及构筑方向', () => {
+  const ui = makeUI(393);
+  ui.state = E.createRun({ characterId: 'alchemist', seed: 42 });
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  ui.state.combat.characterResource.value = 4;
+  ui.state.combat.enemies[0].statuses.poison = 20;
+  ui.state.combat.hand = [{ uid: 'burst', id: 'bai_du_gui_yuan', up: false }];
+  const combat = ui.combatHTML();
+  assert.match(combat, /resource-furnaceFire/);
+  assert.match(combat, /炉火 4\/8/);
+  assert.match(combat, /毒爆 30/);
+  ui.state.reward = { kind: 'combat', gold: 10, cards: [
+    { uid: 'a', id: 'shi_gu_dan', up: false },
+    { uid: 'b', id: 'cui_huo_jue', up: false },
+    { uid: 'c', id: 'yang_yuan_dan', up: false }
+  ], cardTaken: false, selected: -1 };
+  const reward = ui.rewardHTML();
+  for (const name of ['万毒', '焚炉', '生生']) assert.match(reward, new RegExp(name));
+});
+
 test('角色图鉴直接展示三位修士立绘，且保持可点开的角色入口', () => {
   const ui = makeUI();
   ui.compTab = 'characters';

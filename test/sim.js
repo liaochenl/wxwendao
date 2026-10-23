@@ -37,6 +37,7 @@ function scoreCard(state, i) {
   const enemyCount = c.enemies.filter(e => e.hp > 0).length;
   const damageIsArea = d.effects.some(e => e.op === 'damage' && e.target === 'all');
   let score = (p.damage || 0) * (p.hits || 1) * (damageIsArea ? enemyCount : 1);
+  score += p.detonateDamage || 0;
   if (dangerous && p.block) score += p.block * 2.2;
   else score += (p.block || 0) * 0.7;
   if (lowHp && p.heal) score += p.heal * 2.2;
@@ -134,7 +135,8 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
   let normalCombats = 0;
   let activeNormal = null;
   const highlights = { maxTurnDamage: 0, maxTurnBlock: 0, maxCardsPlayedInTurn: 0,
-    maxPoison: 0, maxBurn: 0, maxResource: 0, finisherCount: 0 };
+    maxPoison: 0, maxBurn: 0, maxRegen: 0, maxResource: 0, finisherCount: 0,
+    detonationCount: 0, maxDetonationDamage: 0 };
   let highlightCombat = null;
   let highlightTurn = 0;
   let turnDamage = 0;
@@ -150,7 +152,12 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
     highlights.maxTurnBlock = Math.max(highlights.maxTurnBlock, combat.block);
     highlights.maxCardsPlayedInTurn = Math.max(highlights.maxCardsPlayedInTurn, combat.cardsPlayedThisTurn);
     highlights.maxResource = Math.max(highlights.maxResource, combat.characterResource?.value || 0);
+    highlights.maxRegen = Math.max(highlights.maxRegen, combat.statuses.regen || 0);
     if (DATA.cardMap[card.id]?.finisher) highlights.finisherCount++;
+    for (const event of played.events) if (event.t === 'statusDetonate') {
+      highlights.detonationCount++;
+      highlights.maxDetonationDamage = Math.max(highlights.maxDetonationDamage, event.damage || 0);
+    }
     for (const enemy of combat.enemies) {
       highlights.maxPoison = Math.max(highlights.maxPoison, enemy.statuses.poison || 0);
       highlights.maxBurn = Math.max(highlights.maxBurn, enemy.statuses.burn || 0);
@@ -267,9 +274,9 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
   }
   finishNormalSample();
   const deathNode = s.screen === 'gameover' ? E.currentNode(s) : null;
-  const deckTags = { sword_intent: 0, sword_cycle: 0, sword_chain: 0 };
-  const payoffTags = { sword_intent: false, sword_cycle: false, sword_chain: false };
-  for (const card of s.deck) for (const tag of DATA.cardMap[card.id]?.tags || []) {
+  const deckTags = { sword_intent: 0, sword_cycle: 0, sword_chain: 0, poison: 0, burn: 0, regen: 0 };
+  const payoffTags = { sword_intent: false, sword_cycle: false, sword_chain: false, poison: false, burn: false, regen: false };
+  for (const card of s.deck) for (const tag of DATA.cardMap[card.id]?.rarity === 'starter' ? [] : DATA.cardMap[card.id]?.tags || []) {
     if (deckTags[tag] != null) deckTags[tag]++;
     if (payoffTags[tag] != null && DATA.cardMap[card.id].rarity === 'rare' && DATA.cardMap[card.id].finisher) payoffTags[tag] = true;
   }
@@ -363,4 +370,4 @@ if (reportCards) {
 }
 
 if (require.main === module) runCli();
-module.exports = { runOne, observeEnemyKills };
+module.exports = { runOne, scoreCard, observeEnemyKills };

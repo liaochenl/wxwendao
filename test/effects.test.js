@@ -105,6 +105,19 @@ test('剑修终结演出比普通命中更重且尊重减少动态效果', async
   assert.equal(reduced.created.length, 0);
 });
 
+test('毒爆火爆和生机化攻分别有独立粒子，并在结束后清理', async () => {
+  for (const status of ['poison', 'burn', 'regen']) {
+    const { FX, layer, created } = loadEffects();
+    await FX.statusDetonate({ status, target: { x: 190, y: 210 }, source: { x: 90, y: 350 } });
+    assert.ok(created.some(el => el.className.includes(`fx-detonate-${status}`)), status);
+    assert.ok(created.filter(el => el.className.includes('fx-detonate-particle')).length >= 4, status);
+    assert.equal(layer.children.length, 0, status);
+  }
+  const reduced = loadEffects(true);
+  await reduced.FX.statusDetonate({ status: 'burn', target: { x: 190, y: 210 } });
+  assert.equal(reduced.created.length, 0);
+});
+
 test('特效模块复制出牌卡到独立图层，飞行完成后清理且不移动原卡', async () => {
   const { FX, layer } = loadEffects();
   const card = makeNode();
