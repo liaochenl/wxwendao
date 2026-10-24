@@ -29,6 +29,46 @@ function makeUI(width = 393, effects = null) {
   return ui;
 }
 
+test('天机乍现手机页提供两件完整说明，选定后可继续且不可改选', async () => {
+  const ui = makeUI(393);
+  ui.state.fate.triggered = true;
+  ui.state.fate.pending = { choices: ['fate_sword_box', 'fate_creation_jade'], selected: null };
+  ui.screen = ui.state.screen = 'fate';
+  let html = ui.fateHTML();
+  for (const label of ['天机乍现', '无名剑匣', '造化玉牒', '应此天命']) assert.match(html, new RegExp(label));
+  assert.equal((html.match(/data-action="choose-fate"/g) || []).length, 2);
+  await ui.chooseFate('fate_sword_box');
+  html = ui.fateHTML();
+  assert.match(html, /天命已定 · 无名剑匣/);
+  assert.match(html, /继续问道/);
+  assert.equal(ui.state.fate.itemId, 'fate_sword_box');
+  assert.equal(E.chooseFate(ui.state, 'fate_creation_jade').ok, false);
+  ui.continueFate();
+  assert.equal(ui.state.screen, 'map');
+});
+
+test('天命显示于战斗、地图、证道录与独立图鉴，未发现效果隐藏', () => {
+  const ui = makeUI(393);
+  ui.state.fate.itemId = 'fate_sword_box';
+  ui.state.relics.push('fate_sword_box');
+  assert.match(ui.combatHTML(), /data-action="view-fate"/);
+  assert.match(ui.mapHTML(), /data-action="view-fate"/);
+  assert.match(ui.hudHTML(), /遗物 1/);
+  ui.overlay = 'fate';
+  assert.match(ui.overlayHTML(), /每场战斗第一次打出终结牌后/);
+  ui.overlay = 'relics';
+  assert.match(ui.overlayHTML(), /天命/);
+  assert.match(ui.endHTML(true), /天命 · 无名剑匣/);
+  ui.compTab = 'fate';
+  let html = ui.compendiumHTML();
+  assert.match(html, /天机未显/);
+  assert.doesNotMatch(html, /每场战斗第一次打出终结牌后/);
+  ui.meta.seenRelics.push('fate_sword_box');
+  html = ui.compendiumHTML();
+  assert.match(html, /无名剑匣/);
+  assert.match(html, /每场战斗第一次打出终结牌后/);
+});
+
 test('定道和悟道页展示三种道印、契合与深悟兼修，选择后保留继续入口', async () => {
   const ui = makeUI(393);
   ui.state.reward = { kind: 'boss', cards: [], cardTaken: true, selected: -1 };

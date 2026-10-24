@@ -321,6 +321,35 @@
     return Promise.all(animations);
   }
 
+  function fateReveal({ target } = {}) {
+    const pos = centerOf(target);
+    if (!pos || reduced()) return Promise.resolve();
+    const animations = [
+      ring(pos.x, pos.y, 'metal', 'fx-ring fx-fate-reveal', 1200, 4.8),
+      flash(pos.x, pos.y, 'metal', 'fx-flash fx-fate-reveal', 580, 140)
+    ];
+    for (let i = 0; i < ORDER.length; i++) {
+      const angle = i * Math.PI * 2 / ORDER.length;
+      const startX = pos.x + Math.cos(angle) * 150;
+      const startY = pos.y + Math.sin(angle) * 115;
+      animations.push(animateAndRemove(node('fx-particle fx-fate-particle', startX, startY, ORDER[i]), [
+        { transform: 'translate(-50%, -50%) scale(.7)', opacity: 0 },
+        { transform: `translate(calc(-50% + ${pos.x - startX}px), calc(-50% + ${pos.y - startY}px)) scale(1.2)`, opacity: 1, offset: .72 },
+        { transform: `translate(calc(-50% + ${pos.x - startX}px), calc(-50% + ${pos.y - startY}px)) scale(0)`, opacity: 0 }
+      ], { duration: 1120, easing: 'ease-in-out' }));
+    }
+    return Promise.all(animations);
+  }
+
+  function fatePulse({ target } = {}) {
+    const pos = centerOf(target);
+    if (!pos || reduced()) return Promise.resolve();
+    return Promise.all([
+      ring(pos.x, pos.y, 'metal', 'fx-ring fx-fate-pulse', 480, 2.6),
+      flash(pos.x, pos.y, 'metal', 'fx-flash fx-fate-pulse', 280, 70)
+    ]);
+  }
+
   function statusDetonate({ status, target, source } = {}) {
     if (reduced()) return Promise.resolve();
     const dest = centerOf(target);
@@ -399,5 +428,5 @@
     await Promise.all(animations);
   }
 
-  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, daoAwakening, statusDetonate, zhoutian, clear };
+  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, daoAwakening, fateReveal, fatePulse, statusDetonate, zhoutian, clear };
 })();

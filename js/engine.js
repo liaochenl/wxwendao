@@ -30,7 +30,7 @@
     danger: { combat: 1.00, event: 0.70, elite: 1.70, shop: 0.55, rest: 0.55, treasure: 1.15 }
   };
   const MAP_SPECIAL_TYPES = ['shop', 'rest', 'treasure', 'elite'];
-  const RARITY_NAME = { starter: '初始', common: '普通', uncommon: '罕见', rare: '稀有', curse: '诅咒', special: '特殊' };
+  const RARITY_NAME = { starter: '初始', common: '普通', uncommon: '罕见', rare: '稀有', fate: '天命', curse: '诅咒', special: '特殊' };
   const CHARACTER_IDS = DATA.characters.map(c => c.id);
   const CURSE_IDS = ['xin_mo', 'za_nian', 'zou_huo'];
   const START_CURSES = ['za_nian', 'xin_mo'];
@@ -52,6 +52,26 @@
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
   function randInt(state, min, max) { return min + Math.floor(rand(state) * (max - min + 1)); }
+  function ensureFate(state) {
+    if (!state.fate || typeof state.fate !== 'object') state.fate = {};
+    const fate = state.fate;
+    if (typeof fate.triggered !== 'boolean') fate.triggered = false;
+    if (typeof fate.resolved !== 'boolean') fate.resolved = false;
+    if (!fate.itemId) fate.itemId = null;
+    if (!fate.pending || typeof fate.pending !== 'object') fate.pending = null;
+    if (!Number.isFinite(fate.eventMisses)) fate.eventMisses = 0;
+    if (!Number.isFinite(fate.rng)) fate.rng = ((state.rng || 0) ^ 0x9E3779B9) >>> 0;
+    return fate;
+  }
+  function randFate(state) {
+    const fate = ensureFate(state);
+    fate.rng = (fate.rng + 0x6D2B79F5) >>> 0;
+    let t = fate.rng;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  function fateChance(misses) { return Math.min(.11, .05 + Math.max(0, misses) * .02); }
   function pick(state, arr) { return arr[Math.floor(rand(state) * arr.length)]; }
   function shuffle(state, arr) {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -132,9 +152,24 @@
     if (!state.combat.daoUsed) state.combat.daoUsed = {};
     state.combat.daoUsed[tag] = daoCombatUsed(state, tag) + 1;
   }
+  function getFateItem(state) { return DATA.relicMap[ensureFate(state).itemId] || null; }
+  function hasFate(state, id) { return ensureFate(state).itemId === id && state.relics.includes(id); }
+  function fateCombatUsed(state, id) { return !!state.combat?.fateUsed?.[id]; }
+  function triggerFate(state, id) {
+    if (!state.combat.fateUsed) state.combat.fateUsed = {};
+    state.combat.fateUsed[id] = true;
+    emit({ t: 'fateTrigger', id, name: DATA.relicMap[id].name });
+  }
   function triggerDao(state, tag) {
     const blessing = getDaoBlessing(state, tag);
-    if (blessing) emit({ t: 'daoTrigger', id: blessing.id, name: blessing.name });
+    if (blessing) {
+      emit({ t: 'daoTrigger', id: blessing.id, name: blessing.name });
+      if (hasFate(state, 'fate_creation_jade') && !fateCombatUsed(state, 'fate_creation_jade')) {
+        triggerFate(state, 'fate_creation_jade');
+        grantDaoEnergy(state);
+        itemDraw(state, 1);
+      }
+    }
   }
   function grantDaoEnergy(state) {
     state.combat.energy++;
@@ -226,6 +261,11 @@
       emit({ t: 'resource', id: resource.id, before, after: resource.value, delta: actual });
       if (before < resource.max && resource.value === resource.max) emit({ t: 'resourceReady', id: resource.id });
       if (before < resource.max && resource.value === resource.max) {
+        if (hasFate(state, 'fate_hunyuan_pearl') && !fateCombatUsed(state, 'fate_hunyuan_pearl')) {
+          triggerFate(state, 'fate_hunyuan_pearl');
+          grantDaoEnergy(state);
+          itemDraw(state, 1);
+        }
         if (resource.id === 'swordIntent' && getDaoRank(state, 'sword_intent') && !daoCombatUsed(state, 'sword_intent')) {
           markDaoCombatUsed(state, 'sword_intent');
           triggerDao(state, 'sword_intent');
@@ -331,6 +371,7 @@
       highlights: Object.fromEntries(HIGHLIGHT_KEYS.map(key => [key, 0])),
       attraction: { buildMilestones: {} },
       dao: { blessings: {}, history: [], pending: null },
+      fate: { triggered: false, resolved: false, itemId: null, pending: null, eventMisses: 0, rng: (seed ^ 0x9E3779B9) >>> 0 },
       victory: false,
       startedAt: Date.now()
     };
@@ -697,6 +738,7 @@
       daoUsed: {},
       daoTurnUsed: {},
       daoFinisherDiscount: 0,
+      fateUsed: {},
       firstAttackUsed: false,
       firstCardUsed: false,
       encounterType: type || 'combat',
@@ -952,6 +994,11 @@
     c.energy += 1;
     emit({ t: 'energy', amount: 1, energy: c.energy });
     itemDraw(state, 1);
+    if (hasFate(state, 'fate_five_elements_book') && !fateCombatUsed(state, 'fate_five_elements_book')) {
+      triggerFate(state, 'fate_five_elements_book');
+      aliveEnemies(state).forEach(enemy => directEnemyDamage(state, enemy, 8, 'fate'));
+      itemDraw(state, 1);
+    }
     c.chain = 0;
     emit({ t: 'chain', chain: 0, linked: false, element: null, current: c.currentElement, reset: true });
   }
@@ -1040,6 +1087,11 @@
     else c.discardPile.push(inst);
 
     triggerRelic(state, 'cardPlayed', { card: inst, data, firstCard: wasFirstCard, firstAttack: isFirstAttack });
+    if (state.characterId === 'sword' && data.finisher && hasFate(state, 'fate_sword_box') && !fateCombatUsed(state, 'fate_sword_box')) {
+      triggerFate(state, 'fate_sword_box');
+      changeCharacterResource(state, 5);
+      itemDraw(state, 1);
+    }
     checkEnd(state);
     return result(true);
   }
@@ -1087,10 +1139,12 @@
             }
           }
           if (effect.consumeBlockFraction != null) {
-            const daoBlock = getDaoRank(state, 'monk_block') && daoCombatUsed(state, 'monk_block') < getDaoRank(state, 'monk_block');
-            const fraction = daoBlock ? .25 : effect.consumeBlockFraction;
+            const fateBlock = blockBeforeStrike > 0 && hasFate(state, 'fate_monk_stele') && !fateCombatUsed(state, 'fate_monk_stele');
+            const daoBlock = blockBeforeStrike > 0 && !fateBlock && getDaoRank(state, 'monk_block') && daoCombatUsed(state, 'monk_block') < getDaoRank(state, 'monk_block');
+            const fraction = fateBlock ? 0 : daoBlock ? .25 : effect.consumeBlockFraction;
             const consumed = Math.min(c.block, Math.ceil(blockBeforeStrike * fraction));
             c.block -= consumed;
+            if (fateBlock) triggerFate(state, 'fate_monk_stele');
             if (daoBlock) { markDaoCombatUsed(state, 'monk_block'); triggerDao(state, 'monk_block'); }
             emit({ t: 'blockCashout', before: blockBeforeStrike, consumed, total: c.block, bonus: blockBonus, damage: dealt });
           }
@@ -1216,11 +1270,14 @@
     const daoTag = effect.status === 'thorns' ? 'monk_thorns' : effect.status;
     const rank = getDaoRank(state, daoTag);
     const used = daoCombatUsed(state, daoTag);
-    const daoActive = rank > 0 && (daoTag === 'monk_thorns' ? used < rank : used === 0);
+    const fateId = effect.status === 'thorns' ? 'fate_monk_stele' : 'fate_alchemy_furnace';
+    const fateActive = ['poison', 'burn', 'regen', 'thorns'].includes(effect.status) && hasFate(state, fateId) && !fateCombatUsed(state, fateId);
+    const daoActive = !fateActive && rank > 0 && (daoTag === 'monk_thorns' ? used < rank : used === 0);
     const poisonFraction = effect.status === 'poison' && daoActive ? (rank === 2 ? .2 : .35) : effect.consumeFraction ?? 1;
     const thornFraction = effect.status === 'thorns' && daoActive ? .25 : effect.consumeFraction ?? 1;
     let consumed = Math.min(stacks, Math.ceil(stacks * (effect.status === 'poison' ? poisonFraction : thornFraction)));
     if (effect.status === 'burn' && daoActive) consumed = stacks - Math.min(stacks, rank === 2 ? 6 : 3);
+    if (fateActive) consumed = 0;
     const overheal = effect.status === 'regen' && daoActive ? Math.max(0, heal - (state.maxHp - state.hp)) : 0;
     owner.statuses[effect.status] = stacks - consumed;
     const detonationEvent = { t: 'statusDetonate', status: effect.status, target: self ? 'player' : 'enemy', uid: self ? undefined : target.uid,
@@ -1229,6 +1286,7 @@
     emit({ t: 'status', target: self ? 'player' : 'enemy', uid: self ? undefined : target.uid,
       key: effect.status, amount: -consumed, total: owner.statuses[effect.status] });
     if (heal) healPlayer(state, heal);
+    if (fateActive) triggerFate(state, fateId);
     if (daoActive) {
       markDaoCombatUsed(state, daoTag);
       triggerDao(state, daoTag);
@@ -1328,8 +1386,9 @@
         });
         damage = per;
         if (effect.consumeBlockFraction != null) {
-          const daoBlock = getDaoRank(state, 'monk_block') && daoCombatUsed(state, 'monk_block') < getDaoRank(state, 'monk_block');
-          blockConsumed = Math.min(c.block, Math.ceil(c.block * (daoBlock ? .25 : effect.consumeBlockFraction)));
+          const fateBlock = c.block > 0 && hasFate(state, 'fate_monk_stele') && !fateCombatUsed(state, 'fate_monk_stele');
+          const daoBlock = c.block > 0 && !fateBlock && getDaoRank(state, 'monk_block') && daoCombatUsed(state, 'monk_block') < getDaoRank(state, 'monk_block');
+          blockConsumed = Math.min(c.block, Math.ceil(c.block * (fateBlock ? 0 : daoBlock ? .25 : effect.consumeBlockFraction)));
         }
         if (effect.consumeResource) resourceConsumed = resource;
         hits = (effect.hits || 1) + (effect.extraHitsAtResource != null && resource >= effect.extraHitsAtResource ? effect.extraHits || 0 : 0) + (linked ? effect.extraHitsOnLink || 0 : 0);
@@ -1362,10 +1421,12 @@
         const daoTag = effect.status === 'thorns' ? 'monk_thorns' : effect.status;
         const rank = getDaoRank(state, daoTag);
         const used = daoCombatUsed(state, daoTag);
-        const active = rank > 0 && (daoTag === 'monk_thorns' ? used < rank : used === 0);
+        const fateId = effect.status === 'thorns' ? 'fate_monk_stele' : 'fate_alchemy_furnace';
+        const fateActive = stacks > 0 && ['poison', 'burn', 'regen', 'thorns'].includes(effect.status) && hasFate(state, fateId) && !fateCombatUsed(state, fateId);
+        const active = !fateActive && rank > 0 && (daoTag === 'monk_thorns' ? used < rank : used === 0);
         const fraction = active && effect.status === 'poison' ? (rank === 2 ? .2 : .35) :
           active && effect.status === 'thorns' ? .25 : effect.consumeFraction ?? 1;
-        statusConsumed = active && effect.status === 'burn' ? stacks - Math.min(stacks, rank === 2 ? 6 : 3) :
+        statusConsumed = fateActive ? 0 : active && effect.status === 'burn' ? stacks - Math.min(stacks, rank === 2 ? 6 : 3) :
           Math.min(stacks, Math.ceil(stacks * fraction));
         previewDidDetonate = stacks > 0;
         heal = (heal || 0) + stacks * (effect.healPerStack || 0);
@@ -1666,7 +1727,7 @@
 
   function randomRelicId(state, rarity) {
     const owned = new Set(state.relics);
-    let pool = DATA.relics.filter(r => r.rarity !== 'starter' && !owned.has(r.id));
+    let pool = DATA.relics.filter(r => r.rarity !== 'starter' && !r.fateOnly && !owned.has(r.id));
     if (rarity) {
       const filtered = pool.filter(r => r.rarity === rarity);
       if (filtered.length) pool = filtered;
@@ -1853,7 +1914,7 @@
       stock.cards.push({ card: newCard(state, card.id, false, false), price: Math.max(20, Math.floor((base + (act - 1) * 4) * shopDiscount(state))), sold: false });
     }
     const owned = new Set(state.relics);
-    const relicPool = DATA.relics.filter(r => r.rarity !== 'starter' && !owned.has(r.id));
+    const relicPool = DATA.relics.filter(r => r.rarity !== 'starter' && !r.fateOnly && !owned.has(r.id));
     shuffle(state, relicPool);
     relicPool.slice(0, 2).forEach(r => {
       const base = r.rarity === 'common' ? 135 : r.rarity === 'uncommon' ? 165 : 195;
@@ -1962,6 +2023,20 @@
 
   /* ---------------- 事件 ---------------- */
   function enterEvent(state) {
+    const fate = ensureFate(state);
+    if (!fate.triggered) {
+      if (randFate(state) < fateChance(fate.eventMisses)) {
+        const exclusive = DATA.relics.find(relic => relic.fateOnly && relic.character === state.characterId);
+        const shared = DATA.relics.filter(relic => relic.fateOnly && !relic.character);
+        const common = shared[Math.floor(randFate(state) * shared.length)];
+        fate.triggered = true;
+        fate.pending = { choices: [exclusive.id, common.id], selected: null };
+        state.event = null;
+        state.screen = 'fate';
+        return;
+      }
+      fate.eventMisses++;
+    }
     const act = state.map ? state.map.act : 1;
     let pool = DATA.events.filter(e => (!e.acts || e.acts.includes(act)) && !state.usedEvents.includes(e.id));
     if (!pool.length) pool = DATA.events.filter(e => !e.acts || e.acts.includes(act));
@@ -1970,6 +2045,27 @@
     state.usedEvents.push(ev.id);
     state.event = { id: ev.id, resolved: false, resultText: '' };
     state.screen = 'event';
+  }
+  function chooseFate(state, id) {
+    clearEvents();
+    const fate = ensureFate(state);
+    if (state.screen !== 'fate' || !fate.pending || fate.pending.selected || !fate.pending.choices.includes(id)) return result(false, '现在不能选择此天命');
+    const relic = DATA.relicMap[id];
+    if (!relic?.fateOnly || (relic.character && relic.character !== state.characterId)) return result(false, '此天命不属于当前角色');
+    fate.pending.selected = id;
+    fate.itemId = id;
+    fate.resolved = true;
+    state.relics.push(id);
+    emit({ t: 'fateChosen', id, name: relic.name });
+    return result(true);
+  }
+  function continueFate(state) {
+    clearEvents();
+    const fate = ensureFate(state);
+    if (state.screen !== 'fate' || !fate.pending?.selected) return result(false, '请先选择一件天命');
+    fate.pending = null;
+    state.screen = 'map';
+    return result(true);
   }
 
   function applyEventChoice(state, choiceIndex) {
@@ -2111,11 +2207,13 @@
       if (legacyTotalDamage) state.highlights.totalDamage = Math.max(0, Number(state.stats?.damageDealt) || 0);
       ensureBuildMilestones(state);
       ensureDao(state);
+      ensureFate(state);
       if (state.combat) {
         ensureCharacterResource(state);
         if (!state.combat.daoUsed) state.combat.daoUsed = {};
         if (!state.combat.daoTurnUsed) state.combat.daoTurnUsed = {};
         if (!Number.isFinite(state.combat.daoFinisherDiscount)) state.combat.daoFinisherDiscount = 0;
+        if (!state.combat.fateUsed) state.combat.fateUsed = {};
       }
       return state;
     } catch (err) { return null; }
@@ -2137,7 +2235,7 @@
       build: identity,
       title: identity.level >= 2 ? BUILD_TITLES[identity.tag] : '五行行者',
       highlights: { ...ensureHighlights(state) },
-      relicCount: state.relics.length,
+      relicCount: state.relics.filter(id => !DATA.relicMap[id]?.fateOnly).length,
       combats: state.highlights.combats,
       damageDealt: ensureHighlights(state).totalDamage,
       deck: state.deck.map(card => ({ id: card.id, up: !!card.up }))
@@ -2151,6 +2249,12 @@
     NODE_META,
     ROUTE_META,
     RARITY_NAME,
+    ensureFate,
+    getFateItem,
+    hasFate,
+    fateCombatUsed,
+    randFate,
+    fateChance,
     createRun,
     generateMap,
     getMapRouteProfile,
@@ -2196,6 +2300,8 @@
     continueTreasure,
     leaveTreasure,
     enterEvent,
+    chooseFate,
+    continueFate,
     applyEventChoice,
     continueEvent,
     leaveShop,

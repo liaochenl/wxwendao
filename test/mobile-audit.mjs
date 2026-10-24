@@ -294,6 +294,26 @@ const SCREENS = [
   {
     name: 'dao-chosen',
     prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); st.reward={kind:'boss',cards:[],cardTaken:true,selected:-1}; WXEngine.continueReward(st); WXEngine.chooseDaoBlessing(st,'sword_intent'); WX_UI.state=st; WX_UI.screen='dao'; WX_UI.daoRevealing=false; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'fate-select',
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'alchemist',seed:71}); st.fate.triggered=true; st.fate.pending={choices:['fate_alchemy_furnace','fate_five_elements_book'],selected:null}; st.screen='fate'; WX_UI.state=st; WX_UI.screen='fate'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'fate-chosen',
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'alchemist',seed:71}); st.fate.triggered=true; st.fate.pending={choices:['fate_alchemy_furnace','fate_five_elements_book'],selected:null}; st.screen='fate'; WXEngine.chooseFate(st,'fate_alchemy_furnace'); WX_UI.state=st; WX_UI.screen='fate'; WX_UI.fateRevealing=false; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'fate-hud', combat: true,
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); st.fate.itemId='fate_sword_box'; st.fate.triggered=true; st.fate.resolved=true; st.relics.push('fate_sword_box'); WXEngine.startCombat(st,{enemies:[{id:'shan_xiao'}]},'combat'); WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'fate-collection',
+    prepare: "(() => { WX_UI.meta.seenRelics=['fate_sword_box']; WX_UI.screen='compendium'; WX_UI.compTab='fate'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'fate-record',
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); st.fate.itemId='fate_sword_box'; st.fate.triggered=true; st.fate.resolved=true; st.relics.push('fate_sword_box'); st.victory=true; st.screen='victory'; WX_UI.state=st; WX_UI.screen='victory'; WX_UI.render(); return 1; })()"
   }
 ];
 
@@ -420,6 +440,30 @@ async function auditAt(cdp, baseUrl, vp) {
           correct:card?.textContent.includes('抽 1 张牌。')&&!card?.textContent.includes('获得 1 点灵气') }; })()`);
       if (!chosen.button || !chosen.correct) fail(`${tag}: 道印选择后确认入口或已选效果异常 ${JSON.stringify(chosen)}`);
     }
+    if (screen.name === 'fate-select') {
+      const fate = await cdp.eval(`(() => { const cards=[...document.querySelectorAll('.fate-card')];
+        const a=cards[0]?.getBoundingClientRect(),b=cards[1]?.getBoundingClientRect();
+        return {count:cards.length,title:document.querySelector('.fate-head h1')?.textContent,
+          singleColumn:!!a&&!!b&&Math.abs(a.left-b.left)<2,legible:cards.every(card=>card.scrollHeight<=card.clientHeight+1),
+          firstVisible:!!a&&a.bottom<=innerHeight,secondVisible:!!b&&b.top<innerHeight,
+          selected:cards.every(card=>card.dataset.action==='choose-fate')}; })()`);
+      if (fate.count !== 2 || fate.title !== '天机乍现' || !fate.singleColumn || !fate.legible || !fate.selected || (vp.width >= 390 && (!fate.firstVisible || !fate.secondVisible))) fail(`${tag}: 天命二选一手机布局异常 ${JSON.stringify(fate)}`);
+    }
+    if (screen.name === 'fate-chosen') {
+      const chosen = await cdp.eval(`(() => ({name:document.querySelector('.fate-result')?.textContent||'',
+        button:!!document.querySelector('[data-action="continue-fate"]'),faded:!!document.querySelector('.fate-card.faded')}))()`);
+      if (!chosen.name.includes('九转丹炉') || !chosen.button || !chosen.faded) fail(`${tag}: 天命选定后缺少确认 ${JSON.stringify(chosen)}`);
+    }
+    if (screen.name === 'fate-hud') {
+      const hud = await cdp.eval(`(() => ({button:!!document.querySelector('[data-action="view-fate"]'),icon:document.querySelector('.fate-info-mobile')?.textContent||''}))()`);
+      if (!hud.button || hud.icon !== '✦') fail(`${tag}: 天命 HUD 不可查看 ${JSON.stringify(hud)}`);
+    }
+    if (screen.name === 'fate-collection') {
+      const collection = await cdp.eval(`(() => ({count:document.querySelectorAll('.fate-collection').length,
+        hidden:document.querySelectorAll('.fate-collection.locked').length,text:document.querySelector('.comp-fate')?.textContent||''}))()`);
+      if (collection.count !== 6 || collection.hidden !== 5 || collection.text.includes('九转丹炉')) fail(`${tag}: 天命图鉴未隐藏未知效果 ${JSON.stringify(collection)}`);
+    }
+    if (screen.name === 'fate-record' && !await cdp.eval(`!!document.querySelector('.dao-record-fate')?.textContent.includes('无名剑匣')`)) fail(`${tag}: 证道录缺少天命`);
     if (screen.name === 'upgraded-hand') {
       const title = await cdp.eval(`(() => { const el=document.querySelector('.hand .card-name');
         return el && { text:el.textContent, full:el.scrollWidth <= el.clientWidth + 1 }; })()`);

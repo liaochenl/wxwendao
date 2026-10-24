@@ -31,7 +31,7 @@
     2: '魔窟深处，赤焰焚心。每一步都踩在旧日的灰烬上。',
     3: '天阙将倾，五行失序。去问一问，这天到底是谁的天。'
   };
-  const RARITY_LABEL = { starter: '初始', common: '凡品', uncommon: '灵品', rare: '玄品', curse: '禁制', special: '异数' };
+  const RARITY_LABEL = { starter: '初始', common: '凡品', uncommon: '灵品', rare: '玄品', fate: '天命', curse: '禁制', special: '异数' };
   const BUILD_TAG_NAMES = { sword_intent: '剑意', sword_cycle: '流云', sword_chain: '金水', poison: '万毒', burn: '焚炉', regen: '生生', monk_block: '镇岳', monk_thorns: '金刚', monk_ritual: '蓄势' };
   const DAO_RANK_NAMES = ['未得', '一重', '二重'];
   const DAO_RANK_MARKS = ['', 'Ⅰ', 'Ⅱ'];
@@ -330,6 +330,9 @@
         case 'choose-dao': void this.chooseDao(el.dataset.tag); break;
         case 'continue-dao': this.continueDao(); break;
         case 'view-dao': this.overlay = 'dao'; this.render(); break;
+        case 'choose-fate': void this.chooseFate(el.dataset.id); break;
+        case 'continue-fate': this.continueFate(); break;
+        case 'view-fate': this.overlay = 'fate'; this.render(); break;
         case 'shop-buy': this.buy(el.dataset.kind, Number(el.dataset.index)); break;
         case 'shop-remove': this.openRemovePicker(); break;
         case 'shop-leave': this.leaveShop(); break;
@@ -664,6 +667,27 @@
       this.commit();
       this.banner(E.getActName(this.state.act) + ' · 新的去路', 'gold');
     },
+    async chooseFate(id) {
+      if (!this.state || this.screen !== 'fate') return;
+      const res = E.chooseFate(this.state, id);
+      if (!res.ok) { this.toast(res.reason || '无法选择天命'); return; }
+      this.fateRevealing = true;
+      this.commit();
+      this.sfx('upgrade');
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      await Promise.all([
+        visual('fateReveal', { target: document.querySelector('.fate-card.chosen') }),
+        sleep(reduced ? 300 : 1150)
+      ]);
+      this.fateRevealing = false;
+      if (this.screen === 'fate') this.render();
+    },
+    continueFate() {
+      if (!this.state) return;
+      const res = E.continueFate(this.state);
+      if (!res.ok) { this.toast(res.reason || '请先选择天命'); return; }
+      this.commit();
+    },
     buy(kind, index) {
       const res = E.buyItem(this.state, kind, index);
       if (!res.ok) { this.toast(res.reason || '无法购买'); return; }
@@ -860,6 +884,12 @@
             this.floatAt(document.getElementById('player-panel'), ev.name, 'fx-dao-trigger');
             break;
           }
+          case 'fateTrigger': {
+            const el = document.getElementById('player-panel');
+            this.floatAt(el, `✦ ${ev.name}`, 'fx-fate-trigger');
+            void visual('fatePulse', { target: el });
+            break;
+          }
           case 'momentumSummary': {
             if (ev.generated) this.floatAt(document.querySelector('.character-resource'), `挡伤 ${ev.blocked} · 战势 +${ev.generated}`, 'fx-resource');
             break;
@@ -1002,6 +1032,7 @@
         case 'combat': html = this.state && this.state.combat ? this.combatHTML() : this.mapHTML(); break;
         case 'reward': html = this.state && this.state.reward ? this.rewardHTML() : this.mapHTML(); break;
         case 'dao': html = this.state && this.state.dao?.pending ? this.daoHTML() : this.mapHTML(); break;
+        case 'fate': html = this.state && this.state.fate?.pending ? this.fateHTML() : this.mapHTML(); break;
         case 'shop': html = this.state && this.state.shop ? this.shopHTML() : this.mapHTML(); break;
         case 'rest': html = this.state ? this.restHTML() : this.mapHTML(); break;
         case 'event': html = this.state && this.state.event ? this.eventHTML() : this.mapHTML(); break;
@@ -1172,7 +1203,7 @@
         <span class="hud-asc" title="天劫等级">劫 ${st.ascension}</span>
         <div class="hud-actions">
           <button class="btn btn-ghost btn-sm" data-action="view-deck">牌组 ${st.deck.length}</button>
-          <button class="btn btn-ghost btn-sm" data-action="view-relics">遗物 ${st.relics.length}</button>
+          <button class="btn btn-ghost btn-sm" data-action="view-relics">遗物 ${st.relics.filter(id => !D.relicMap[id]?.fateOnly).length}</button>
           <button class="btn btn-ghost btn-sm" data-action="settings">设置</button>
         </div>
       </header>`;
@@ -1182,6 +1213,11 @@
       if (!owned.length) return '';
       const full = owned.map(choice => `${choice.name}${DAO_RANK_MARKS[choice.rank]}：${choice.ranks[choice.rank - 1].text}`).join('\n');
       return `<button class="dao-info ${compact ? 'compact' : ''}" data-action="view-dao" title="${esc(full)}" aria-label="查看道印：${esc(full)}"><span class="dao-info-full">道印 · ${owned.map(choice => `${esc(choice.name)}${DAO_RANK_MARKS[choice.rank]}`).join(' · ')}</span><span class="dao-info-mobile">道印 ×${owned.length}</span></button>`;
+    },
+    fateInfoHTML() {
+      const item = this.state && E.getFateItem(this.state);
+      if (!item) return '';
+      return `<button class="fate-info" data-action="view-fate" title="${esc(item.name)}：${esc(item.desc)}" aria-label="查看天命：${esc(item.name)}，${esc(item.desc)}"><span class="fate-info-full">✦ 天命 · ${esc(item.name)}</span><span class="fate-info-mobile">✦</span></button>`;
     },
     miniStatusHTML() {
       return `<span class="mini-hp">${hpBarHTML(this.state.hp, this.state.maxHp)}</span>${goldHTML(this.state.gold)}`;
@@ -1253,6 +1289,7 @@
               }).join('')}
             </div>
             ${this.daoInfoHTML(true)}
+            ${this.fateInfoHTML()}
             <div class="map-actions">
               <button class="btn btn-ghost btn-sm" data-action="view-deck">查看牌组</button>
               <button class="btn btn-ghost btn-sm" data-action="view-relics">查看遗物</button>
@@ -1339,11 +1376,12 @@
               </div>` : ''}
               <div class="build-identity ${identity.level >= 2 ? 'formed' : ''}">${identity.level ? `道途 · ${esc(identity.name)} · ${esc(identity.levelName)}` : '道途未定'}</div>
               ${this.daoInfoHTML()}
+              ${this.fateInfoHTML()}
               <div class="player-sub">
                 ${c.block > 0 ? `<span class="block-pill" title="护甲">甲 ${c.block}</span>` : ''}
                 <span class="statuses">${statusChips(c.statuses, 'player')}</span>
               </div>
-              <div class="relic-strip">${st.relics.map(id => relicChip(id, { inspect: true })).join('')}</div>
+              <div class="relic-strip">${st.relics.filter(id => !D.relicMap[id]?.fateOnly).map(id => relicChip(id, { inspect: true })).join('')}</div>
             </div>
             <button class="entity-info player-info-btn" data-action="inspect-character" data-char="${ch.id}" aria-label="查看${esc(ch.name)}详情">详情</button>
           </div>
@@ -1463,6 +1501,25 @@
         ${chosen ? `<div class="dao-choice-result" role="status">${title} · ${esc(chosen.name)} · ${DAO_RANK_NAMES[E.getDaoRank(st, pending.chosen)]}</div>` : ''}
         ${chosen && !this.daoRevealing ? '<button class="btn btn-primary btn-lg dao-continue" data-action="continue-dao">踏入下一幕</button>' : ''}
         <p class="dao-hint">${ding ? '此选择不会锁定后续构筑。第二幕结束后仍可深悟此道，或兼修另一道。' : '深悟强化原有道印；兼修开启第二条道途。'}</p>
+      </main>`;
+    },
+
+    fateHTML() {
+      const pending = this.state.fate.pending;
+      const chosen = pending.selected && D.relicMap[pending.selected];
+      return `<main class="screen fate-screen ${chosen ? 'fate-chosen' : ''}">
+        <div class="fate-sky" aria-hidden="true"></div>
+        <header class="fate-head"><div class="fate-seal" aria-hidden="true">✦</div><small>一局一遇 · 天外之缘</small><h1>天机乍现</h1><p>云海忽裂，一线天光垂落于前。<br>两道与自身相合的气息，静候你作出选择。</p></header>
+        <section class="fate-choice-grid" aria-label="选择天命">${pending.choices.map(id => {
+          const item = D.relicMap[id];
+          const selected = id === pending.selected;
+          return `<button type="button" class="fate-card ${selected ? 'chosen' : ''} ${chosen && !selected ? 'faded' : ''}" data-action="choose-fate" data-id="${esc(id)}" ${chosen ? 'disabled' : ''} aria-label="${esc(item.name)}，${esc(item.desc)}">
+            <span class="fate-card-kicker">✦ 天命</span><span class="fate-card-emblem">${relicEmblem(id)}</span><strong>${esc(item.name)}</strong><span class="fate-card-rule">${formatText(item.desc)}</span><span class="fate-card-foot">${item.character ? '本命 · ' + esc(E.getCharacter(this.state).name) : '通用 · 五行相应'}</span><span class="fate-card-action">${selected ? '天命已定' : '应此天命'}</span>
+          </button>`;
+        }).join('')}</section>
+        ${chosen ? `<div class="fate-result" role="status">天命已定 · ${esc(chosen.name)}</div>` : ''}
+        ${chosen && !this.fateRevealing ? '<button class="btn btn-primary btn-lg fate-continue" data-action="continue-fate">继续问道</button>' : ''}
+        <p class="fate-hint">此等机缘，一念之间，再不可复得。</p>
       </main>`;
     },
 
@@ -1668,7 +1725,8 @@
           ? [['最大护甲', h.maxBlock], ['最大荆棘', h.maxThorns], ['单回合最高伤害', h.maxTurnDamage], ['最高战势', h.maxResource], ['遗物', s.relicCount]]
           : [['最高单击', h.maxSingleHit], ['单回合最高伤害', h.maxTurnDamage], ['最长五行连携', h.maxChain], ['最高剑意', h.maxResource], ['遗物', s.relicCount]];
       const daoNames = st ? E.getDaoChoices(st).filter(choice => choice.rank > 0).map(choice => `${esc(choice.name)}${DAO_RANK_MARKS[choice.rank]}`).join(' · ') : '';
-      const daoRecord = win && st ? `<section class="dao-record" aria-label="证道录"><div class="dao-record-kicker">证 道</div><div class="dao-record-title">${esc(s.title)}</div><div class="dao-record-character">${esc(s.character)} · ${esc(path)}</div>${daoNames ? `<div class="dao-record-blessings">道印 · ${daoNames}</div>` : ''}<div class="dao-highlight-grid">${metrics.map(([label, value]) => `<div><b>${Number(value) || 0}</b><small>${esc(label)}</small></div>`).join('')}</div><p class="dao-record-more">战斗 ${s.combats} 场 · 击杀 ${s.kills} · 总伤害 ${s.damageDealt || 0}</p><div class="dao-final-deck"><b>最终牌组 · ${s.deckSize} 张</b><div class="dao-deck-list">${s.deck.map(card => `<span>${esc(D.cardMap[card.id]?.name || card.id)}${card.up ? '·悟' : ''}</span>`).join('')}</div></div></section>` : '';
+      const fateName = st ? E.getFateItem(st)?.name : null;
+      const daoRecord = win && st ? `<section class="dao-record" aria-label="证道录"><div class="dao-record-kicker">证 道</div><div class="dao-record-title">${esc(s.title)}</div><div class="dao-record-character">${esc(s.character)} · ${esc(path)}</div>${daoNames ? `<div class="dao-record-blessings">道印 · ${daoNames}</div>` : ''}${fateName ? `<div class="dao-record-fate">✦ 天命 · ${esc(fateName)}</div>` : ''}<div class="dao-highlight-grid">${metrics.map(([label, value]) => `<div><b>${Number(value) || 0}</b><small>${esc(label)}</small></div>`).join('')}</div><p class="dao-record-more">战斗 ${s.combats} 场 · 击杀 ${s.kills} · 总伤害 ${s.damageDealt || 0}</p><div class="dao-final-deck"><b>最终牌组 · ${s.deckSize} 张</b><div class="dao-deck-list">${s.deck.map(card => `<span>${esc(D.cardMap[card.id]?.name || card.id)}${card.up ? '·悟' : ''}</span>`).join('')}</div></div></section>` : '';
       return `
       <main class="screen end-screen ${win ? 'victory' : 'defeat'}">
         <div class="end-glow"></div>
@@ -1692,7 +1750,7 @@
     },
     compendiumHTML() {
       const m = this.meta;
-      const tabs = [['cards', '卡牌'], ['characters', '角色'], ['relics', '遗物'], ['enemies', '敌人'], ['potions', '丹药']];
+      const tabs = [['cards', '卡牌'], ['characters', '角色'], ['relics', '遗物'], ['fate', '天命'], ['enemies', '敌人'], ['potions', '丹药']];
       let body = '';
       if (this.compTab === 'cards') {
         const allCards = D.cards;
@@ -1707,13 +1765,18 @@
           <span class="comp-character-info"><b>${esc(ch.name)}</b><span>${esc(ch.title)}</span><small>${esc(ch.passive)} · ${esc(CHAR_STYLE[ch.id])}</small></span>
         </button>`).join('')}</div>`;
       } else if (this.compTab === 'relics') {
-        body = `<div class="comp-relics">${D.relics.filter(r => r.rarity !== 'starter').map(r => {
+        body = `<div class="comp-relics">${D.relics.filter(r => r.rarity !== 'starter' && !r.fateOnly).map(r => {
           const seen = m.seenRelics.includes(r.id);
           return `<${seen ? 'button' : 'div'} class="comp-relic ${seen ? 'comp-inspect' : 'locked'}" ${seen ? `data-action="inspect-relic" data-id="${esc(r.id)}"` : ''}>
             <span class="comp-relic-icon">${seen ? relicEmblem(r.id) : '？'}</span>
             <div><b>${seen ? esc(r.name) : '未识法器'}</b><span>${seen ? esc(r.desc) : '尚未在轮回中得见。'}</span></div>
             <small>${RARITY_LABEL[r.rarity] || ''}</small>
           </${seen ? 'button' : 'div'}>`;
+        }).join('')}</div>`;
+      } else if (this.compTab === 'fate') {
+        body = `<div class="comp-relics comp-fate">${D.relics.filter(r => r.fateOnly).map(r => {
+          const seen = m.seenRelics.includes(r.id);
+          return `<${seen ? 'button' : 'div'} class="comp-relic fate-collection ${seen ? 'comp-inspect' : 'locked'}" ${seen ? `data-action="inspect-relic" data-id="${esc(r.id)}"` : ''}><span class="comp-relic-icon">${seen ? relicEmblem(r.id) : '✦'}</span><div><b>${seen ? esc(r.name) : '？？？'}</b><span>${seen ? esc(r.desc) : '天机未显'}</span></div><small>天命</small></${seen ? 'button' : 'div'}>`;
         }).join('')}</div>`;
       } else if (this.compTab === 'enemies') {
         body = `<div class="comp-enemies">${Object.values(D.enemies).map(e => {
@@ -1736,7 +1799,7 @@
         <div class="comp-tabs">
           ${tabs.map(([id, name]) => `<button class="comp-tab ${this.compTab === id ? 'active' : ''}" data-action="comp-tab" data-tab="${id}">${name}</button>`).join('')}
         </div>
-        <div class="comp-count">${this.compTab === 'cards' ? `已识 ${m.seenCards.filter(id => D.cardMap[id]).length} / ${D.cards.length}` : this.compTab === 'relics' ? `已识 ${m.seenRelics.filter(id => D.relicMap[id] && D.relicMap[id].rarity !== 'starter').length} / ${D.relics.filter(r => r.rarity !== 'starter').length}` : this.compTab === 'enemies' ? `已识 ${m.seenEnemies.length} / ${Object.keys(D.enemies).length}` : this.compTab === 'characters' ? `${D.characters.length} 位修士` : `${D.potions.length} 种丹药`}</div>
+        <div class="comp-count">${this.compTab === 'cards' ? `已识 ${m.seenCards.filter(id => D.cardMap[id]).length} / ${D.cards.length}` : this.compTab === 'relics' ? `已识 ${m.seenRelics.filter(id => D.relicMap[id] && D.relicMap[id].rarity !== 'starter' && !D.relicMap[id].fateOnly).length} / ${D.relics.filter(r => r.rarity !== 'starter' && !r.fateOnly).length}` : this.compTab === 'fate' ? `已识 ${m.seenRelics.filter(id => D.relicMap[id]?.fateOnly).length} / ${D.relics.filter(r => r.fateOnly).length}` : this.compTab === 'enemies' ? `已识 ${m.seenEnemies.length} / ${Object.keys(D.enemies).length}` : this.compTab === 'characters' ? `${D.characters.length} 位修士` : `${D.potions.length} 种丹药`}</div>
         <section class="comp-body">${body}</section>
       </main>`;
     },
@@ -1846,11 +1909,17 @@
         body = `<div class="overlay-card-grid">${sortDeck(this.state.deck).map(inst => cardHTML(inst, { mode: 'deck', inspect: true })).join('')}</div>`;
       } else if (this.overlay === 'relics') {
         title = '遗物';
-        const relics = this.state.relics.map(id => {
+        const relics = this.state.relics.filter(id => !D.relicMap[id]?.fateOnly).map(id => {
           const r = relicById(id);
           return `<div class="overlay-relic">${relicEmblem(id)}<div><b>${esc(r.name)}</b><p>${esc(r.desc)}</p></div></div>`;
         }).join('');
         body = relics || '<p class="dim">尚未拾得遗物。</p>';
+        const fate = E.getFateItem(this.state);
+        if (fate) body += `<div class="overlay-fate-divider">✦ 天命</div><div class="overlay-relic overlay-fate">${relicEmblem(fate.id)}<div><b>${esc(fate.name)}</b><p>${esc(fate.desc)}</p></div></div>`;
+      } else if (this.overlay === 'fate') {
+        title = '本局天命';
+        const fate = E.getFateItem(this.state);
+        body = fate ? `<div class="overlay-relic overlay-fate">${relicEmblem(fate.id)}<div><b>${esc(fate.name)}</b><p>${esc(fate.desc)}</p></div></div>` : '<p class="dim">此局尚无天命。</p>';
       } else if (this.overlay === 'dao') {
         title = '本局道印';
         body = E.getDaoChoices(this.state).filter(choice => choice.rank > 0).map(choice => `<div class="overlay-relic"><div class="dao-overlay-seal">${esc(choice.path.slice(0, 1))}</div><div><b>${esc(choice.name)}${DAO_RANK_MARKS[choice.rank]} · ${esc(choice.path)}</b><p>${esc(choice.ranks[choice.rank - 1].text)}</p></div></div>`).join('') || '<p class="dim">尚未获得道印。</p>';

@@ -407,7 +407,13 @@
     { id: 'xue_yu', name: '血玉', rarity: 'uncommon', desc: '拾取时生命上限 +10。',
       hooks: { pickup(state, api) { api.maxHp(10); } } },
     { id: 'yu_pei', name: '玉玦', rarity: 'common', desc: '战斗开始时获得 1 点锐气。',
-      hooks: { combatStart(state, api) { api.status('player', 'strength', 1); } } }
+      hooks: { combatStart(state, api) { api.status('player', 'strength', 1); } } },
+    { id: 'fate_sword_box', name: '无名剑匣', rarity: 'fate', fateOnly: true, character: 'sword', desc: '每场战斗第一次打出终结牌后，获得 5 点剑意，并抽 1 张牌。' },
+    { id: 'fate_alchemy_furnace', name: '九转丹炉', rarity: 'fate', fateOnly: true, character: 'alchemist', desc: '每场战斗第一次主动兑现中毒、灼烧或回春时，不消耗对应状态层数。' },
+    { id: 'fate_monk_stele', name: '镇岳神碑', rarity: 'fate', fateOnly: true, character: 'monk', desc: '每场战斗第一次主动兑现护甲或荆棘时，不消耗对应资源。' },
+    { id: 'fate_five_elements_book', name: '五行天书', rarity: 'fate', fateOnly: true, desc: '每场战斗第一次触发五行周天时，对所有敌人额外造成 8 点无视护甲伤害，并抽 1 张牌。' },
+    { id: 'fate_hunyuan_pearl', name: '混元珠', rarity: 'fate', fateOnly: true, desc: '每场战斗第一次角色资源达到满值时，获得 1 点灵气并抽 1 张牌。' },
+    { id: 'fate_creation_jade', name: '造化玉牒', rarity: 'fate', fateOnly: true, desc: '每场战斗第一次触发任意道印时，额外获得 1 点灵气并抽 1 张牌。' }
   ];
   const RELIC_MAP = {};
   RELICS.forEach(r => { RELIC_MAP[r.id] = r; });
