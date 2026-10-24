@@ -144,6 +144,9 @@
     const live = [];
     if (preview) {
       if (preview.damage != null) live.push(`<span class="live live-dmg">${preview.damage}${preview.hits > 1 ? '×' + preview.hits : ''} 伤</span>`);
+      if (preview.mechanicDamage) live.push(`<span class="live live-dmg">五行崩解 ${preview.mechanicDamage} 穿甲</span>`);
+      if (preview.mechanicBlockCleared) live.push(`<span class="live live-block">清除护甲 ${preview.mechanicBlockCleared}</span>`);
+      if (preview.mechanicStun) live.push('<span class="live live-cross">定身 1</span>');
       if (preview.block != null) live.push(`<span class="live live-block">${preview.block} 甲</span>`);
       if (preview.cross) live.push('<span class="live live-cross">克制</span>');
       if (preview.chainAfter > 0 && preview.linked) live.push(`<span class="live live-chain">连携 ${preview.chainAfter}</span>`);
@@ -413,14 +416,19 @@
       this.commit();
       this.sfx('start');
     },
-    enterNode(id) {
+    async enterNode(id) {
       if (this.busy) return;
       const res = E.enterNode(this.state, id);
       if (!res.ok) { this.toast(res.reason || '无法前往'); return; }
       this.selected = null;
       this.targetIndex = 0;
+      const intro = res.events?.some(ev => ev.t === 'encounterIntro');
+      if (intro) this.busy = true;
       this.commit();
-      if (res.events?.some(ev => ev.t === 'buildAwakened')) void this.fx(res.events);
+      if (intro) {
+        try { await this.fx(res.events); }
+        finally { this.busy = false; this.render(); }
+      } else if (res.events?.some(ev => ev.t === 'buildAwakened')) void this.fx(res.events);
     },
     onCardClick(index) {
       if (!this.state || !this.state.combat || this.busy) return;
@@ -772,6 +780,19 @@
     },
 
     /* ---------------- 特效 / 音效 ---------------- */
+    async encounterMoment({ tier = 'elite', title = '', name = '', subtitle = '', line = '', hint = '', duration = 500 }) {
+      const host = document.getElementById('app');
+      if (!host) return;
+      const node = document.createElement('div');
+      node.className = `encounter-moment ${tier}`;
+      node.setAttribute('role', 'status');
+      node.setAttribute('aria-live', 'polite');
+      node.innerHTML = `<div class="encounter-moment-inner"><span>${esc(title)}</span><h2>${esc(name)}</h2>${subtitle ? `<p>${esc(subtitle)}</p>` : ''}${line ? `<blockquote>${esc(line)}</blockquote>` : ''}${hint ? `<small>${esc(hint)}</small>` : ''}</div>`;
+      host.appendChild(node);
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      try { await sleep(reduced ? Math.min(duration, 350) : duration); }
+      finally { node.remove(); }
+    },
     async fx(events) {
       if (!events || !events.length) return;
       for (const ev of events) {
@@ -843,9 +864,37 @@
             break;
           }
           case 'phase': {
-            this.banner(ev.log || '阶段转换');
+            const el = document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
+            const enemy = this.state.combat?.enemies.find(item => item.uid === ev.uid);
             this.sfx('phase');
-            await sleep(700);
+            if (ev.line) await Promise.all([
+              visual('bossPhase', { target: el, element: enemy?.element }),
+              this.encounterMoment({ tier: 'phase', title: '二阶段', name: ev.name, line: ev.line, duration: 700 })
+            ]);
+            else { this.banner(ev.log || '阶段转换'); await sleep(700); }
+            break;
+          }
+          case 'encounterIntro': {
+            const el = document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
+            const enemy = this.state.combat?.enemies.find(item => item.uid === ev.uid);
+            this.sfx(ev.tier === 'boss' ? 'phase' : 'start');
+            await Promise.all([
+              visual('encounterIntro', { target: el, tier: ev.tier, element: enemy?.element }),
+              this.encounterMoment({ tier: ev.tier, title: ev.title, name: ev.name, subtitle: ev.subtitle,
+                line: ev.intro, hint: ev.hint, duration: ev.tier === 'boss' ? 850 : 510 })
+            ]);
+            break;
+          }
+          case 'enemyMechanic': {
+            const el = document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
+            const label = {
+              attackLanded: '尸煞 +1', execution: '处决强化', tideRising: '潮位 +1',
+              abyssReleased: '怒潮尽泄', zhoutianCalm: '周天镇潮 -1', armorSurvived: '山势 +1',
+              mountainStrike: '山怒爆发', phaseRise: '山势苏醒', seedLeftInHand: '焚势 +1',
+              fireReleased: '焚势尽泄', crossHit: '破阵 +1', arrayCollapse: '五行崩解！'
+            }[ev.reason] || ev.name;
+            this.floatAt(el, label, ev.reason === 'arrayCollapse' ? 'fx-zhoutian' : 'fx-enemy-mechanic');
+            if (ev.after === ev.max || ev.reason === 'arrayCollapse') void visual('impact', { target: el, element: this.state.combat?.enemies.find(item => item.uid === ev.uid)?.element, heavy: true });
             break;
           }
           case 'enemyMove': {
@@ -859,6 +908,16 @@
             if (el) el.classList.add('dying');
             this.sfx('death');
             await sleep(180);
+            break;
+          }
+          case 'enemyDefeat': {
+            const el = document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
+            const enemy = this.state.combat?.enemies.find(item => item.uid === ev.uid);
+            await Promise.all([
+              visual('encounterDefeat', { target: el, tier: ev.tier, element: enemy?.element }),
+              this.encounterMoment({ tier: 'defeat', title: ev.tier === 'boss' ? '幕主陨落' : '精英败退', name: ev.name,
+                line: ev.line, duration: ev.tier === 'boss' ? (ev.final ? 780 : 680) : 400 })
+            ]);
             break;
           }
           case 'potion': this.sfx('potion'); await sleep(60); break;
@@ -1324,6 +1383,8 @@
       const st = this.state;
       const c = st.combat;
       const ch = E.getCharacter(st);
+      const featured = c.enemies.length === 1 ? D.enemies[c.enemies[0].id] : null;
+      const arena = featured?.presentation?.arena || '';
       const identity = E.getBuildIdentity(st);
       const pathClass = identity.level >= 2 && identity.tag ? `path-${identity.tag.replaceAll('_', '-')}` : '';
       const fullResource = c.characterResource?.value >= c.characterResource?.max;
@@ -1351,7 +1412,7 @@
             ? (mobileUI ? `当前目标：${esc(focusName)} · 点按手牌查看详情，确认后选敌人` : `当前目标：${esc(focusName)} · 点击卡牌后点敌人切换 · 数字键直接出牌`)
             : `${mobileUI ? '点按手牌查看详情并确认出牌' : '点击卡牌出牌 · 数字键 1–9 · E 结束回合'}`));
       return `
-      <main class="screen combat-screen ${c.phase === 'enemy' ? 'enemy-phase' : ''} ${pathClass} path-level-${identity.level} ${fullResource ? 'resource-full' : ''} ${c.cardsPlayedThisTurn >= 5 ? 'combo-fast' : ''} ${c.chain >= 3 ? 'chain-formed' : ''}">
+      <main class="screen combat-screen ${c.phase === 'enemy' ? 'enemy-phase' : ''} ${arena ? `arena-${esc(arena)} ${featured.boss ? 'arena-boss' : 'arena-elite'}` : ''} ${pathClass} path-level-${identity.level} ${fullResource ? 'resource-full' : ''} ${c.cardsPlayedThisTurn >= 5 ? 'combo-fast' : ''} ${c.chain >= 3 ? 'chain-formed' : ''}">
         <header class="combat-top">
           <div class="turn-tag">第 ${c.turn} 回合</div>
           <div class="combat-act">${esc(E.getActName(st.act))}</div>
@@ -1415,6 +1476,7 @@
     enemyHTML(e, i, targetIdx) {
       const alive = e.hp > 0;
       const intent = E.getEnemyIntent(this.state, e);
+      const mechanic = E.getEnemyMechanicInfo(this.state, e);
       const weak = weakElement(e.element);
       const statuses = statusChips(e.statuses, 'enemy', i);
       const sub = `${e.block > 0 ? `<span class="block-pill">甲 ${e.block}</span>` : ''}${e.phase === 2 ? '<span class="phase-tag">狂怒</span>' : ''}${statuses ? `<span class="statuses">${statuses}</span>` : ''}`;
@@ -1425,8 +1487,12 @@
         statusList(intent.debuffs),
         statusList(intent.buffs),
         intent.heal ? `回复 ${intent.heal}` : '',
-        intent.addCards.length ? '塞入业障' : ''
+        intent.addCards.length ? `塞入${intent.addCards.map(add => D.cardMap[add.id]?.name || '业障').join('、')}` : '',
+        intent.mechanicDetail || ''
       ].filter(Boolean).join(' · ') : '';
+      const mechanicText = mechanic ? mechanic.max
+        ? `${mechanic.name} ${mechanic.value}/${mechanic.max}${mechanic.id === 'arrayBreak' ? ` · ${elem(mechanic.currentElement).glyph} → ${elem(mechanic.nextElement).glyph}` : ''}`
+        : `${mechanic.name} · 毒潮播种${mechanic.handCount ? ` · 藤种 ×${mechanic.handCount}` : ''}` : '';
       return `
       <div class="enemy-unit ${alive ? '' : 'dead'} ${targetable ? 'targetable' : ''} ${i === targetIdx && alive ? 'focused' : ''} ${showTarget ? 'show-target' : ''} ${e.statuses.poison >= 10 ? 'poison-aura' : ''} ${e.statuses.poison >= 20 ? 'poison-aura-strong' : ''} ${e.statuses.poison >= 30 ? 'poison-aura-glow' : ''} ${e.statuses.burn >= 10 ? 'burn-aura' : ''}" style="--enemy-index:${i};--enemy-element:${elem(e.element).color}" data-enemy-uid="${e.uid}" data-action="enemy" data-index="${i}">
         ${alive ? `<button class="entity-info enemy-info-btn" data-action="inspect-enemy" data-id="${esc(e.id)}" data-index="${i}" aria-label="查看${esc(e.name)}详情">详情</button>` : ''}
@@ -1441,6 +1507,7 @@
             ${elemBadge(e.element)}
             ${weak ? `<span class="weak-tag" title="相克弱点">弱 ${elem(weak).glyph}</span>` : ''}
           </div>
+          ${mechanic ? `<div class="enemy-mechanic ${mechanic.danger ? 'danger' : ''}" title="${esc(mechanic.hint)}" aria-label="${esc(mechanicText)}：${esc(mechanic.hint)}"><span>${esc(mechanicText)}</span></div>` : ''}
           <div class="enemy-art"><div class="enemy-art-motion">${enemyPortrait(e.id, e.name, 'eager', 'enemy-art-figure')}</div></div>
           ${hpBarHTML(e.hp, e.maxHp, 'enemy-hp')}
           ${sub ? `<div class="enemy-sub">${sub}</div>` : ''}
@@ -1822,6 +1889,8 @@
         if (d.action === 'play-card' && this.state && this.state.combat) {
           const p = E.getPreview(this.state, d.index, this.targetIndex);
           const values = p ? [p.damage != null ? `预计伤害 ${p.damage}${p.hits > 1 ? ' × ' + p.hits : ''}` : '',
+            p.mechanicDamage ? `五行崩解 ${p.mechanicDamage} 穿甲` : '',
+            p.mechanicBlockCleared ? `清除护甲 ${p.mechanicBlockCleared}` : '', p.mechanicStun ? '定身 1' : '',
             p.damageAll ? `预计每名敌人最多 ${p.damageAll} 点` : p.detonateDamage ? `预计${{ poison: '毒爆', burn: '焚炉', regen: '生机化攻' }[p.detonateStatus] || '爆发'} ${p.detonateDamage}` : '',
             p.blockConsumed ? `预计消耗 ${p.blockConsumed} 护甲` : '',
             p.statusConsumed && p.detonateStatus === 'thorns' ? `荆棘将减少 ${p.statusConsumed} 层` : '',
@@ -1884,9 +1953,11 @@
         const live = this.state && this.state.combat && this.state.combat.enemies[d.index] && this.state.combat.enemies[d.index].id === d.id ? this.state.combat.enemies[d.index] : null;
         const weak = weakElement(e.element);
         const intent = live ? E.getEnemyIntent(this.state, live) : null;
+        const mechanic = live ? E.getEnemyMechanicInfo(this.state, live) : e.mechanic ? { name: e.mechanic.name, hint: e.mechanic.hint, description: e.mechanic.description } : null;
         body = `<div class="detail-enemy-portrait" style="--el:${elem(e.element).color}">${enemyPortrait(e.id, e.name, 'eager')}</div>
           <div class="detail-meta">${elemBadge(e.element)}<span>${e.boss ? '幕主' : e.elite ? '精英' : '寻常敌人'}</span>${live ? `<span>生命 ${live.hp} / ${live.maxHp}</span><span>护甲 ${live.block}</span>` : ''}</div>
           <p class="detail-note">${weak ? `弱点：${elem(weak).name}行攻击可破甲并增伤` : '无五行弱点'}</p>
+          ${mechanic ? `<h3>特殊机制 · ${esc(mechanic.name)}</h3><p class="detail-note">${esc(mechanic.hint)}</p><p class="detail-text">${esc(mechanic.description || mechanic.hint)}</p>` : ''}
           ${intent ? `<h3>当前意图 · ${esc(intent.name)}</h3><p class="detail-text">${esc(intent.label)}</p>` : ''}
           <h3>招式</h3><div class="detail-list">${Object.values(e.moves).map(m => `<span><b>${esc(m.name)}</b>　${esc([m.damage ? `伤害 ${m.damage}${m.hits > 1 ? ' × ' + m.hits : ''}` : '', m.block ? `护甲 ${m.block}` : '', m.heal ? `回复 ${m.heal}` : '', statusList(m.debuffs), statusList(m.buffs), ...(m.addCards || []).map(x => `塞入 ${x.count || 1} 张${D.cardMap[x.id] ? D.cardMap[x.id].name : '业障'}`)].filter(Boolean).join(' · ') || '特殊效果')}</span>`).join('')}</div>
           ${live ? `<h3>当前状态</h3><div class="detail-list">${Object.keys(D.statuses).filter(k => live.statuses && live.statuses[k] > 0).map(k => `<span>${esc(D.statuses[k].name)} ${live.statuses[k]}：${esc(D.statuses[k].desc)}</span>`).join('') || '<span>无</span>'}</div>` : ''}`;

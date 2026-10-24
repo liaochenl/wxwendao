@@ -37,6 +37,8 @@ function scoreCard(state, i) {
   const enemyCount = c.enemies.filter(e => e.hp > 0).length;
   const damageIsArea = d.effects.some(e => e.op === 'damage' && e.target === 'all');
   let score = (p.damage || 0) * (p.hits || 1) * (damageIsArea ? enemyCount : 1);
+  score += p.mechanicDamage || 0;
+  if (p.mechanicStun) score += 8;
   score += p.detonateDamage || 0;
   if (dangerous && p.block) score += p.block * 2.2;
   else score += (p.block || 0) * 0.7;
@@ -55,6 +57,8 @@ function scoreCard(state, i) {
   }
   if (dangerous && !p.block && p.damage) score *= 0.65;
   if (d.type === 'skill' && d.effects.some(e => e.op === 'energy')) score += 8;
+  if (d.id === 'huo_zhong') score += 11 + (lowHp ? 4 : 0) + Math.min(4, state.combat.enemies.find(enemy => enemy.id === 'chi_ba')?.special?.firePressure || 0);
+  if (d.id === 'ji_sheng_teng_zhong') score += 13 + (lowHp ? 4 : 0);
   return score;
 }
 

@@ -430,6 +430,22 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
   display: flex; flex-direction: column; height: 100vh; max-width: 1420px; margin: 0 auto;
   padding: 10px clamp(12px, 2.4vw, 32px) 8px; overflow: hidden;
 }
+.combat-screen.arena-boss { background: radial-gradient(ellipse 75% 53% at 50% 24%, var(--arena-glow), transparent 76%), linear-gradient(180deg, var(--arena-base), rgba(7, 12, 18, .52) 70%); }
+.combat-screen.arena-mountain { --arena-glow: rgba(172, 132, 73, .19); --arena-base: rgba(35, 29, 22, .65); }
+.combat-screen.arena-inferno { --arena-glow: rgba(207, 76, 37, .24); --arena-base: rgba(49, 22, 20, .7); }
+.combat-screen.arena-void { --arena-glow: rgba(66, 110, 158, .23); --arena-base: rgba(15, 26, 45, .7); }
+.combat-screen.arena-elite .enemy-zone { border-radius: 24px; background: radial-gradient(ellipse 60% 75% at 50% 48%, var(--elite-glow), transparent 74%); }
+.combat-screen.arena-corpse { --elite-glow: rgba(174, 156, 111, .14); }
+.combat-screen.arena-vines { --elite-glow: rgba(79, 151, 103, .16); }
+.combat-screen.arena-tide { --elite-glow: rgba(77, 146, 190, .17); }
+.arena-boss .enemy-art { box-shadow: 0 0 28px -13px var(--enemy-element, #d8b977); }
+.arena-mountain .enemy-zone::before, .arena-void .enemy-zone::before {
+  content: ''; position: absolute; inset: 2% 5% 5%; pointer-events: none; opacity: .2;
+  background: repeating-conic-gradient(from 20deg at 50% 45%, transparent 0deg 24deg, rgba(216, 185, 119, .18) 25deg 26deg, transparent 27deg 50deg);
+  mask-image: radial-gradient(ellipse at center, black, transparent 76%);
+}
+.arena-void .enemy-zone::before { opacity: .26; animation: arenaWheel 30s linear infinite; }
+@keyframes arenaWheel { to { transform: rotate(360deg); } }
 .combat-top { display: flex; align-items: center; gap: 16px; padding: 2px 4px 6px; }
 .turn-tag {
   font-family: var(--serif); font-size: 14px; color: var(--gold); letter-spacing: 0.12em;
@@ -473,6 +489,9 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 }
 .enemy-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .enemy-name { font-family: var(--serif); font-size: 16px; letter-spacing: 0.08em; }
+.enemy-mechanic { display: flex; align-items: center; min-height: 19px; margin-top: 3px; color: #d3c29b; font-size: 10px; letter-spacing: .06em; line-height: 1.25; }
+.enemy-mechanic.danger { color: #f1b092; text-shadow: 0 0 8px rgba(236, 112, 76, .5); }
+.enemy-mechanic.danger span { border-bottom: 1px solid rgba(237, 128, 94, .45); }
 .weak-tag { font-size: 9px; color: #b8a15f; border: 1px solid rgba(216, 185, 119, 0.28); border-radius: 10px; padding: 0 5px; }
 .enemy-art {
   width: 176px; height: 176px; display: flex; align-items: center; justify-content: center; margin: 8px auto;
@@ -481,6 +500,19 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
   background: radial-gradient(circle at 50% 45%, rgba(216, 185, 119, 0.12), rgba(0, 0, 0, 0.4));
 }
 .enemy-art img { display: block; width: 100%; height: 100%; }
+.encounter-moment { position: fixed; inset: 0; z-index: 79; display: grid; place-items: center; padding: 18px; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(17, 23, 28, .76), rgba(5, 8, 11, .84)); animation: encounterMomentIn .22s ease-out both; }
+.encounter-moment.elite { background: radial-gradient(ellipse at center, rgba(17, 23, 28, .7), rgba(5, 8, 11, .75)); }
+.encounter-moment.phase { background: radial-gradient(ellipse at center, rgba(53, 32, 24, .8), rgba(7, 8, 12, .82)); }
+.encounter-moment.defeat { background: radial-gradient(ellipse at center, rgba(21, 32, 38, .79), rgba(5, 8, 11, .85)); }
+.encounter-moment-inner { width: min(92vw, 620px); text-align: center; border-block: 1px solid rgba(225, 193, 132, .46); padding: 21px 16px 24px; text-shadow: 0 1px 12px #000; }
+.encounter-moment-inner > span { display: block; color: #e7c788; letter-spacing: .25em; font-size: 11px; }
+.encounter-moment h2 { margin: 8px 0 5px; color: #f7e6bc; font: 36px var(--serif); letter-spacing: .14em; }
+.encounter-moment p { margin: 0; color: #c8bb9f; font-size: 12px; letter-spacing: .12em; }
+.encounter-moment blockquote { margin: 15px 0 8px; color: #f2dfba; font: 17px/1.55 var(--serif); }
+.encounter-moment small { display: block; max-width: 32em; margin: 12px auto 0; color: #e6bb8c; font-size: 11px; line-height: 1.5; }
+.encounter-moment.phase h2 { font-size: 25px; }
+@keyframes encounterMomentIn { from { opacity: 0; transform: scale(1.04); } to { opacity: 1; transform: scale(1); } }
 .enemy-art-motion { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; animation: enemyIdle 5.4s ease-in-out infinite; animation-delay: calc(var(--enemy-index, 0) * -.55s); }
 @keyframes enemyIdle {
   0%, 100% { transform: translateY(0) scale(1); filter: brightness(1) saturate(1); }
@@ -1477,16 +1509,22 @@ body.zhoutian-flash::after {
   .combat-top .hud-actions .btn { width: 44px; padding: 0; font-size: 11px; }
 
   .enemy-zone { min-height: 190px; padding: 0 4px; gap: 10px; flex: 0 0 auto; }
-  .enemy-unit { width: 300px; padding-top: 40px; }
+  .enemy-unit { width: 300px; padding-top: 56px; }
   .enemy-zone.multi { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; scroll-snap-type: x proximity; }
   .enemy-zone.multi .enemy-unit { width: 165px; scroll-snap-align: center; }
   .enemy-info-btn { display: block; }
-  .intent { min-width: 130px; font-size: 11px; }
-  .intent-detail { font-size: 10px; }
+  .intent { min-width: 130px; font-size: 11px; row-gap: 0; padding: 3px 10px; z-index: 2; }
+  .intent-detail { font-size: 9px; line-height: 1.15; margin-top: 0; }
   .enemy-art { width: 120px; height: 120px; font-size: 34px; }
   .enemy-zone.multi .enemy-art { width: 108px; height: 108px; }
   .enemy-name { font-size: 15px; }
+  .enemy-mechanic { min-height: 16px; margin-top: 1px; font-size: 10px; }
+  .enemy-zone.multi .enemy-mechanic { font-size: 9px; }
   .enemy-sub { min-height: 18px; }
+  .encounter-moment-inner { padding: 18px 10px 21px; }
+  .encounter-moment h2 { font-size: clamp(23px, 7.3vw, 32px); }
+  .encounter-moment blockquote { font-size: 15px; }
+  .encounter-moment small { font-size: 11px; }
 
   .battle-mid { display: grid; grid-template-columns: minmax(0, 1fr) auto;
                 grid-template-areas: "player player" "chain energy"; gap: 8px; padding: 6px 0 4px; }

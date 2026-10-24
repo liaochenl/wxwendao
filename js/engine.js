@@ -674,6 +674,108 @@
   }
 
   /* ---------------- 战斗初始化 ---------------- */
+  function ensureEnemySpecial(enemy) {
+    if (!enemy.special || typeof enemy.special !== 'object' || Array.isArray(enemy.special)) enemy.special = {};
+    return enemy.special;
+  }
+  function emitEnemyMechanic(state, enemy, id, before, after, reason) {
+    const mechanic = DATA.enemies[enemy.id]?.mechanic;
+    emit({ t: 'enemyMechanic', uid: enemy.uid, id, name: mechanic?.name || id,
+      before, after, max: mechanic?.max || 0, reason });
+  }
+  function setEnemyMechanic(state, enemy, value, reason) {
+    const mechanic = DATA.enemies[enemy.id]?.mechanic;
+    if (!mechanic?.max) return;
+    const special = ensureEnemySpecial(enemy);
+    const before = Number(special[mechanic.id]) || 0;
+    const after = Math.max(0, Math.min(mechanic.max, value));
+    if (before === after) return;
+    special[mechanic.id] = after;
+    emitEnemyMechanic(state, enemy, mechanic.id, before, after, reason);
+  }
+  function getEnemyMechanicInfo(state, enemy) {
+    const mechanic = DATA.enemies[enemy?.id]?.mechanic;
+    if (!mechanic) return null;
+    const special = ensureEnemySpecial(enemy);
+    const value = mechanic.max ? (Number(special[mechanic.id]) || 0) : null;
+    const info = { id: mechanic.id, name: mechanic.name, value, max: mechanic.max || null,
+      hint: mechanic.hint, description: mechanic.description, danger: !!mechanic.max && value >= mechanic.max };
+    if (mechanic.id === 'parasite') info.handCount = state.combat?.hand.filter(card => card.id === 'ji_sheng_teng_zhong').length || 0;
+    if (mechanic.id === 'arrayBreak') {
+      const order = DATA.elementOrder;
+      const index = order.indexOf(enemy.element);
+      info.currentElement = enemy.element;
+      info.nextElement = index < 0 ? order[0] : order[(index + 1) % order.length];
+    }
+    return info;
+  }
+  function effectiveEnemyMove(state, enemy) {
+    const data = DATA.enemies[enemy.id];
+    const special = ensureEnemySpecial(enemy);
+    const key = data.mechanic?.id === 'firePressure' && (special.firePressure || 0) >= 3 ? 'tianhuo' : enemy.intent;
+    const base = data.moves[key];
+    if (!base) return null;
+    const move = { ...base, key };
+    if (data.mechanic?.id === 'corpseEnergy' && key === 'execute' && (special.corpseEnergy || 0) >= 2) {
+      move.damage = (base.damage || 0) + 6;
+      move.mechanicDetail = '尸煞强化';
+      move.enhanced = true;
+    }
+    if (data.mechanic?.id === 'tide' && key === 'abyss') {
+      const tide = special.tide || 0;
+      move.damage = (base.damage || 0) + tide * 3;
+      move.mechanicDetail = `潮位${tide}`;
+    }
+    if (data.mechanic?.id === 'mountainMight' && base.damage) {
+      const pending = Math.min(2, (special.mountainMight || 0) + (enemy.block > 0 ? 1 : 0));
+      if (pending >= 2) {
+        move.damage = base.damage + 4;
+        move.mechanicDetail = '山势强化';
+        move.enhanced = true;
+      }
+    }
+    if (data.mechanic?.id === 'firePressure' && key === 'tianhuo' && (special.firePressure || 0) >= 3) move.mechanicDetail = '焚势爆发';
+    return move;
+  }
+  function beforeEnemyTurn(state, enemy) {
+    if (DATA.enemies[enemy.id]?.mechanic?.id === 'mountainMight' && enemy.block > 0) {
+      setEnemyMechanic(state, enemy, (ensureEnemySpecial(enemy).mountainMight || 0) + 1, 'armorSurvived');
+    }
+  }
+  function afterEnemyMove(state, enemy, move, hpLoss) {
+    const id = DATA.enemies[enemy.id]?.mechanic?.id;
+    if (id === 'corpseEnergy' && move.damage) {
+      if (move.key === 'execute' && move.enhanced) setEnemyMechanic(state, enemy, 0, 'execution');
+      else if (hpLoss > 0) setEnemyMechanic(state, enemy, (ensureEnemySpecial(enemy).corpseEnergy || 0) + 1, 'attackLanded');
+    }
+    if (id === 'tide') {
+      if (move.key === 'tide' || move.key === 'freeze') setEnemyMechanic(state, enemy, (ensureEnemySpecial(enemy).tide || 0) + 1, 'tideRising');
+      if (move.key === 'abyss') setEnemyMechanic(state, enemy, 0, 'abyssReleased');
+    }
+    if (id === 'mountainMight' && move.damage && move.enhanced) setEnemyMechanic(state, enemy, 0, 'mountainStrike');
+    if (id === 'firePressure' && move.key === 'tianhuo') setEnemyMechanic(state, enemy, 0, 'fireReleased');
+  }
+  function recordTaiXuCrossHit(state, enemy) {
+    const c = state.combat;
+    if (enemy.id !== 'tai_xu' || !c.crossHitsThisCard || c.crossHitsThisCard.has(enemy.uid)) return;
+    const special = ensureEnemySpecial(enemy);
+    c.crossHitsThisCard.add(enemy.uid);
+    if (special.arrayBreakUsedThisTurn) return;
+    const next = (special.arrayBreak || 0) + 1;
+    if (next < 3) { setEnemyMechanic(state, enemy, next, 'crossHit'); return; }
+    setEnemyMechanic(state, enemy, 3, 'crossHit');
+    enemy.block = 0;
+    emit({ t: 'enemyMechanic', uid: enemy.uid, id: 'arrayBreak', name: '五行崩解', before: 3, after: 0, max: 3, reason: 'arrayCollapse' });
+    special.arrayBreak = 0;
+    special.arrayBreakUsedThisTurn = true;
+    directEnemyDamage(state, enemy, 12, 'arrayCollapse');
+    if (enemy.hp > 0) addEnemyStatus(state, enemy, 'stun', 1);
+  }
+  function afterZhoutian(state) {
+    for (const enemy of aliveEnemies(state)) {
+      if (DATA.enemies[enemy.id]?.mechanic?.id === 'tide') setEnemyMechanic(state, enemy, (ensureEnemySpecial(enemy).tide || 0) - 1, 'zhoutianCalm');
+    }
+  }
   function createEnemy(state, spec, hpScale) {
     const data = DATA.enemies[spec.id];
     const scale = (hpScale || spec.hpScale || 1) * (1 + 0.04 * state.ascension);
@@ -687,6 +789,7 @@
       hp, maxHp: hp,
       block: 0,
       statuses: emptyStatuses(),
+      special: {},
       patternIndex: 0,
       intent: null,
       phase: 1,
@@ -754,6 +857,11 @@
     itemDraw(state, 5 + relicPassive(state, 'extraDraw') - relicPassive(state, 'drawPenalty'));
     triggerRelic(state, 'combatStart');
     emit({ t: 'combatStart', enemies: c.enemies.map(e => ({ uid: e.uid, name: e.name, element: e.element })) });
+    c.enemies.forEach(enemy => {
+      const data = DATA.enemies[enemy.id];
+      if ((data.elite || data.boss) && data.presentation) emit({ t: 'encounterIntro', uid: enemy.uid, id: enemy.id,
+        tier: data.boss ? 'boss' : 'elite', name: enemy.name, ...data.presentation, hint: data.mechanic?.hint || '' });
+    });
     const milestones = ensureBuildMilestones(state);
     const identity = getBuildIdentity(state);
     if (identity.level >= 2 && identity.level > (milestones[identity.tag] || 0)) {
@@ -881,6 +989,7 @@
     emit({ t: 'damage', target: 'enemy', uid: enemy.uid, amount: dmg, blocked, hp: enemy.hp, cross: !!opts.cross,
       element: opts.element || null, source: opts.source || undefined });
     afterEnemyHpChange(state, enemy);
+    if (actual > 0 && opts.attackDamage && opts.cross && enemy.hp > 0) recordTaiXuCrossHit(state, enemy);
     return loss;
   }
 
@@ -920,6 +1029,9 @@
         enemy.deadLogged = true;
         state.stats.kills++;
         emit({ t: 'death', target: 'enemy', uid: enemy.uid, name: enemy.name });
+        const presentation = DATA.enemies[enemy.id]?.presentation;
+        if (presentation && (enemy.elite || enemy.boss)) emit({ t: 'enemyDefeat', uid: enemy.uid, name: enemy.name,
+          tier: enemy.boss ? 'boss' : 'elite', line: presentation.defeat, final: enemy.id === 'tai_xu' });
       }
       checkEnd(state);
       return;
@@ -931,7 +1043,8 @@
       if (data.phase2.strength) enemy.statuses.strength = (enemy.statuses.strength || 0) + data.phase2.strength;
       enemy.patternIndex = 0;
       setEnemyIntent(state, enemy);
-      emit({ t: 'phase', uid: enemy.uid, name: enemy.name, log: data.phase2.log || (enemy.name + ' 进入了第二阶段！') });
+      if (data.mechanic?.id === 'mountainMight') setEnemyMechanic(state, enemy, Math.max(1, ensureEnemySpecial(enemy).mountainMight || 0), 'phaseRise');
+      emit({ t: 'phase', uid: enemy.uid, name: enemy.name, log: data.phase2.log || (enemy.name + ' 进入了第二阶段！'), line: data.presentation?.phase2 || '' });
     }
   }
 
@@ -999,6 +1112,7 @@
       aliveEnemies(state).forEach(enemy => directEnemyDamage(state, enemy, 8, 'fate'));
       itemDraw(state, 1);
     }
+    afterZhoutian(state);
     c.chain = 0;
     emit({ t: 'chain', chain: 0, linked: false, element: null, current: c.currentElement, reset: true });
   }
@@ -1063,6 +1177,7 @@
     }
     if (state.characterId === 'monk' && data.finisher && c.daoFinisherDiscount > 0) c.daoFinisherDiscount = 0;
     c.resourceGainedThisCard = 0;
+    c.crossHitsThisCard = new Set();
     state.stats.cardsPlayed++;
     const isFirstAttack = !c.firstAttackUsed && data.type === 'attack';
     if (data.type === 'attack') c.firstAttackUsed = true;
@@ -1076,6 +1191,7 @@
     resolveEffects(state, data, target, chainBonus, info, target ? { ...target.statuses } : null);
     awardCharacterResourceForPlayedCard(state, data, target, info);
     delete c.resourceGainedThisCard;
+    delete c.crossHitsThisCard;
 
     if (state.characterId === 'sword' && isFirstAttack && target && target.hp > 0 && c.phase === 'player') {
       emit({ t: 'passive', name: '剑心' });
@@ -1360,6 +1476,7 @@
     }
     const chainBonus = linked ? chainAfter : 0;
     let damage = null, hits = 1, block = null, cross = false, heal = null, draw = null, poison = null;
+    let mechanicDamage = 0, mechanicStun = false, mechanicBlockCleared = 0;
     let detonateDamage = 0, detonateHits = 0, detonateStatusName = null;
     let blockConsumed = 0, resourceConsumed = 0, statusConsumed = 0, damageAll = 0, previewDidDetonate = false;
     let previewTargetHp = target?.hp ?? 0;
@@ -1392,6 +1509,12 @@
         }
         if (effect.consumeResource) resourceConsumed = resource;
         hits = (effect.hits || 1) + (effect.extraHitsAtResource != null && resource >= effect.extraHitsAtResource ? effect.extraHits || 0 : 0) + (linked ? effect.extraHitsOnLink || 0 : 0);
+        if (data.type === 'attack' && target?.id === 'tai_xu' && cross && per > 0 && target.hp > per &&
+            (target.special?.arrayBreak || 0) === 2 && !target.special?.arrayBreakUsedThisTurn) {
+          mechanicDamage = 12;
+          mechanicStun = target.hp > per * hits + mechanicDamage;
+          mechanicBlockCleared = target.block;
+        }
         if (target && effect.target !== 'all') {
           const pierce = !!effect.pierce || (effect.pierceAtResource != null && resource >= effect.pierceAtResource);
           for (let i = 0; i < hits && previewTargetHp > 0; i++) {
@@ -1437,7 +1560,7 @@
       }
       if (effect.op === 'consumeResource') resourceConsumed = Math.min(c.characterResource?.value || 0, effect.value || c.characterResource?.value || 0);
     }
-    return { damage, hits, block, cross, heal, draw, poison, detonateDamage, detonateHits,
+    return { damage, hits, block, cross, heal, draw, poison, mechanicDamage, mechanicStun, mechanicBlockCleared, detonateDamage, detonateHits,
       detonateStatus: detonateStatusName, damageAll, blockConsumed, resourceConsumed, statusConsumed,
       chainAfter, linked, cost: getCardCost(state, data) };
   }
@@ -1445,8 +1568,10 @@
   /* ---------------- 敌人意图 / 行动 ---------------- */
   function getEnemyIntent(state, enemy) {
     if (!enemy) return null;
-    const data = DATA.enemies[enemy.id];
-    const move = data.moves[enemy.intent];
+    if (enemy.statuses.stun > 0) return { name: '定身', label: '跳过行动', icon: '定', icons: ['定'],
+      damage: 0, hits: 0, block: 0, debuffs: [], buffs: [], addCards: [], heal: 0,
+      intent: enemy.intent, stunned: true, mechanicDetail: '' };
+    const move = effectiveEnemyMove(state, enemy);
     if (!move) return { label: '未知', icon: '？', damage: 0, hits: 1 };
     let damage = 0;
     let hits = move.hits || 1;
@@ -1475,7 +1600,8 @@
       buffs: move.buffs || [],
       addCards: move.addCards || [],
       heal: move.heal || 0,
-      intent: enemy.intent,
+      intent: move.key,
+      mechanicDetail: move.mechanicDetail || '',
       stunned: enemy.statuses.stun > 0
     };
   }
@@ -1483,15 +1609,15 @@
   function performEnemyMove(state, enemy) {
     const c = state.combat;
     if (!enemy || enemy.hp <= 0 || c.phase !== 'enemy') return;
-    const data = DATA.enemies[enemy.id];
-    const move = data.moves[enemy.intent];
+    const move = effectiveEnemyMove(state, enemy);
     if (!move) { advanceEnemyIntent(state, enemy); return; }
-    emit({ t: 'enemyMove', uid: enemy.uid, name: enemy.name, move: move.name, intent: enemy.intent });
+    emit({ t: 'enemyMove', uid: enemy.uid, name: enemy.name, move: move.name, intent: move.key });
+    let hpLoss = 0;
     if (move.damage) {
       const hits = move.hits || 1;
       for (let h = 0; h < hits; h++) {
         if (state.hp <= 0 || enemy.hp <= 0) break;
-        hurtPlayer(state, move.damage, enemy, { pierce: !!move.pierce });
+        hpLoss += hurtPlayer(state, move.damage, enemy, { pierce: !!move.pierce });
         if (state.hp > 0 && c.statuses.thorns > 0 && enemy.hp > 0) {
           directEnemyDamage(state, enemy, c.statuses.thorns, 'thorns');
         }
@@ -1516,6 +1642,7 @@
       }
     });
     if (move.log) emit({ t: 'log', text: move.log });
+    afterEnemyMove(state, enemy, move, hpLoss);
   }
 
   function tickStartStatuses(state, entity, isPlayer) {
@@ -1561,9 +1688,25 @@
     clearEvents();
     const c = state.combat;
     if (!c || c.phase !== 'player') return result(false, '现在不是你的回合');
-    // 诅咒牌：回合结束伤害
+    // 留手危险牌与诅咒在弃牌前结算。
     c.hand.forEach(inst => {
       const data = getCardData(inst);
+      if (inst.id === 'huo_zhong') {
+        const owner = c.enemies.find(enemy => enemy.id === 'chi_ba' && enemy.hp > 0);
+        directPlayerDamage(state, 2);
+        if (owner) setEnemyMechanic(state, owner, (ensureEnemySpecial(owner).firePressure || 0) + 1, 'seedLeftInHand');
+        return;
+      }
+      if (inst.id === 'ji_sheng_teng_zhong') {
+        const owner = c.enemies.find(enemy => enemy.id === 'shi_ling_teng_mu' && enemy.hp > 0);
+        if (owner) {
+          directPlayerDamage(state, 3);
+          const before = owner.hp;
+          owner.hp = Math.min(owner.maxHp, owner.hp + 3);
+          if (owner.hp > before) emit({ t: 'heal', target: 'enemy', uid: owner.uid, amount: owner.hp - before });
+        }
+        return;
+      }
       if (data && data.curseEffect === 'endTurnDamage') directPlayerDamage(state, data.curseValue || 2);
     });
     if (state.hp > 0) tickEndStatuses(state, { statuses: c.statuses }, true);
@@ -1582,6 +1725,7 @@
     for (const enemy of c.enemies) {
       if (c.phase === 'lost' || c.phase === 'won') break;
       if (enemy.hp <= 0) continue;
+      beforeEnemyTurn(state, enemy);
       enemy.block = 0;
       tickStartStatuses(state, enemy, false);
       if (c.phase === 'lost' || c.phase === 'won') break;
@@ -1631,6 +1775,7 @@
     c.firstCardUsed = false;
     c.cardsPlayedThisTurn = 0;
     c.daoTurnUsed = {};
+    c.enemies.forEach(enemy => { if (DATA.enemies[enemy.id]?.mechanic?.id === 'arrayBreak') ensureEnemySpecial(enemy).arrayBreakUsedThisTurn = false; });
     emit({ t: 'turnStart', turn: c.turn, block: c.block });
     tickStartStatuses(state, { statuses: c.statuses }, true);
     if (state.hp <= 0) { c.phase = 'lost'; return; }
@@ -2214,6 +2359,7 @@
         if (!state.combat.daoTurnUsed) state.combat.daoTurnUsed = {};
         if (!Number.isFinite(state.combat.daoFinisherDiscount)) state.combat.daoFinisherDiscount = 0;
         if (!state.combat.fateUsed) state.combat.fateUsed = {};
+        (state.combat.enemies || []).forEach(ensureEnemySpecial);
       }
       return state;
     } catch (err) { return null; }
@@ -2250,6 +2396,8 @@
     ROUTE_META,
     RARITY_NAME,
     ensureFate,
+    ensureEnemySpecial,
+    getEnemyMechanicInfo,
     getFateItem,
     hasFate,
     fateCombatUsed,

@@ -354,8 +354,10 @@
     { id: 'jian_yi', name: '剑意', element: 'metal', cost: 0, type: 'attack', rarity: 'special', exhaust: true, temp: true, text: '造成 8 点伤害。消耗。',
       effects: [{ op: 'damage', value: 8 }],
       up: { effects: [{ op: 'damage', value: 10 }], text: '造成 10 点伤害。消耗。' } },
-    { id: 'huo_zhong', name: '火种', element: 'none', cost: 0, type: 'status', rarity: 'special', temp: true, unplayable: true, text: '无法打出。回合结束时失去 2 点生命。',
-      curseEffect: 'endTurnDamage', curseValue: 2, effects: [], up: null },
+    { id: 'huo_zhong', name: '火种', element: 'none', cost: 1, type: 'skill', rarity: 'special', temp: true, exhaust: true, text: '花费 1 灵气将其熄灭。若留在手牌直到回合结束，失去 2 点生命，并使赤魃获得 1 点焚势。',
+      effects: [], up: null },
+    { id: 'ji_sheng_teng_zhong', name: '寄生藤种', element: 'none', cost: 1, type: 'skill', rarity: 'special', temp: true, exhaust: true, text: '花费 1 灵气将其拔除。若留在手牌直到回合结束，失去 3 点生命，噬灵藤母回复 3 点生命。',
+      effects: [], up: null },
 
     /* ===== 诅咒 ===== */
     { id: 'xin_mo', name: '心魔', element: 'none', cost: 0, type: 'curse', rarity: 'curse', unplayable: true, text: '无法打出。回合结束时失去 2 点生命。',
@@ -626,6 +628,8 @@
     /* 精英 */
     jin_jia_shi_jiang: {
       id: 'jin_jia_shi_jiang', name: '金甲尸将', element: 'metal', hp: [80, 86], elite: true,
+      mechanic: { id: 'corpseEnergy', name: '尸煞', max: 2, hint: '挡住攻击，阻止尸煞强化处决。', description: '每次攻击招式使你实际失去生命，尸煞增加 1，最多 2。尸煞满时，下一次处决伤害增加 6，随后清零。完全格挡可阻止尸煞增长。' },
+      presentation: { title: '精英 · 金甲尸将', subtitle: '军令未绝，死亦守关', intro: '越此关者，斩。', defeat: '军令……终矣。', arena: 'corpse' },
       moves: {
         combo: { name: '连斩', damage: 7, hits: 2 },
         golden: { name: '金身', block: 12, buffs: [{ status: 'strength', value: 2 }] },
@@ -635,8 +639,10 @@
     },
     shi_ling_teng_mu: {
       id: 'shi_ling_teng_mu', name: '噬灵藤母', element: 'wood', hp: [108, 118], elite: true,
+      mechanic: { id: 'parasite', name: '寄生', hint: '毒潮会播下藤种，花费灵气可拔除。', description: '毒潮会将 1 张寄生藤种放入弃牌堆。抽到后可花费 1 灵气拔除；若留到回合结束，你失去 3 点生命，藤母回复 3 点生命。' },
+      presentation: { title: '精英 · 噬灵藤母', subtitle: '万藤同根，寄生为食', intro: '留下吧，成为我的养料。', defeat: '根……断了……', arena: 'vines' },
       moves: {
-        poison: { name: '毒潮', damage: 8, debuffs: [{ status: 'poison', value: 4 }] },
+        poison: { name: '毒潮', damage: 8, debuffs: [{ status: 'poison', value: 4 }], addCards: [{ id: 'ji_sheng_teng_zhong', count: 1 }] },
         bind: { name: '缠绕', damage: 10, debuffs: [{ status: 'weak', value: 2 }] },
         drain: { name: '汲取', damage: 8, heal: 8 }
       },
@@ -644,6 +650,8 @@
     },
     xuan_shui_jiao_wang: {
       id: 'xuan_shui_jiao_wang', name: '玄水蛟王', element: 'water', hp: [140, 152], elite: true,
+      mechanic: { id: 'tide', name: '潮位', max: 3, hint: '潮位越高，深渊越危险；周天可镇潮。', description: '潮汐和冰封各使潮位增加 1，最多 3。深渊每层潮位额外造成 3 点伤害，释放后潮位清零。五行周天可令潮位减少 1。' },
+      presentation: { title: '精英 · 玄水蛟王', subtitle: '深渊潮起，蛟吟水寒', intro: '听见深渊的潮声了吗？', defeat: '潮……终会退去……', arena: 'tide' },
       moves: {
         tide: { name: '潮汐', damage: 9, hits: 2 },
         freeze: { name: '冰封', damage: 12, debuffs: [{ status: 'weak', value: 2 }] },
@@ -655,6 +663,8 @@
     /* Boss */
     shan_gui: {
       id: 'shan_gui', name: '山鬼·魑', element: 'earth', hp: [104, 112], boss: true,
+      mechanic: { id: 'mountainMight', name: '山势', max: 2, hint: '打碎地脉护甲，阻止山势积蓄。', description: '山鬼带着护甲进入自己的回合时，山势增加 1，最多 2。山势满时，下一次伤害招式每一击额外造成 4 点伤害，随后清零。打碎护甲即可阻止蓄势。' },
+      presentation: { title: '第一幕之主', subtitle: '山川恶念', intro: '凡人，也敢踏我山骨？', phase2: '山河皆我骨血！', defeat: '山……也会倒么……', arena: 'mountain' },
       moves: {
         rockfall: { name: '岩崩', damage: 12 },
         vein: { name: '地脉', block: 10, buffs: [{ status: 'strength', value: 1 }] },
@@ -666,6 +676,8 @@
     },
     chi_ba: {
       id: 'chi_ba', name: '赤魃·焚天', element: 'fire', hp: [162, 174], boss: true,
+      mechanic: { id: 'firePressure', name: '焚势', max: 3, hint: '及时熄灭火种，阻止天火爆发。', description: '火种可花费 1 灵气熄灭。每张留到回合结束的火种使你失去 2 点生命，并让赤魃获得 1 点焚势。焚势满 3 时赤魃下一招强制变为天火，释放后清零。' },
+      presentation: { title: '第二幕之主', subtitle: '焚天赤魃', intro: '既入此窟，便作薪柴。', phase2: '天光可焚，何况尔等！', defeat: '火……竟会熄灭……', arena: 'inferno' },
       moves: {
         fentian: { name: '焚天', damage: 11, debuffs: [{ status: 'burn', value: 3 }] },
         lieyan: { name: '烈焰', damage: 7, hits: 2 },
@@ -673,10 +685,12 @@
         tianhuo: { name: '天火', damage: 17 }
       },
       pattern: ['fentian', 'lieyan', 'huozhong', 'tianhuo'],
-      phase2: { hpPct: 0.5, pattern: ['tianhuo', 'fentian', 'lieyan'], strength: 2, log: '赤魃吞没天光，焚尽万物！' }
+      phase2: { hpPct: 0.5, pattern: ['tianhuo', 'huozhong', 'fentian', 'lieyan'], strength: 2, log: '赤魃吞没天光，焚尽万物！' }
     },
     tai_xu: {
       id: 'tai_xu', name: '太虚·五行主', element: 'none', hp: [210, 224], boss: true, rotateElement: true,
+      mechanic: { id: 'arrayBreak', name: '破阵', max: 3, hint: '用克制当前元素的攻击破阵。', description: '以克制太虚当前元素的攻击牌真正命中它，每张牌增加 1 点破阵。达到 3 时触发五行崩解：清除护甲，造成 12 点无视护甲伤害，并令太虚定身一次。同一玩家回合内只能触发一次崩解。' },
+      presentation: { title: '第三幕之主', subtitle: '五行之主', intro: '五行之内，皆在我掌。', phase2: '五行同归，万法归墟。', defeat: '原来……序外亦有道。', arena: 'void' },
       moves: {
         lunzhuan: { name: '五行轮转', block: 15, buffs: [{ status: 'strength', value: 1 }] },
         taixu: { name: '太虚剑', damage: 14, hits: 2 },

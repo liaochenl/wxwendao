@@ -314,6 +314,38 @@ const SCREENS = [
   {
     name: 'fate-record',
     prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); st.fate.itemId='fate_sword_box'; st.fate.triggered=true; st.fate.resolved=true; st.relics.push('fate_sword_box'); st.victory=true; st.screen='victory'; WX_UI.state=st; WX_UI.screen='victory'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'elite-execution', combat: true,
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); WXEngine.startCombat(st,{enemies:[{id:'jin_jia_shi_jiang'}]},'elite'); const e=st.combat.enemies[0]; e.special.corpseEnergy=2; e.intent='execute'; WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'elite-vines', combat: true,
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); WXEngine.startCombat(st,{enemies:[{id:'shi_ling_teng_mu'}]},'elite'); st.combat.hand.push({uid:'audit-vine',id:'ji_sheng_teng_zhong',up:false,temp:true}); WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'elite-tide', combat: true,
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); WXEngine.startCombat(st,{enemies:[{id:'xuan_shui_jiao_wang'}]},'elite'); const e=st.combat.enemies[0]; e.special.tide=2; e.intent='abyss'; WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'boss-mountain', combat: true,
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); WXEngine.startCombat(st,{enemies:[{id:'shan_gui'}]},'boss'); const e=st.combat.enemies[0]; e.special.mountainMight=2; e.intent='collapse'; WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'boss-inferno', combat: true,
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); WXEngine.startCombat(st,{enemies:[{id:'chi_ba'}]},'boss'); const e=st.combat.enemies[0]; e.special.firePressure=3; e.intent='fentian'; WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'boss-taixu', combat: true,
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); WXEngine.startCombat(st,{enemies:[{id:'tai_xu'}]},'boss'); const e=st.combat.enemies[0]; e.special.arrayBreak=2; e.element='metal'; WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'boss-phase2', combat: true,
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); WXEngine.startCombat(st,{enemies:[{id:'chi_ba'}]},'boss'); const e=st.combat.enemies[0]; e.phase=2; e.patternIndex=1; e.intent='huozhong'; e.statuses.strength=2; WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); return 1; })()"
+  },
+  {
+    name: 'boss-intro',
+    prepare: "(() => { const st=WXEngine.createRun({characterId:'sword',seed:71}); const opened=WXEngine.startCombat(st,{enemies:[{id:'shan_gui'}]},'boss'); WX_UI.state=st; WX_UI.screen='combat'; WX_UI.render(); const ev=opened.events.find(x=>x.t==='encounterIntro'); void WX_UI.encounterMoment({tier:ev.tier,title:ev.title,name:ev.name,subtitle:ev.subtitle,line:ev.intro,hint:ev.hint,duration:5000}); return 1; })()"
   }
 ];
 
@@ -464,6 +496,36 @@ async function auditAt(cdp, baseUrl, vp) {
       if (collection.count !== 6 || collection.hidden !== 5 || collection.text.includes('九转丹炉')) fail(`${tag}: 天命图鉴未隐藏未知效果 ${JSON.stringify(collection)}`);
     }
     if (screen.name === 'fate-record' && !await cdp.eval(`!!document.querySelector('.dao-record-fate')?.textContent.includes('无名剑匣')`)) fail(`${tag}: 证道录缺少天命`);
+    if (['elite-execution', 'elite-vines', 'elite-tide', 'boss-mountain', 'boss-inferno', 'boss-taixu', 'boss-phase2'].includes(screen.name)) {
+      const mechanic = await cdp.eval(`(() => ({className:document.querySelector('.combat-screen')?.className||'',
+        meter:document.querySelector('.enemy-mechanic')?.textContent||'',intent:document.querySelector('.intent')?.textContent||'',
+        intentBottom:document.querySelector('.intent')?.getBoundingClientRect()?.bottom||0,
+        enemyTop:document.querySelector('.enemy-body')?.getBoundingClientRect()?.top||0,
+        enemy:document.querySelector('.enemy-body')?.getBoundingClientRect()?.bottom||0,
+        mid:document.querySelector('.battle-mid')?.getBoundingClientRect()?.top||0}))()`);
+      const expected = {
+        'elite-execution':['arena-corpse','尸煞 2/2','攻击 20'],
+        'elite-vines':['arena-vines','寄生','藤种'],
+        'elite-tide':['arena-tide','潮位 2/3','攻击 25'],
+        'boss-mountain':['arena-mountain','山势 2/2','山势强化'],
+        'boss-inferno':['arena-inferno','焚势 3/3','焚势爆发'],
+        'boss-taixu':['arena-void','破阵 2/3',''],
+        'boss-phase2':['arena-inferno','焚势 0/3','播火']
+      }[screen.name];
+      if (!mechanic.className.includes(expected[0]) || !mechanic.meter.includes(expected[1]) ||
+          !(mechanic.intent + mechanic.meter).includes(expected[2]) ||
+          mechanic.intentBottom > mechanic.enemyTop - 2 || mechanic.enemy > mechanic.mid + 1) {
+        fail(`${tag}: 机制、意图或敌人面板布局异常 ${JSON.stringify(mechanic)}`);
+      }
+    }
+    if (screen.name === 'boss-intro') {
+      const intro = await cdp.eval(`(() => { const el=document.querySelector('.encounter-moment-inner');
+        const r=el?.getBoundingClientRect(); return { text:el?.innerText||'',left:r?.left,right:r?.right,top:r?.top,bottom:r?.bottom }; })()`);
+      if (!intro.text.includes('山鬼·魑') || !intro.text.includes('凡人，也敢踏我山骨？') ||
+          !intro.text.includes('打碎地脉护甲') || intro.left < 0 || intro.right > vp.width || intro.top < 0 || intro.bottom > vp.height) {
+        fail(`${tag}: Boss 登场文字不完整或出屏 ${JSON.stringify(intro)}`);
+      }
+    }
     if (screen.name === 'upgraded-hand') {
       const title = await cdp.eval(`(() => { const el=document.querySelector('.hand .card-name');
         return el && { text:el.textContent, full:el.scrollWidth <= el.clientWidth + 1 }; })()`);
