@@ -350,6 +350,44 @@
     ]);
   }
 
+  function encounterIntro({ target, tier = 'elite', element = 'metal' } = {}) {
+    const pos = centerOf(target);
+    if (!pos || reduced()) return Promise.resolve();
+    const boss = tier === 'boss';
+    return Promise.all([
+      ring(pos.x, pos.y, element, 'fx-ring fx-encounter-intro', boss ? 760 : 480, boss ? 3.5 : 2.3),
+      flash(pos.x, pos.y, element, 'fx-flash fx-encounter-intro', boss ? 360 : 230, 80)
+    ]);
+  }
+
+  function bossPhase({ target, element = 'earth' } = {}) {
+    const pos = centerOf(target);
+    if (!pos || reduced()) return Promise.resolve();
+    return Promise.all([
+      ring(pos.x, pos.y, element, 'fx-ring fx-boss-phase', 700, 4),
+      flash(pos.x, pos.y, element, 'fx-flash fx-boss-phase', 440, 110),
+      ...Array.from({ length: 5 }, (_, index) => {
+        const angle = index * Math.PI * 2 / 5;
+        const x = pos.x + Math.cos(angle) * 55;
+        const y = pos.y + Math.sin(angle) * 42;
+        return animateAndRemove(node('fx-particle fx-boss-phase', x, y, ORDER[index]), [
+          { transform: 'translate(-50%, -50%) scale(.4)', opacity: 0 },
+          { transform: `translate(calc(-50% + ${Math.cos(angle) * 75}px), calc(-50% + ${Math.sin(angle) * 55}px)) scale(1.1)`, opacity: .8, offset: .45 },
+          { transform: 'translate(-50%, -50%) scale(0)', opacity: 0 }
+        ], { duration: 620, easing: 'ease-out' });
+      })
+    ]);
+  }
+
+  function encounterDefeat({ target, tier = 'elite', element = 'metal' } = {}) {
+    const pos = centerOf(target);
+    if (!pos || reduced()) return Promise.resolve();
+    return Promise.all([
+      ring(pos.x, pos.y, element, 'fx-ring fx-encounter-defeat', tier === 'boss' ? 680 : 360, tier === 'boss' ? 3.3 : 2),
+      flash(pos.x, pos.y, element, 'fx-flash fx-encounter-defeat', tier === 'boss' ? 360 : 210)
+    ]);
+  }
+
   function statusDetonate({ status, target, source } = {}) {
     if (reduced()) return Promise.resolve();
     const dest = centerOf(target);
@@ -428,5 +466,5 @@
     await Promise.all(animations);
   }
 
-  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, daoAwakening, fateReveal, fatePulse, statusDetonate, zhoutian, clear };
+  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, daoAwakening, fateReveal, fatePulse, encounterIntro, bossPhase, encounterDefeat, statusDetonate, zhoutian, clear };
 })();

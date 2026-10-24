@@ -321,6 +321,65 @@ test('战斗怪物立绘有独立呼吸层，受击单位仍独立存在', () =>
   assert.match(html, /class="enemy-art-figure"/);
 });
 
+test('六名精英与幕主显示独立战场、紧凑机制和真实强化意图', () => {
+  const ui = makeUI(393);
+  for (const [id, arena, name] of [
+    ['jin_jia_shi_jiang', 'corpse', '尸煞'], ['shi_ling_teng_mu', 'vines', '寄生'],
+    ['xuan_shui_jiao_wang', 'tide', '潮位'], ['shan_gui', 'mountain', '山势'],
+    ['chi_ba', 'inferno', '焚势'], ['tai_xu', 'void', '破阵']
+  ]) {
+    E.startCombat(ui.state, { enemies: [{ id }] }, D.enemies[id].boss ? 'boss' : 'elite');
+    ui.screen = ui.state.screen = 'combat';
+    const enemy = ui.state.combat.enemies[0];
+    assert.match(ui.combatHTML(), new RegExp(`arena-${arena}`));
+    assert.match(ui.enemyHTML(enemy, 0, 0), new RegExp(name));
+    ui.detail = { kind: 'enemy', id, index: 0 };
+    assert.match(ui.detailHTML(), new RegExp(D.enemies[id].mechanic.hint));
+  }
+  const taiXu = ui.state.combat.enemies[0];
+  taiXu.element = 'metal';
+  taiXu.special.arrayBreak = 2;
+  const html = ui.enemyHTML(taiXu, 0, 0);
+  assert.match(html, /破阵 2\/3/);
+  assert.match(html, /金 → 水/);
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  assert.doesNotMatch(ui.combatHTML(), /arena-/);
+  assert.doesNotMatch(ui.enemyHTML(ui.state.combat.enemies[0], 0, 0), /enemy-mechanic/);
+});
+
+test('太虚第三次克制攻击在手牌和确认页显示破阵额外伤害', () => {
+  const ui = makeUI(393);
+  E.startCombat(ui.state, { enemies: [{ id: 'tai_xu' }] }, 'boss');
+  const enemy = ui.state.combat.enemies[0];
+  enemy.element = 'wood';
+  enemy.special.arrayBreak = 2;
+  enemy.block = 20;
+  ui.state.combat.hand = [{ uid: 'break-hit', id: 'jin_ren', up: false }];
+  ui.targetIndex = 0;
+  assert.match(ui.combatHTML(), /五行崩解 12 穿甲/);
+  assert.match(ui.combatHTML(), /清除护甲 20/);
+  ui.detail = { kind: 'card', id: 'jin_ren', index: 0, up: false, action: 'play-card', uid: 'break-hit' };
+  assert.match(ui.detailHTML(), /五行崩解 12 穿甲/);
+  assert.match(ui.detailHTML(), /清除护甲 20/);
+  assert.match(ui.detailHTML(), /定身 1/);
+});
+
+test('强化处决、潮位深渊和强制天火在意图中说明触发原因', () => {
+  const ui = makeUI(393);
+  for (const [id, key, value, intent, label] of [
+    ['jin_jia_shi_jiang', 'corpseEnergy', 2, 'execute', '尸煞强化'],
+    ['xuan_shui_jiao_wang', 'tide', 2, 'abyss', '潮位2'],
+    ['chi_ba', 'firePressure', 3, 'fentian', '焚势爆发'],
+    ['shan_gui', 'mountainMight', 2, 'collapse', '山势强化']
+  ]) {
+    E.startCombat(ui.state, { enemies: [{ id }] }, D.enemies[id].boss ? 'boss' : 'elite');
+    const enemy = ui.state.combat.enemies[0];
+    enemy.special[key] = value;
+    enemy.intent = intent;
+    assert.match(ui.enemyHTML(enemy, 0, 0), new RegExp(label));
+  }
+});
+
 test('地图起点说明三种路线，旧存档缺少路线字段仍可显示', () => {
   const ui = makeUI(390);
   ui.state.combat = null;

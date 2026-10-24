@@ -49,6 +49,23 @@ test('天命获取具有独立五行汇聚，战斗触发较轻且减少动态�
   assert.equal(reduced.created.length, 0);
 });
 
+test('精英与幕主登场、二阶段及击败有可复用特效，并尊重减少动态效果', async () => {
+  const target = makeNode();
+  const normal = loadEffects();
+  await normal.FX.encounterIntro({ target, tier: 'elite', element: 'metal' });
+  await normal.FX.encounterIntro({ target, tier: 'boss', element: 'earth' });
+  await normal.FX.bossPhase({ target, element: 'fire' });
+  await normal.FX.encounterDefeat({ target, tier: 'boss', element: 'water' });
+  assert.ok(normal.created.some(node => node.className.includes('fx-encounter-intro')));
+  assert.ok(normal.created.some(node => node.className.includes('fx-boss-phase')));
+  assert.ok(normal.created.some(node => node.className.includes('fx-encounter-defeat')));
+  const reduced = loadEffects(true);
+  await reduced.FX.encounterIntro({ target, tier: 'boss' });
+  await reduced.FX.bossPhase({ target });
+  await reduced.FX.encounterDefeat({ target, tier: 'boss' });
+  assert.equal(reduced.created.length, 0);
+});
+
 test('不同卡牌飞行时长和放大阶段有清晰层次', async () => {
   const { FX } = loadEffects();
   for (const [type, min, max] of [['attack', 360, 390], ['skill', 380, 420], ['power', 420, 460]]) {
