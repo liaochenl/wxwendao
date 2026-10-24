@@ -276,6 +276,14 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
         observer?.onDaoPick?.({ character: charId, act: s.act, tag });
       }
       if (!E.continueDao(s).ok) break;
+    } else if (s.screen === 'fate') {
+      if (!s.fate.pending.selected) {
+        const choices = s.fate.pending.choices;
+        const chosen = choices[s.fate.rng % choices.length];
+        if (!chosen || !E.chooseFate(s, chosen).ok) break;
+        observer?.onFatePick?.({ character: charId, id: chosen });
+      }
+      if (!E.continueFate(s).ok) break;
     } else if (s.screen === 'shop') {
       for (const entry of s.shop.cards) tally(metrics, charId, entry.card.id, 'shopOffered');
       const kinds = ['relic', 'card', 'potion'];
@@ -344,6 +352,8 @@ function runOne(charId, seed, asc, metrics, encounterMetrics, observer) {
     deckTags,
     payoffTags,
     daoPicks,
+    fateTriggered: !!s.fate?.triggered,
+    fateItem: s.fate?.itemId || null,
     highlights
   };
 }
@@ -377,6 +387,17 @@ for (const char of ['sword', 'alchemist', 'monk']) {
 console.log('天劫', ascension, '· 总计', results.length, '局，异常', abnormal.length);
 if (abnormal.length) process.exitCode = 1;
 console.log('sim AI 的悟道策略为构筑匹配策略。');
+console.log('sim AI 的天命策略按独立天命随机状态固定选择两个候选之一。');
+const fateRuns = results.filter(result => result.fateTriggered);
+const fateWin = fateRuns.filter(result => result.win).length;
+const ordinaryRuns = results.filter(result => !result.fateTriggered);
+const ordinaryWin = ordinaryRuns.filter(result => result.win).length;
+console.log(`天命出现 ${fateRuns.length}/${results.length} (${(fateRuns.length / results.length * 100).toFixed(1)}%) · 有天命胜率 ${fateRuns.length ? (fateWin / fateRuns.length * 100).toFixed(1) : '—'}% · 无天命胜率 ${ordinaryRuns.length ? (ordinaryWin / ordinaryRuns.length * 100).toFixed(1) : '—'}%`);
+for (const char of ['sword', 'alchemist', 'monk']) {
+  const rows = results.filter(result => result.char === char);
+  console.log(`${char} 天命出现 ${rows.filter(result => result.fateTriggered).length}/${rows.length}`);
+}
+console.log('天命选择：' + DATA.relics.filter(relic => relic.fateOnly).map(relic => `${relic.name} ${results.filter(result => result.fateItem === relic.id).length}`).join(' · '));
 for (const char of ['sword', 'alchemist', 'monk']) {
   const picks = results.filter(result => result.char === char).flatMap(result => result.daoPicks);
   const summary = DATA.daoBlessings.filter(blessing => blessing.character === char).map(blessing => `${blessing.name} ${picks.filter(tag => tag === blessing.tag).length}`).join(' · ');

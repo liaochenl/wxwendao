@@ -34,6 +34,21 @@ function loadEffects(reduced = false) {
   return { FX: window.WXEffects, layer, document, created };
 }
 
+test('天命获取具有独立五行汇聚，战斗触发较轻且减少动态效果时不生成粒子', async () => {
+  const target = makeNode();
+  const normal = loadEffects();
+  await normal.FX.fateReveal({ target });
+  const particles = normal.created.filter(node => node.className.includes('fx-fate-particle'));
+  assert.equal(particles.length, 5);
+  assert.ok(normal.created.some(node => node.animations.some(anim => anim.options.duration >= 1000)));
+  await normal.FX.fatePulse({ target });
+  const pulse = normal.created.find(node => node.className.includes('fx-fate-pulse'));
+  assert.ok(pulse.animations[0].options.duration <= 550);
+  const reduced = loadEffects(true);
+  await reduced.FX.fateReveal({ target });
+  assert.equal(reduced.created.length, 0);
+});
+
 test('不同卡牌飞行时长和放大阶段有清晰层次', async () => {
   const { FX } = loadEffects();
   for (const [type, min, max] of [['attack', 360, 390], ['skill', 380, 420], ['power', 420, 460]]) {
