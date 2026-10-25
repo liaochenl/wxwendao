@@ -1902,3 +1902,131 @@ body.zhoutian-flash::after {
   .combat-v2 .hand-zone { min-height: 0; padding-bottom: 0; }
   .combat-v2 .hand { min-height: 0; }
 }
+
+/* 战斗 V2-B：五行牌面、扇形手牌与一体化资源。 */
+.card {
+  --card-radius: 12px;
+  --card-border: color-mix(in srgb, var(--el) 62%, #6b5c45);
+  --card-shadow: 0 10px 24px -12px #000d;
+  --card-hover-shadow: 0 26px 34px -16px #000e;
+  --card-title: #252018;
+  --card-body: #29251e;
+}
+.card .card-inner { border-radius: var(--card-radius); border-color: var(--card-border); box-shadow: var(--card-shadow), inset 0 0 0 2px #fff8e688; }
+.card .card-name { color: var(--card-title); }
+.card .card-text { color: var(--card-body); }
+.card .card-cost { width: 27px; height: 27px; flex-basis: 27px; margin: -4px 1px 0 -4px; border-width: 2px; box-shadow: 0 3px 7px #0007, inset 0 0 8px #fff3; }
+.card .card-art { height: 80px; margin: 3px 0 4px; border-radius: 7px; }
+.card .card-art-icon { width: 78px; transform: scale(1.08); }
+.card .card-text { font-size: 12px; line-height: 1.37; }
+.card .card-type { font-size: 7px; opacity: .82; }
+.card.type-attack .card-inner { border-radius: 12px 12px 7px 7px; }
+.card.type-attack .card-art::before { width: 48px; height: 48px; border-radius: 3px; transform: rotate(45deg); }
+.card.type-skill .card-inner, .card.type-power .card-inner { border-radius: 16px 16px 11px 11px; }
+.card.type-skill .card-art::before, .card.type-power .card-art::before { width: 63px; height: 63px; border-radius: 50%; }
+.card.el-wood .card-art { background: radial-gradient(circle at 48% 78%, #5aa86e55, transparent 58%), repeating-linear-gradient(116deg, transparent 0 17px, #81b9920d 18px 19px), #142b23; }
+.card.el-fire .card-art { background: radial-gradient(ellipse at 50% 90%, #e7813c77, transparent 60%), linear-gradient(158deg, #3d201b, #19191b 68%); }
+.card.el-earth .card-art { background: linear-gradient(146deg, transparent 47%, #b7934d24 48% 54%, transparent 55%), radial-gradient(ellipse at 50% 100%, #b3925a55, transparent 65%), #242620; }
+.card.el-metal .card-art { background: repeating-linear-gradient(126deg, transparent 0 23px, #d6e6e91b 24px 25px, transparent 26px 48px), radial-gradient(circle at 50% 30%, #c9dee744, transparent 70%), #1b252c; }
+.card.el-water .card-art { background: repeating-radial-gradient(ellipse at 50% 88%, transparent 0 16px, #8bc8db22 17px 18px, transparent 19px 30px), linear-gradient(#1b3342, #13242f); }
+.card.rarity-uncommon .card-inner::after, .card.rarity-rare .card-inner::after {
+  content: ''; position: absolute; inset: 5px; border: 1px solid color-mix(in srgb, var(--el) 42%, transparent); border-radius: 7px; pointer-events: none;
+}
+.card.rarity-uncommon .card-inner::after { clip-path: polygon(0 0, 27% 0, 27% 6%, 6% 6%, 6% 25%, 0 25%, 0 75%, 6% 75%, 6% 94%, 27% 94%, 27% 100%, 0 100%, 100% 100%, 100% 0); }
+.card.rarity-rare .card-inner::after { inset: 4px; border-color: color-mix(in srgb, var(--el) 55%, #e4d2a2); }
+.card.rarity-rare .card-name { color: color-mix(in srgb, var(--el) 35%, #242019); }
+.card.upgraded .card-inner { background: radial-gradient(circle at 90% 0, #fff5c85c, transparent 40%), linear-gradient(165deg, #fff5dc, #eadfc8 70%, #d5c29e); }
+.card.upgraded .card-art::after { width: 18px; height: 18px; border-color: #f0d391; }
+.card.card-curse .card-inner, .card.type-status .card-inner { background: linear-gradient(150deg, #e0d9cf, #bab1ac); border-color: #8f6664; }
+.card.card-curse .card-art, .card.type-status .card-art { background: repeating-linear-gradient(142deg, #3d2529 0 8px, #34282e 9px 17px); }
+.card.card-special .card-inner { background: linear-gradient(155deg, #e5e0cd, #ccc6b2); border: 1px dashed color-mix(in srgb, var(--el) 48%, #746e5e); box-shadow: 0 5px 14px -9px #0009; }
+.card.card-special .card-art { filter: saturate(.75); }
+.card.card-finisher .card-inner { background: radial-gradient(ellipse at 50% 16%, color-mix(in srgb, var(--el) 23%, transparent), transparent 45%), linear-gradient(160deg, #fff9e7, #e8ddc5 73%, #c8b28c); border-width: 2px; box-shadow: 0 11px 24px -12px #000e, inset 0 0 0 3px #fff7ddaa, inset 0 0 0 5px color-mix(in srgb, var(--el) 45%, transparent); }
+.card.card-finisher .card-name { color: #241c15; font-weight: 800; }
+.card.card-finisher .card-art { border: 2px solid color-mix(in srgb, var(--el) 78%, #f6e9c6); box-shadow: inset 0 0 0 3px #f6e5bc26, 0 0 10px color-mix(in srgb, var(--el) 25%, transparent); }
+.card-finisher-seal { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); z-index: 5; padding: 1px 7px; border: 1px solid color-mix(in srgb, var(--el) 68%, #f4d99b); border-radius: 2px; background: #171d20f5; color: #fff1cd; font: 10px var(--serif); letter-spacing: .18em; white-space: nowrap; box-shadow: 0 2px 6px #0007; }
+.card.char-sword.card-finisher .card-art { background: linear-gradient(135deg, #b5d3e22a 0 2%, transparent 2% 47%, #dbe9e436 48% 49%, transparent 50%), radial-gradient(ellipse at 50% 35%, #86bed344, transparent 65%), #18252d; }
+.card.char-alchemist.card-finisher .card-art { background: repeating-radial-gradient(circle at 50% 50%, transparent 0 18px, #e69b5c25 19px 20px, transparent 21px 29px), radial-gradient(circle at 50% 73%, #df744755, transparent 65%), #2c211e; }
+.card.char-monk.card-finisher .card-art { background: linear-gradient(145deg, transparent 38%, #cbb17c33 39% 45%, transparent 46%), radial-gradient(ellipse at 50% 100%, #bca36e55, transparent 70%), #292820; }
+.card.card-finisher.ready .card-art-icon { filter: drop-shadow(0 0 7px var(--el)); }
+.card .card-elem { left: 4px; right: auto; }
+.card .card-up-mark { top: auto; bottom: 4px; }
+.card.fan-right .card-elem { left: auto; right: 4px; }
+.card.fan-right .card-up-mark { left: auto; right: 4px; }
+.card.chain-next .card-elem { box-shadow: 0 0 0 2px color-mix(in srgb, var(--el) 33%, transparent), 0 0 9px color-mix(in srgb, var(--el) 46%, transparent); }
+.card.chain-next .card-inner::before { width: 28%; left: 36%; right: auto; box-shadow: 0 0 7px var(--el); }
+.card.will-overcome .card-art::after { content: '克'; width: 16px; height: 16px; left: 28px; top: 4px; display: grid; place-items: center; border: 1px solid #e4c782; border-radius: 50%; color: #f9e9bb; background: #382c19; font: 10px var(--serif); }
+.card.fan-right.will-overcome .card-art::after { left: auto; right: 28px; }
+.card.energy-short .card-cost { background: radial-gradient(circle at 35% 20%, #7a3b39, #321b1e); border-color: #af6561; color: #ffe5df; }
+.card.in-hand.disabled { filter: saturate(.58) brightness(.9); }
+.combat-v2 .hand { isolation: isolate; }
+.combat-v2 .card.in-hand { transform: translate3d(var(--hand-x, 0px), var(--hand-y, 0px), 0) rotate(var(--hand-rot, 0deg)); z-index: var(--hand-z, 1); transition: transform .16s ease, filter .16s ease, opacity .16s ease, box-shadow .16s ease; }
+@media (hover: hover) and (pointer: fine) {
+  .combat-v2 .card.in-hand:not(.selected):hover { z-index: 50; transform: translate3d(var(--hand-x, 0px), calc(var(--hand-y, 0px) - 46px), 0) rotate(0deg) scale(1.06); box-shadow: var(--card-hover-shadow); }
+  .combat-v2 .card.in-hand:not(.selected):hover::after { bottom: -52px; pointer-events: auto; }
+}
+.combat-v2 .card.in-hand:focus-visible { z-index: 55; transform: translate3d(var(--hand-x, 0px), calc(var(--hand-y, 0px) - 46px), 0) rotate(0deg) scale(1.06); outline: 2px solid #f3d383; outline-offset: 3px; }
+.combat-v2 .card.in-hand.selected, .combat-v2 .card.in-hand.selected:hover { z-index: 60; transform: translate3d(var(--hand-x, 0px), calc(var(--hand-y, 0px) - 66px), 0) rotate(0deg) scale(1.1); }
+.combat-v2 .hand:has(.selected) .card.in-hand:not(.selected) { opacity: .84; filter: saturate(.85); }
+.combat-v2 .hand:has(.selected) .card.in-hand.disabled:not(.selected) { filter: saturate(.55) brightness(.9); }
+.combat-v2 .combat-resources { gap: 1px; align-items: center; border-radius: 45%; background: radial-gradient(ellipse at 50% 60%, var(--stage-halo), transparent 72%); }
+.combat-v2 .chain-panel { width: 184px; max-width: 184px; min-height: 103px; padding: 0; display: flex; align-items: center; background: none; }
+.combat-v2 .five-ring { position: relative; width: 184px; height: 98px; flex: 0 0 184px; }
+.combat-v2 .five-ring::before { content: ''; position: absolute; inset: 11px 16px 4px; border: 1px solid #d8b97744; border-radius: 50%; box-shadow: inset 0 0 14px #d8b97719, 0 0 14px #d8b97716; }
+.combat-v2 .five-ring.full::before { border-color: #d8b977aa; box-shadow: 0 0 13px #d8b97766, inset 0 0 18px #d8b97744; }
+.combat-v2 .five-node { position: absolute; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--el) 38%, #393e3a); background: color-mix(in srgb, var(--el-dark) 42%, #101719); color: color-mix(in srgb, var(--el) 58%, #919393); font: 16px var(--serif); opacity: .62; box-shadow: 0 2px 9px #0008; }
+.combat-v2 .five-node.current { opacity: 1; color: #fff6dc; border-color: var(--el); transform: scale(1.18); box-shadow: 0 0 13px color-mix(in srgb, var(--el) 55%, transparent); z-index: 2; }
+.combat-v2 .five-node.next { opacity: 1; color: #fff6dc; border-color: color-mix(in srgb, var(--el) 78%, #fff); box-shadow: 0 0 0 2px color-mix(in srgb, var(--el) 22%, transparent); }
+.combat-v2 .five-ring.full .five-node { opacity: 1; box-shadow: 0 0 9px color-mix(in srgb, var(--el) 42%, transparent); }
+.combat-v2 .five-wood { left: 77px; top: 0; }
+.combat-v2 .five-fire { left: 142px; top: 25px; }
+.combat-v2 .five-earth { left: 116px; top: 68px; }
+.combat-v2 .five-metal { left: 42px; top: 68px; }
+.combat-v2 .five-water { left: 14px; top: 25px; }
+.combat-v2 .chain-meta { position: absolute; left: 54px; top: 32px; width: 76px; align-items: center; justify-content: center; gap: 2px; text-align: center; }
+.combat-v2 .chain-pips { gap: 2px; flex-wrap: wrap; justify-content: center; }
+.combat-v2 .chain-pips i { width: 11px; height: 4px; }
+.combat-v2 .chain-pips b { flex-basis: 100%; font-size: 23px; line-height: 1; margin: 0; }
+.combat-v2 .chain-pips b small { font-size: 11px; }
+.combat-v2 .chain-hint { max-width: 95px; font-size: 9px; line-height: 1.3; }
+.combat-v2 .energy-box { width: 69px; gap: 0; }
+.combat-v2 .energy-orb { width: 62px; height: 62px; box-shadow: 0 0 14px #85cda244; }
+.combat-v2 .energy-orb b { font-size: 27px; }
+.combat-v2 .relic-more { min-width: 29px; min-height: 29px; border: 1px solid #d8b97755; border-radius: 50%; background: #11191bd9; color: #d8b977; cursor: pointer; }
+@media (min-width: 601px) and (max-width: 1060px) {
+  .combat-v2 .hand-area { overflow-x: auto; overflow-y: hidden; justify-content: flex-start; padding: 48px 130px 0 170px; }
+  .combat-v2 .chain-panel { width: 184px; max-width: 184px; }
+  .combat-v2 .energy-box { width: 57px; }
+  .combat-v2 .energy-orb { width: 52px; height: 52px; }
+}
+@media (max-height: 780px) and (min-width: 601px) {
+  .combat-v2 .card .card-art { height: 63px; }
+  .combat-v2 .card .card-text { font-size: 11px; }
+  .combat-v2 .card.in-hand.selected, .combat-v2 .card.in-hand.selected:hover { transform: translate3d(var(--hand-x, 0px), calc(var(--hand-y, 0px) - 53px), 0) rotate(0deg) scale(1.09); }
+}
+@media (max-width: 600px) {
+  .combat-v2 .combat-resources { width: 100%; justify-content: space-between; background: none; }
+  .combat-v2 .chain-panel { width: auto; max-width: none; min-height: 44px; flex: 1 1 auto; gap: 4px; }
+  .combat-v2 .five-ring { width: 100%; height: 38px; flex: 1 1 auto; display: flex; align-items: center; justify-content: space-between; gap: 2px; }
+  .combat-v2 .five-ring::before { inset: 15px 5px auto; height: 1px; border: 0; border-top: 1px solid #d8b97744; border-radius: 0; box-shadow: none; }
+  .combat-v2 .five-node { position: relative; inset: auto; width: 26px; height: 26px; flex: 0 0 26px; font-size: 13px; }
+  .combat-v2 .chain-meta { position: static; width: 43px; flex: 0 0 43px; min-width: 0; gap: 1px; }
+  .combat-v2 .chain-pips { gap: 1px; }
+  .combat-v2 .chain-pips i { width: 6px; height: 3px; }
+  .combat-v2 .chain-pips b { font-size: 18px; color: #f2d391; }
+  .combat-v2 .chain-meta::after { content: '连携'; color: #a89b78; font-size: 9px; letter-spacing: .08em; }
+  .combat-v2 .chain-hint { display: none; }
+  .combat-v2 .energy-box { width: 48px; flex-basis: 48px; }
+  .combat-v2 .energy-orb { width: 43px; height: 43px; }
+  .combat-v2 .energy-orb b { font-size: 18px; }
+  .combat-v2 .card .card-art { height: 49px; }
+  .combat-v2 .card .card-text { font-size: 11px; }
+  .combat-v2 .card.in-hand { transform: translate3d(0, 0, 0) rotate(var(--hand-rot, 0deg)); }
+  .combat-v2 .card.in-hand.selected, .combat-v2 .card.in-hand.selected:hover { transform: translate3d(0, -7px, 0) rotate(0deg) scale(1.03); }
+  .combat-v2 .card-finisher-seal { top: 2px; }
+}
+@media (prefers-reduced-motion: reduce) and (hover: hover) and (pointer: fine) {
+  .combat-v2 .card.in-hand:not(.selected):hover,
+  .combat-v2 .card.in-hand:focus-visible { transform: translate3d(var(--hand-x, 0px), calc(var(--hand-y, 0px) - 12px), 0) rotate(0deg) scale(1.02); }
+  .combat-v2 .card.in-hand:not(.selected):hover::after { bottom: -18px; }
+}

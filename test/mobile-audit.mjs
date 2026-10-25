@@ -446,8 +446,9 @@ async function auditAt(cdp, baseUrl, vp) {
     }
     if (screen.name.startsWith('formed-')) {
       const formed = await cdp.eval(`(() => ({ text:document.querySelector('.build-identity')?.textContent||'',
+        title:document.querySelector('.build-identity')?.title||'',
         level:document.querySelector('.combat-screen')?.className||'' }))()`);
-      if (!formed.text.includes('成势') || !formed.level.includes('path-level-2')) fail(`${tag}: 成型道途反馈缺失`);
+      if (!formed.text.includes('道 ·') || !formed.title.includes('成势') || !formed.level.includes('path-level-2')) fail(`${tag}: 成型道途反馈缺失`);
     }
     if (screen.name === 'dao-record') {
       const record = await cdp.eval(`(() => ({ title:document.querySelector('.dao-record-title')?.textContent||'',
@@ -845,6 +846,87 @@ async function auditCombatStage(cdp, baseUrl) {
       }
     }
   }
+
+  async function showHandScene(width, height, name, { character = 'sword', cards, chain = 0, currentElement = null, selected = null, fullResource = false, hover = false }) {
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width, height, screenWidth: width, screenHeight: height,
+      deviceScaleFactor: 1, mobile: false, scale: 1
+    });
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 4, y: 4 });
+    await cdp.eval(`(() => {
+      WX_UI.state = WXEngine.createRun({ characterId: '${character}', seed: 71 });
+      WXEngine.startCombat(WX_UI.state, { enemies: [{ id: 'shan_gui' }] }, 'boss');
+      WX_UI.state.combat.hand = ${JSON.stringify(cards)}.map(id => ({ id, up: false }));
+      WX_UI.state.combat.chain = ${chain};
+      WX_UI.state.combat.currentElement = ${currentElement ? `'${currentElement}'` : 'null'};
+      if (${fullResource}) WX_UI.state.combat.characterResource.value = WX_UI.state.combat.characterResource.max;
+      WX_UI.selected = ${selected == null ? 'null' : selected};
+      WX_UI.screen = 'combat'; WX_UI.render();
+    })()`);
+    await cdp.eval(`Promise.all([...document.querySelectorAll('.enemy-art-figure,.player-figure img')].map(img => img.decode().catch(() => {})))`);
+    await cdp.eval(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+    await sleep(180);
+    const metrics = await cdp.eval(`(() => {
+      const cards = [...document.querySelectorAll('.hand .card')];
+      const rects = cards.map(card => card.getBoundingClientRect());
+      return { count: cards.length, lefts: rects.map(rect => Math.round(rect.left)),
+        firstLeft: rects[0]?.left, lastRight: rects.at(-1)?.right,
+        trayRight: document.querySelector('.left-tray')?.getBoundingClientRect().right,
+        actionsLeft: document.querySelector('.combat-actions')?.getBoundingClientRect().left,
+        scrollWidth: document.documentElement.scrollWidth, handScrollWidth: document.querySelector('.hand')?.scrollWidth,
+        visibleElements: cards.filter(card => {
+          const badge = card.querySelector('.card-elem');
+          const r = badge?.getBoundingClientRect();
+          return r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('.card') === card;
+        }).length,
+        selected: cards.filter(card => card.classList.contains('selected')).length,
+        full: !!document.querySelector('.five-ring.full') };
+    })()`);
+    if (metrics.count !== cards.length || metrics.scrollWidth > width + 1 ||
+        (cards.length === 10 && (metrics.visibleElements !== 10 || metrics.lefts.some((left, index) => index && left <= metrics.lefts[index - 1] + 25) ||
+          metrics.firstLeft < metrics.trayRight + 4 || metrics.lastRight > metrics.actionsLeft - 4))) {
+      fail(`战斗手牌 ${name}: ${JSON.stringify(metrics)}`);
+    }
+    if (hover) {
+      const point = await cdp.eval(`(() => { const r = document.querySelectorAll('.hand .card')[2].getBoundingClientRect(); return { x:r.left+r.width/2, y:r.bottom-8 }; })()`);
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y });
+      for (let frame = 0; frame < 5; frame++) {
+        await sleep(100);
+        const hoverStable = await cdp.eval(`document.querySelectorAll('.hand .card')[2].matches(':hover')`);
+        if (!hoverStable) fail(`战斗手牌 ${name}: 指针停在牌面下缘时悬停状态抖动`);
+      }
+    }
+    const image = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    fs.writeFileSync(path.join(outputDir, `${name}.png`), Buffer.from(image.data, 'base64'));
+    console.log(`CHECK 战斗手牌 ${name}: ${JSON.stringify(metrics)}`);
+  }
+  await cdp.send('Page.navigate', { url: `${baseUrl}/index.html?v=${Date.now()}` });
+  await sleep(800);
+  const examples = ['jin_ren', 'liu_yun', 'duan_yue', 'chi_yan', 'yan_quan', 'teng_bian', 'jin_feng', 'shi_fu', 'chun_feng', 'lie_yan'];
+  for (const count of [3, 5, 8]) await showHandScene(1440, 900, `hand-${count}cards-1440`, { cards: examples.slice(0, count) });
+  await showHandScene(1280, 720, 'hand-10cards-1280', { cards: examples });
+  await showHandScene(1440, 900, 'hand-hover', { cards: examples.slice(0, 5), hover: true });
+  await showHandScene(1440, 900, 'hand-selected', { cards: examples.slice(0, 5), selected: 2 });
+  const focusAndReflow = await cdp.eval(`(() => {
+    WX_UI.state.combat.hand = ['jin_ren','liu_yun','duan_yue','chi_yan','yan_quan'].map((id,i) => ({ uid:'reflow-'+i, id, up:false }));
+    WX_UI.selected = null; WX_UI.render();
+    document.querySelectorAll('.hand .card')[2].focus();
+    const focusZ = getComputedStyle(document.querySelectorAll('.hand .card')[2]).zIndex;
+    WX_UI.state.combat.hand.splice(1,1); WX_UI.render();
+    return { focusZ, count:document.querySelectorAll('.hand .card').length,
+      animated:[...document.querySelectorAll('.hand .card')].filter(card => card.getAnimations().length).length };
+  })()`);
+  if (focusAndReflow.focusZ !== '55' || focusAndReflow.count !== 4 || focusAndReflow.animated < 2) {
+    fail(`战斗手牌键盘焦点或重排动画缺失: ${JSON.stringify(focusAndReflow)}`);
+  }
+  for (const [name, chain, currentElement] of [['chain-empty', 0, null], ['chain-3', 3, 'metal'], ['chain-5', 5, 'water']]) {
+    await showHandScene(1440, 900, name, { cards: examples.slice(0, 5), chain, currentElement });
+  }
+  for (const [character, cards] of [
+    ['sword', ['jin_ren', 'yi_jian_kai_tian', 'liu_yun']],
+    ['alchemist', ['chan_si', 'bai_du_gui_yuan', 'chi_yan']],
+    ['monk', ['yan_quan', 'beng_tian_shi', 'jin_zhong']]
+  ]) await showHandScene(1440, 900, `finisher-${character}`, { character, cards, fullResource: true });
 }
 
 async function auditCombatEffects(cdp, baseUrl) {

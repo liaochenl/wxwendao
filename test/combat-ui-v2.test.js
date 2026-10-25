@@ -66,3 +66,62 @@ test('双敌保持独立单位且玩家仍可选择目标', () => {
   assert.equal((html.match(/data-action="enemy"/g) || []).length, 2);
   assert.match(html, /targetable/);
 });
+
+function handCards(html) {
+  return [...html.matchAll(/<button[^>]*class="([^"]*\bin-hand\b[^"]*)"[^>]*style="([^"]*)"[^>]*data-action="play-card"[^>]*>/g)];
+}
+
+test('桌面五张牌形成有中央高点的扇形，十张牌仍全部可用', () => {
+  const ui = makeUI(1440, 900);
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  ui.state.combat.hand = Array.from({ length: 5 }, () => ({ id: 'jin_ren', up: false }));
+  let cards = handCards(ui.combatHTML());
+  assert.equal(cards.length, 5);
+  const rotations = cards.map(card => Number(card[2].match(/--hand-rot:([\d.-]+)deg/)?.[1]));
+  assert.ok(rotations[0] < 0 && rotations[2] === 0 && rotations[4] > 0);
+  const arcs = cards.map(card => Number(card[2].match(/--hand-y:([\d.-]+)px/)?.[1]));
+  assert.ok(arcs[0] > arcs[2] && arcs[4] > arcs[2]);
+  ui.state.combat.hand = Array.from({ length: 10 }, () => ({ id: 'jin_ren', up: false }));
+  cards = handCards(ui.combatHTML());
+  assert.equal(cards.length, 10);
+  assert.doesNotMatch(cards.map(card => card[2]).join(' '), /NaN|Infinity/);
+});
+
+test('手机手牌保持横向轻排，连携与克制提示只标记对应卡', () => {
+  const ui = makeUI(393, 852);
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  ui.state.combat.currentElement = 'wood';
+  ui.state.combat.hand = [{ id: 'chi_yan', up: false }, { id: 'jin_ren', up: false }, { id: 'liu_yun', up: false }];
+  let cards = handCards(ui.combatHTML());
+  assert.equal(cards.length, 3);
+  assert.match(cards[0][1], /chain-next/);
+  assert.doesNotMatch(cards[1][1], /chain-next/);
+  assert.ok(cards.every(card => Math.abs(Number(card[2].match(/--hand-rot:([\d.-]+)deg/)?.[1])) <= 2));
+  ui.state.combat.enemies[0].element = 'wood';
+  cards = handCards(ui.combatHTML());
+  assert.match(cards[1][1], /will-overcome/);
+  assert.doesNotMatch(cards[2][1], /will-overcome/);
+});
+
+test('终式、升级与五行资源具有独立标记，周天满层闭合', () => {
+  for (const [character, finisher] of [['sword', 'yi_jian_kai_tian'], ['alchemist', 'bai_du_gui_yuan'], ['monk', 'beng_tian_shi']]) {
+    const ui = makeUI();
+    ui.state = E.createRun({ characterId: character, seed: 71 });
+    E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+    ui.state.combat.hand = [{ id: finisher, up: true }];
+    ui.state.combat.currentElement = 'wood';
+    ui.state.combat.chain = 5;
+    const html = ui.combatHTML();
+    const card = handCards(html)[0][1];
+    assert.match(card, /card-finisher/);
+    assert.match(card, new RegExp(`char-${character}`));
+    assert.match(card, /upgraded/);
+    assert.match(card, /type-(attack|skill)/);
+    assert.match(html, /终式/);
+    assert.match(html, /class="five-ring[^"]*full/);
+    assert.equal((html.match(/class="five-node/g) || []).length, 5);
+    assert.match(html, /five-node[^\"]*current/);
+    assert.match(html, /five-node[^\"]*next/);
+    assert.match(html, /class="energy-orb"/);
+  }
+});

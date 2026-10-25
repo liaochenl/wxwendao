@@ -285,7 +285,8 @@ test('战斗道途与成型视觉按牌组、资源和状态变化，未成型�
   for (let i = 0; i < 4; i++) E.addCardToDeck(ui.state, 'ning_feng');
   ui.state.combat.characterResource.value = 10;
   const html = ui.combatHTML();
-  assert.match(html, /道途 · 藏锋 · 成势/);
+  assert.match(html, /道 · 藏锋/);
+  assert.match(html, /title="藏锋 · 成势"/);
   assert.match(html, /path-sword-intent/);
   assert.match(html, /resource-full/);
 });

@@ -125,6 +125,21 @@
     return `<svg class="card-art-icon motif-${key.replace(/_/g, '-')}" viewBox="0 0 100 85" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${motif}</svg>`;
   }
 
+  function getHandLayout(index, count, { mobile = false, cardWidth = 152, available = 900 } = {}) {
+    const mid = (count - 1) / 2;
+    const offset = index - mid;
+    const normalized = mid > 0 ? Math.abs(offset) / mid : 0;
+    const maxRot = mobile ? Math.min(2, count - 1) : count <= 5 ? 8 : count <= 7 ? 10 : 12;
+    const overlap = mobile ? 0 : Math.max(0, Math.min(cardWidth * .52, (count * cardWidth - available) / Math.max(1, count - 1)));
+    return {
+      rot: mid ? Number((offset / mid * maxRot).toFixed(2)) : 0,
+      y: mobile ? 0 : Math.round(Math.pow(normalized, 1.7) * 16),
+      x: mobile ? 0 : Math.round(offset * 2),
+      overlap: Math.round(overlap),
+      z: 20 - Math.round(Math.abs(offset))
+    };
+  }
+
   function cardHTML(inst, opts) {
     opts = opts || {};
     const data = cardData(inst);
@@ -159,19 +174,25 @@
       if (preview.heal) live.push(`<span class="live live-heal">愈 ${preview.heal}</span>`);
       if (preview.draw) live.push(`<span class="live live-draw">抽 ${preview.draw}</span>`);
     }
-    const classes = ['card', 'el-' + data.element, 'rarity-' + data.rarity];
+    const classes = ['card', 'el-' + data.element, 'rarity-' + data.rarity, 'type-' + data.type];
+    if (data.character) classes.push('char-' + data.character);
     if (data.rarity === 'special') classes.push('card-special', 'card-id-' + data.id.replace(/_/g, '-'));
     if (data.finisher) classes.push('card-finisher');
+    if (data.finisher && isHand && canPlay?.ok && UI.state.combat.characterResource?.value >= UI.state.combat.characterResource?.max) classes.push('ready');
     if (data.rarity === 'curse') classes.push('card-curse');
     if (upgraded) classes.push('upgraded');
     if (isHand) classes.push('in-hand');
     if (isHand && canPlay && !canPlay.ok) classes.push('disabled');
+    if (isHand && canPlay && !canPlay.ok && cost > UI.state.combat.energy) classes.push('energy-short');
     if (isHand && UI.selected === opts.index) classes.push('selected');
+    if (isHand && opts.chainNext) classes.push('chain-next');
+    if (isHand && opts.willOvercome) classes.push('will-overcome');
+    if (isHand && opts.fanRight) classes.push('fan-right');
     if (opts.locked) classes.push('locked');
     if (opts.sold) classes.push('sold');
     if (opts.selectable) classes.push('selectable');
     if (opts.selected) classes.push('picked');
-    const style = `--el:${el.color};--el-dark:${el.dark};${isHand ? `--rot:${opts.rot || 0}deg;--lift:${opts.lift || 0}px;margin-left:${opts.marginLeft || 0}px` : ''}`;
+    const style = `--el:${el.color};--el-dark:${el.dark};${isHand ? `--hand-rot:${opts.rot || 0}deg;--hand-y:${opts.y || 0}px;--hand-x:${opts.x || 0}px;--hand-z:${opts.z || 1};margin-left:${opts.marginLeft || 0}px` : ''}`;
     const tag = opts.tag || (isHand || opts.inspect ? 'button' : 'div');
     const actionAttr = isHand ? `data-action="play-card" data-index="${opts.index}"` :
       (opts.pickUid ? `data-action="pick-card" data-uid="${esc(opts.pickUid)}"` :
@@ -180,7 +201,7 @@
     const buildTags = buildNames(data);
     const footText = [...buildTags, data.exhaust ? '消耗' : '', data.retain ? '保留' : ''].filter(Boolean).join(' · ') || el.name + '行';
     const upgradeHint = other ? `${upgraded ? '升级前' : '升级后'}（灵气 ${other.cost}）：${other.text}` : '';
-    const tooltip = `${data.name}（${TYPE_NAMES[data.type] || ''}·${RARITY_LABEL[data.rarity] || ''}）\n${data.text}${upgraded ? '\n（已悟）' : ''}${upgradeHint ? '\n' + upgradeHint : ''}`;
+    const tooltip = `${data.name}（${TYPE_NAMES[data.type] || ''}·${RARITY_LABEL[data.rarity] || ''}）\n${data.text}${live.length ? '\n当前预览：' + live.map(item => item.replace(/<[^>]*>/g, '')).join(' · ') : ''}${upgraded ? '\n（已悟）' : ''}${upgradeHint ? '\n' + upgradeHint : ''}`;
     const inner = `
       <div class="card-inner">
         <div class="card-top">
@@ -188,20 +209,21 @@
           <span class="card-name">${esc(faceName)}</span>
         </div>
         <div class="card-art" style="--el:${el.color};--el-dark:${el.dark}">
+          ${data.finisher ? '<span class="card-finisher-seal" aria-hidden="true">终式</span>' : ''}
           ${upgraded ? '<span class="card-up-mark" aria-label="已升级">悟</span>' : ''}
           <span class="card-elem" style="--el:${el.color}">${esc(el.glyph)}</span>
           ${cardArt(data.element, data.id, data.rarity)}
           <span class="card-type">${TYPE_NAMES[data.type] || ''} · ${RARITY_LABEL[data.rarity] || ''}</span>
         </div>
         <div class="card-text">${formatText(data.text)}</div>
-        <div class="card-live">${live.join('')}</div>
+        <div class="card-live">${live.slice(0, 2).join('')}</div>
         <div class="card-foot">
           <span class="${buildTags.length ? 'card-build-tags' : ''}">${footText}</span>
           <span class="card-rarity">${RARITY_LABEL[data.rarity] || ''}</span>
         </div>
       </div>`;
     if (tag === 'button') {
-      return `<button type="button" class="${classes.join(' ')}" style="${style}" ${actionAttr} title="${esc(tooltip)}" aria-label="${esc(tooltip)}" ${isHand && upgradeHint ? `data-upgrade-preview="${esc(upgradeHint)}"` : ''}>${inner}</button>`;
+      return `<button type="button" class="${classes.join(' ')}" style="${style}" ${actionAttr} ${isHand && inst.uid != null ? `data-card-uid="${esc(String(inst.uid))}"` : ''} title="${esc(tooltip)}" aria-label="${esc(tooltip)}" ${isHand && upgradeHint ? `data-upgrade-preview="${esc(upgradeHint)}"` : ''}>${inner}</button>`;
     }
     return `<div class="${classes.join(' ')}" style="${style}" ${actionAttr} title="${esc(tooltip)}">${inner}</div>`;
   }
@@ -965,7 +987,18 @@
             await visual('statusDetonate', { status: ev.status, target, source });
             break;
           }
-          case 'energy': this.sfx('energy'); await sleep(45); break;
+          case 'energy': {
+            this.sfx('energy');
+            if (ev.amount > 0 && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+              document.querySelector('.energy-orb')?.animate?.([
+                { filter: 'brightness(1)', boxShadow: '0 0 14px #85cda244' },
+                { filter: 'brightness(1.35)', boxShadow: '0 0 25px #a8efb7aa', offset: .45 },
+                { filter: 'brightness(1)', boxShadow: '0 0 14px #85cda244' }
+              ], { duration: 240, easing: 'ease-out' });
+            }
+            await sleep(45);
+            break;
+          }
           case 'draw':
           case 'shuffle': await sleep(25); break;
           case 'turnStart':
@@ -1082,6 +1115,12 @@
       this.markSeen();
       const app = document.getElementById('app');
       const screenChanged = this._lastRenderedScreen !== this.screen;
+      const oldHand = new Map();
+      if (!screenChanged && this.screen === 'combat' && app.querySelectorAll) {
+        for (const card of app.querySelectorAll('.hand .card[data-card-uid]')) {
+          oldHand.set(card.dataset.cardUid, card.getBoundingClientRect());
+        }
+      }
       this._lastRenderedScreen = this.screen;
       let html = '';
       switch (this.screen) {
@@ -1102,6 +1141,21 @@
         default: html = this.titleHTML(); break;
       }
       app.innerHTML = html + this.overlayHTML();
+      if (oldHand.size && this.screen === 'combat' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        const newHand = app.querySelectorAll('.hand .card[data-card-uid]');
+        const handChanged = newHand.length !== oldHand.size || [...newHand].some(card => !oldHand.has(card.dataset.cardUid));
+        if (handChanged) {
+          for (const card of newHand) {
+            const previous = oldHand.get(card.dataset.cardUid);
+            if (!previous || !card.animate) continue;
+            const current = card.getBoundingClientRect();
+            const dx = previous.left - current.left;
+            const dy = previous.top - current.top;
+            if (Math.abs(dx) + Math.abs(dy) < 2) continue;
+            card.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0px 0px' }], { duration: 160, easing: 'ease-out' });
+          }
+        }
+      }
       app.classList.remove('screen-enter');
       if (screenChanged) {
         void app.offsetWidth;
@@ -1267,16 +1321,16 @@
         </div>
       </header>`;
     },
-    daoInfoHTML(compact = false) {
+    daoInfoHTML(compact = false, combat = false) {
       const owned = E.getDaoChoices(this.state).filter(choice => choice.rank > 0);
       if (!owned.length) return '';
       const full = owned.map(choice => `${choice.name}${DAO_RANK_MARKS[choice.rank]}：${choice.ranks[choice.rank - 1].text}`).join('\n');
-      return `<button class="dao-info ${compact ? 'compact' : ''}" data-action="view-dao" title="${esc(full)}" aria-label="查看道印：${esc(full)}"><span class="dao-info-full">道印 · ${owned.map(choice => `${esc(choice.name)}${DAO_RANK_MARKS[choice.rank]}`).join(' · ')}</span><span class="dao-info-mobile">道印 ×${owned.length}</span></button>`;
+      return `<button class="dao-info ${compact ? 'compact' : ''}" data-action="view-dao" title="${esc(full)}" aria-label="查看道印：${esc(full)}"><span class="dao-info-full">${combat ? `印 · ${owned.map(choice => DAO_RANK_MARKS[choice.rank]).join('')}` : `道印 · ${owned.map(choice => `${esc(choice.name)}${DAO_RANK_MARKS[choice.rank]}`).join(' · ')}`}</span><span class="dao-info-mobile">道印 ×${owned.length}</span></button>`;
     },
-    fateInfoHTML() {
+    fateInfoHTML(combat = false) {
       const item = this.state && E.getFateItem(this.state);
       if (!item) return '';
-      return `<button class="fate-info" data-action="view-fate" title="${esc(item.name)}：${esc(item.desc)}" aria-label="查看天命：${esc(item.name)}，${esc(item.desc)}"><span class="fate-info-full">✦ 天命 · ${esc(item.name)}</span><span class="fate-info-mobile">✦</span></button>`;
+      return `<button class="fate-info" data-action="view-fate" title="${esc(item.name)}：${esc(item.desc)}" aria-label="查看天命：${esc(item.name)}，${esc(item.desc)}"><span class="fate-info-full">${combat ? '✦ 天命' : `✦ 天命 · ${esc(item.name)}`}</span><span class="fate-info-mobile">✦</span></button>`;
     },
     miniStatusHTML() {
       return `<span class="mini-hp">${hpBarHTML(this.state.hp, this.state.maxHp)}</span>${goldHTML(this.state.gold)}`;
@@ -1393,15 +1447,22 @@
       this.targetIndex = targetIdx >= 0 ? targetIdx : 0;
       const enemyHTML = c.enemies.map((e, i) => this.enemyHTML(e, i, targetIdx)).join('');
       const n = c.hand.length;
-      const mid = (n - 1) / 2;
       const compactH = window.innerHeight <= 780;
       const compactW = window.innerWidth <= 1060;
       const mobile = window.innerWidth <= 600;
       const cardW = mobile ? 116 : (compactH || compactW) ? 132 : (window.innerWidth <= 1200 ? 138 : 152);
-      const avail = mobile ? window.innerWidth : Math.max(320, window.innerWidth - 380);
-      const overlap = !mobile && n > 1 && n * cardW > avail ? Math.min(96, Math.ceil((n * cardW - avail) / (n - 1))) : 0;
+      const avail = mobile ? window.innerWidth : Math.max(320, window.innerWidth - 540);
+      const target = c.enemies[this.targetIndex];
       const hand = c.hand.map((inst, i) => {
-        return cardHTML(inst, { mode: 'hand', index: i, rot: 0, lift: 0, marginLeft: i === 0 ? 0 : -overlap });
+        const data = cardData(inst);
+        const layout = getHandLayout(i, n, { mobile, cardWidth: cardW, available: avail });
+        return cardHTML(inst, {
+          mode: 'hand', index: i, rot: layout.rot, y: layout.y, x: layout.x, z: layout.z,
+          marginLeft: i === 0 ? 0 : -layout.overlap,
+          fanRight: !mobile && i > (n - 1) / 2,
+          chainNext: !!c.currentElement && data.element === elem(c.currentElement).generates,
+          willOvercome: data.type === 'attack' && !!target && target.hp > 0 && elem(data.element).overcomes === target.element
+        });
       }).join('');
       const focusName = c.enemies[targetIdx] && c.enemies[targetIdx].hp > 0 ? c.enemies[targetIdx].name : '';
       const mobileUI = window.innerWidth <= 600;
@@ -1440,14 +1501,14 @@
                 <span class="character-resource-label">${esc(ch.resource.name)} ${c.characterResource.value}/${c.characterResource.max}</span>
                 <span class="character-resource-pips">${Array.from({ length: c.characterResource.max }, (_, i) => `<i class="${i < c.characterResource.value ? 'on' : ''}"></i>`).join('')}</span>
               </div>` : ''}
-              <div class="build-identity ${identity.level >= 2 ? 'formed' : ''}">${identity.level ? `道途 · ${esc(identity.name)} · ${esc(identity.levelName)}` : '道途未定'}</div>
-              ${this.daoInfoHTML()}
-              ${this.fateInfoHTML()}
+              <div class="build-identity ${identity.level >= 2 ? 'formed' : ''}" title="${identity.level ? `${esc(identity.name)} · ${esc(identity.levelName)}` : '道途未定'}">${identity.level ? `道 · ${esc(identity.name)}` : '道途未定'}</div>
+              ${this.daoInfoHTML(false, true)}
+              ${this.fateInfoHTML(true)}
               <div class="player-sub">
                 ${c.block > 0 ? `<span class="block-pill" title="护甲">甲 ${c.block}</span>` : ''}
                 <span class="statuses">${statusChips(c.statuses, 'player')}</span>
               </div>
-              <div class="relic-strip">${st.relics.filter(id => !D.relicMap[id]?.fateOnly).map(id => relicChip(id, { inspect: true })).join('')}</div>
+              <div class="relic-strip">${st.relics.filter(id => !D.relicMap[id]?.fateOnly).slice(0, 4).map(id => relicChip(id, { inspect: true })).join('')}${st.relics.filter(id => !D.relicMap[id]?.fateOnly).length > 4 ? `<button type="button" class="relic-more" data-action="view-relics" aria-label="查看其余${st.relics.filter(id => !D.relicMap[id]?.fateOnly).length - 4}件遗物">+${st.relics.filter(id => !D.relicMap[id]?.fateOnly).length - 4}</button>` : ''}</div>
             </div>
             <button class="entity-info player-info-btn" data-action="inspect-character" data-char="${ch.id}" aria-label="查看${esc(ch.name)}详情">详情</button>
           </div>
@@ -1539,16 +1600,18 @@
         if (sd.element && sd.element !== 'none' && cur && cur.generates === sd.element) hint = '此牌可续链 +1';
         else if (sd.element && sd.element !== 'none' && cur) hint = '此牌会断链';
       }
+      const nodes = D.elementOrder.map(id => {
+        const element = elem(id);
+        return `<span class="five-node five-${id} ${cur?.id === id ? 'current' : ''} ${next?.id === id ? 'next' : ''}" style="--el:${element.color};--el-dark:${element.dark}" title="${esc(element.name)}行${cur?.id === id ? ' · 当前' : next?.id === id ? ' · 下一行' : ''}">${esc(element.glyph)}</span>`;
+      }).join('');
       return `
-      <div class="chain-panel">
-        <div class="chain-flow">
-          <span class="chain-elem ${cur ? '' : 'empty'}" style="${cur ? `--el:${cur.color};--el-dark:${cur.dark}` : ''}">${cur ? cur.glyph : '起'}</span>
-          <span class="chain-arrow">${cur ? '生' : '→'}</span>
-          <span class="chain-elem ${next ? '' : 'empty'}" style="${next ? `--el:${next.color};--el-dark:${next.dark}` : ''}">${next ? next.glyph : '—'}</span>
-        </div>
-        <div class="chain-meta">
-          <div class="chain-pips" title="连携层数">${pips}<b>${c.chain}<small>/5</small></b></div>
-          <div class="chain-hint">${hint}</div>
+      <div class="chain-panel" aria-label="五行连携 ${c.chain} 层${cur ? `，当前${cur.name}，下一行${next.name}` : '，尚未起手'}">
+        <div class="five-ring ${c.chain >= 5 ? 'full' : ''}" aria-hidden="true">
+          ${nodes}
+          <div class="chain-meta">
+            <div class="chain-pips" title="连携层数">${pips}<b>${c.chain}<small>/5</small></b></div>
+            <div class="chain-hint">${hint}</div>
+          </div>
         </div>
       </div>`;
     },
