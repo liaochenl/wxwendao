@@ -900,6 +900,49 @@ async function auditCombatStage(cdp, baseUrl) {
     fs.writeFileSync(path.join(outputDir, `${name}.png`), Buffer.from(image.data, 'base64'));
     console.log(`CHECK 战斗手牌 ${name}: ${JSON.stringify(metrics)}`);
   }
+
+  async function showRarityGallery(width, name, cards, { mobile = false } = {}) {
+    const height = mobile ? 852 : 900;
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width, height, screenWidth: width, screenHeight: height,
+      deviceScaleFactor: 1, mobile: false, scale: 1
+    });
+    await cdp.eval(`new Promise(resolve => setTimeout(resolve, 230))`);
+    await cdp.eval(`(() => {
+      WX_UI.state = WXEngine.createRun({ characterId: 'sword', seed: 71 });
+      WXEngine.startCombat(WX_UI.state, { enemies: [{ id: 'shan_gui' }] }, 'boss');
+      WX_UI.state.combat.hand = ${JSON.stringify(cards)}.map((card, i) => typeof card === 'string'
+        ? ({ uid:'rarity-'+i, id:card, up:false }) : ({ uid:'rarity-'+i, ...card }));
+      WX_UI.screen='combat'; WX_UI.selected=null; WX_UI.render();
+      const source=[...document.querySelectorAll('.hand .card')];
+      const sheet=document.createElement('section');
+      sheet.setAttribute('aria-label','卡牌品级视觉对照');
+      sheet.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;background:rgba(6,10,12,.88);padding:18px;box-sizing:border-box';
+      const title=document.createElement('div');
+      title.textContent='卡牌品级 · 五行主色保留，牌框逐级成章';
+      title.style.cssText='font:22px serif;color:#ead8ad;letter-spacing:.16em;text-align:center';
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;justify-content:center;gap:${mobile ? 6 : 18}px;width:100%';
+      for(const original of source){
+        const card=original.cloneNode(true);
+        card.classList.remove('in-hand','selected','disabled','chain-next','will-overcome','fan-right');
+        card.removeAttribute('data-action'); card.removeAttribute('data-index'); card.removeAttribute('data-card-uid');
+        card.style.cssText += ';width:${mobile ? 108 : 190}px;height:${mobile ? 170 : 272}px;flex:0 1 auto;min-width:0;margin:0;transform:none;cursor:default';
+        row.append(card);
+      }
+      sheet.append(title,row); document.querySelector('.combat-v2').append(sheet);
+      return { count:source.length, classes:source.map(card=>card.className), visible:[...row.children].every(card=>{const r=card.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth}) };
+    })()`);
+    await cdp.eval(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+    await sleep(180);
+    const image=await cdp.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+    fs.writeFileSync(path.join(outputDir,`${name}.png`),Buffer.from(image.data,'base64'));
+    const result=await cdp.eval(`(() => ({count:document.querySelectorAll('[aria-label="卡牌品级视觉对照"] .card').length,
+      visible:[...document.querySelectorAll('[aria-label="卡牌品级视觉对照"] .card')].every(card=>{const r=card.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth}),
+      rareOrnaments:document.querySelectorAll('[aria-label="卡牌品级视觉对照"] .rarity-rare .card-rarity-ornament').length}))()`);
+    if(result.count!==cards.length||!result.visible) fail(`卡牌品级对照 ${name}: ${JSON.stringify(result)}`);
+    console.log(`CHECK 卡牌品级对照 ${name}: ${JSON.stringify(result)}`);
+  }
   await cdp.send('Page.navigate', { url: `${baseUrl}/index.html?v=${Date.now()}` });
   await sleep(800);
   const examples = ['jin_ren', 'liu_yun', 'duan_yue', 'chi_yan', 'yan_quan', 'teng_bian', 'jin_feng', 'shi_fu', 'chun_feng', 'lie_yan'];
@@ -927,6 +970,10 @@ async function auditCombatStage(cdp, baseUrl) {
     ['alchemist', ['chan_si', 'bai_du_gui_yuan', 'chi_yan']],
     ['monk', ['yan_quan', 'beng_tian_shi', 'jin_zhong']]
   ]) await showHandScene(1440, 900, `finisher-${character}`, { character, cards, fullResource: true });
+  await showRarityGallery(1440, 'card-rarity-hierarchy', ['jin_ren','jin_feng','she_ji','wu_lei','yi_jian_kai_tian']);
+  await showRarityGallery(1440, 'card-rarity-elements', ['qing_mu','xing_huo','da_di','wu_lei','xuan_wu']);
+  await showRarityGallery(1440, 'card-rarity-variants', ['wu_lei',{id:'wu_lei',up:true},'yi_jian_kai_tian']);
+  await showRarityGallery(393, 'card-rarity-mobile', ['jin_feng','she_ji','wu_lei'], { mobile:true });
 }
 
 async function auditCombatEffects(cdp, baseUrl) {

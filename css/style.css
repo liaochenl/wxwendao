@@ -2030,3 +2030,106 @@ body.zhoutian-flash::after {
   .combat-v2 .card.in-hand:focus-visible { transform: translate3d(var(--hand-x, 0px), calc(var(--hand-y, 0px) - 12px), 0) rotate(0deg) scale(1.02); }
   .combat-v2 .card.in-hand:not(.selected):hover::after { bottom: -18px; }
 }
+
+/* 战斗 UI V2-B.1：品级通过牌框层次表达，五行色与卡牌轮廓由原规则保留。 */
+.card.rarity-starter { --rarity-ink: color-mix(in srgb, var(--el) 58%, #8e8167); }
+.card.rarity-common { --rarity-ink: color-mix(in srgb, var(--el) 58%, #685b43); }
+.card.rarity-uncommon { --rarity-ink: color-mix(in srgb, var(--el) 55%, #c1a76f); }
+.card.rarity-rare { --rarity-ink: color-mix(in srgb, var(--el) 52%, #e4d2a2); }
+.card.rarity-starter::after, .card.rarity-common::after, .card.rarity-uncommon::after, .card.rarity-rare::after { border: 0; }
+
+/* 初始：单层主色边框，只在左上与右下留短角线。 */
+.card.rarity-starter .card-inner { border-width: 1px; border-color: color-mix(in srgb, var(--el) 58%, #72664e); box-shadow: 0 7px 18px -10px #000c; }
+.card.rarity-starter .card-inner::after {
+  content: ''; inset: 4px; border: 0; border-radius: 7px;
+  background:
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) left top / 12px 1px,
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) left top / 1px 12px,
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) right bottom / 12px 1px,
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) right bottom / 1px 12px;
+  background-repeat: no-repeat; opacity: .5; pointer-events: none;
+}
+
+/* 凡品：标准纸面与完整单框，不加额外角饰。 */
+.card.rarity-common .card-inner { border-width: 1px; box-shadow: 0 8px 20px -9px #000c, inset 0 0 10px rgba(50, 37, 18, .08); }
+.card.rarity-common .card-inner::after { content: none; }
+
+/* 灵品：主色局部角纹、轻内线和淡牌名托纹。 */
+.card.rarity-uncommon .card-inner { border-width: 1.5px; box-shadow: 0 8px 20px -9px #000c, inset 0 0 12px color-mix(in srgb, var(--el) 7%, transparent); }
+.card.rarity-uncommon .card-inner::after {
+  content: ''; inset: 4px; border: 0; border-radius: 7px; clip-path: none;
+  background:
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) left top / 17px 1px,
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) left top / 1px 17px,
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) right top / 17px 1px,
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) right top / 1px 17px,
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) left bottom / 17px 1px,
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) left bottom / 1px 17px,
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) right bottom / 17px 1px,
+    linear-gradient(var(--rarity-ink), var(--rarity-ink)) right bottom / 1px 17px;
+  background-repeat: no-repeat; opacity: .82; pointer-events: none;
+}
+.card.rarity-uncommon .card-top::after, .card.rarity-rare .card-top::after {
+  content: ''; position: absolute; left: 20%; right: 4%; bottom: -4px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--rarity-ink) 18% 72%, transparent); pointer-events: none;
+}
+
+/* 玄品：完整元素派生双框、四角道纹、淡标题托纹与底部小法印。 */
+.card.rarity-rare .card-inner { border-width: 2px; box-shadow: 0 9px 21px -10px #000d, inset 0 0 0 2px #fff8; }
+.card.rarity-rare .card-inner::after {
+  content: ''; inset: 4px; border: 1.5px solid var(--rarity-ink); border-radius: 7px;
+  background: none; opacity: .78; pointer-events: none;
+}
+.card.rarity-rare .card-rarity-ornament {
+  position: absolute; inset: 6px; z-index: 1; pointer-events: none; opacity: 1;
+  background:
+    linear-gradient(90deg, var(--rarity-ink) 0 12px, transparent 12px) left top / 16px 1px,
+    linear-gradient(var(--rarity-ink) 0 12px, transparent 12px) left top / 1px 16px,
+    linear-gradient(90deg, transparent 4px, var(--rarity-ink) 4px 7px, transparent 7px) left 3px top 3px / 8px 8px,
+    linear-gradient(90deg, transparent 0 4px, var(--rarity-ink) 4px 16px) right top / 16px 1px,
+    linear-gradient(var(--rarity-ink) 0 12px, transparent 12px) right top / 1px 16px,
+    linear-gradient(90deg, var(--rarity-ink) 0 12px, transparent 12px) left bottom / 16px 1px,
+    linear-gradient(var(--rarity-ink) 0 12px, transparent 12px) left bottom / 1px 16px,
+    linear-gradient(90deg, transparent 0 4px, var(--rarity-ink) 4px 16px) right bottom / 16px 1px,
+    linear-gradient(var(--rarity-ink) 0 12px, transparent 12px) right bottom / 1px 16px;
+  background-repeat: no-repeat;
+}
+.card.rarity-rare .card-rarity-ornament::before {
+  content: ''; position: absolute; left: 21px; right: 21px; top: 31px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--rarity-ink) 18% 82%, transparent); opacity: .58;
+}
+.card.rarity-rare .card-rarity-ornament::after {
+  content: ''; position: absolute; left: 50%; bottom: 2px; width: 9px; height: 9px; transform: translateX(-50%);
+  border: 1px solid var(--rarity-ink); border-radius: 50%;
+  background: radial-gradient(circle, var(--rarity-ink) 0 1px, transparent 1.5px); opacity: .88;
+}
+.card.rarity-rare .card-art { box-shadow: inset 0 0 0 1px var(--rarity-ink); }
+.card.rarity-rare .card-rarity { color: color-mix(in srgb, var(--el) 42%, #765d32); }
+
+/* 悟纹加强升级感，但不覆盖品级外框与纹样。 */
+.card.upgraded .card-up-mark { border: 1px solid color-mix(in srgb, var(--el) 45%, #f1d58d); box-shadow: 0 0 0 1px #72582733, 0 1px 4px #0006; }
+.card.rarity-rare.upgraded .card-rarity-ornament { filter: drop-shadow(0 0 1px color-mix(in srgb, var(--el) 45%, #e7ca82)); }
+.card.rarity-rare.card-finisher .card-rarity-ornament { opacity: 1; }
+.card.rarity-rare.card-finisher .card-inner {
+  box-shadow: 0 11px 24px -12px #000e, inset 0 0 0 3px #fff7ddaa,
+    inset 0 0 0 5px color-mix(in srgb, var(--el) 58%, #8d6c34);
+}
+.card.rarity-rare.card-finisher .card-inner::before { left: 10%; right: 10%; height: 4px; box-shadow: 0 1px 0 #fff8; }
+.card.rarity-rare.card-finisher .card-art {
+  box-shadow: inset 0 0 0 1px var(--rarity-ink), inset 0 0 0 3px #f6e5bc26,
+    0 0 12px color-mix(in srgb, var(--el) 34%, transparent);
+}
+.card-finisher-seal { padding: 2px 11px; border-width: 2px; font-size: 11px; letter-spacing: .2em; }
+.card.char-sword.card-finisher .card-art { background: linear-gradient(135deg, #b5d3e255 0 2%, transparent 2% 47%, #dbe9e45e 48% 49%, transparent 50%), radial-gradient(ellipse at 50% 35%, #86bed344, transparent 65%), #18252d; }
+.card.char-alchemist.card-finisher .card-art { background: repeating-radial-gradient(circle at 50% 50%, transparent 0 18px, #e69b5c45 19px 20px, transparent 21px 29px), radial-gradient(circle at 50% 73%, #df744755, transparent 65%), #2c211e; }
+.card.char-monk.card-finisher .card-art { background: linear-gradient(145deg, transparent 38%, #cbb17c55 39% 45%, transparent 46%), radial-gradient(ellipse at 50% 100%, #bca36e66, transparent 70%), #292820; }
+
+@media (hover: hover) and (pointer: fine) {
+  .card.rarity-uncommon:hover .card-inner::after { filter: brightness(1.24); }
+  .card.rarity-rare:hover .card-inner::after { opacity: 1; }
+  .card.rarity-rare:hover .card-rarity-ornament { filter: drop-shadow(0 0 2px color-mix(in srgb, var(--el) 32%, transparent)); }
+  .card.rarity-rare.card-finisher:hover .card-rarity-ornament { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--el) 48%, transparent)); }
+}
+@media (max-width: 600px) {
+  .card.rarity-rare .card-rarity-ornament::after { display: none; }
+}

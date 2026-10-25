@@ -125,3 +125,35 @@ test('终式、升级与五行资源具有独立标记，周天满层闭合', ()
     assert.match(html, /class="energy-orb"/);
   }
 });
+
+test('卡牌品级 class 与类型、终式、升级和异数身份互不覆盖', () => {
+  const ui = makeUI(1440, 900);
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  ui.state.combat.hand = [
+    { id: 'jin_ren', up: false },
+    { id: 'jin_feng', up: false },
+    { id: 'she_ji', up: false },
+    { id: 'wu_lei', up: false },
+    { id: 'xuan_wu', up: true },
+    { id: 'yi_jian_kai_tian', up: true },
+    { id: 'huo_zhong', up: false },
+    { id: 'xin_mo', up: false }
+  ];
+  const html = ui.combatHTML();
+  const cards = handCards(html).map(card => card[1]);
+  for (const [index, rarity] of ['starter', 'common', 'uncommon', 'rare', 'rare'].entries()) {
+    assert.match(cards[index], new RegExp(`rarity-${rarity}`));
+  }
+  assert.match(cards[2], /type-attack/);
+  assert.match(cards[3], /type-attack/);
+  assert.match(cards[4], /type-skill[^\"]*rarity-rare|rarity-rare[^\"]*type-skill/);
+  assert.match(cards[4], /upgraded/);
+  assert.match(cards[5], /rarity-rare[^\"]*card-finisher|card-finisher[^\"]*rarity-rare/);
+  assert.match(cards[5], /char-sword/);
+  assert.match(cards[5], /upgraded/);
+  assert.match(cards[6], /card-special/);
+  assert.doesNotMatch(cards[6], /rarity-(starter|common|uncommon|rare)/);
+  assert.match(cards[7], /card-curse/);
+  assert.doesNotMatch(cards[7], /rarity-(starter|common|uncommon|rare)/);
+  assert.equal((html.match(/card-rarity-ornament/g) || []).length, 3);
+});

@@ -204,6 +204,7 @@
     const tooltip = `${data.name}（${TYPE_NAMES[data.type] || ''}·${RARITY_LABEL[data.rarity] || ''}）\n${data.text}${live.length ? '\n当前预览：' + live.map(item => item.replace(/<[^>]*>/g, '')).join(' · ') : ''}${upgraded ? '\n（已悟）' : ''}${upgradeHint ? '\n' + upgradeHint : ''}`;
     const inner = `
       <div class="card-inner">
+        ${data.rarity === 'rare' ? '<span class="card-rarity-ornament" aria-hidden="true"></span>' : ''}
         <div class="card-top">
           <span class="card-cost ${discounted ? 'discounted' : ''}">${cost}</span>
           <span class="card-name">${esc(faceName)}</span>
