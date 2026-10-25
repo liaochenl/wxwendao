@@ -782,6 +782,71 @@ async function auditShortCombat(cdp, baseUrl) {
   console.log('CHECK 怪物战斗@1100×550: ' + JSON.stringify(short));
 }
 
+async function auditCombatStage(cdp, baseUrl) {
+  const outputDir = path.join(ROOT, 'docs', 'screenshots', 'combat-v2');
+  fs.mkdirSync(outputDir, { recursive: true });
+  for (const [width, height] of [[800, 650], [1280, 720], [1440, 900], [1920, 1080]]) {
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width, height, screenWidth: width, screenHeight: height,
+      deviceScaleFactor: 1, mobile: false, scale: 1
+    });
+    await cdp.send('Page.navigate', { url: `${baseUrl}/index.html?v=${Date.now()}` });
+    await sleep(900);
+    await cdp.eval(`(() => {
+      localStorage.clear(); WX_UI.hasRun=false; WX_UI.beginRun();
+      WXEngine.startCombat(WX_UI.state,{enemies:[{id:'shan_gui'}]},'boss');
+      WX_UI.screen='combat'; WX_UI.render(); return 1;
+    })()`);
+    await cdp.eval(`Promise.all([...document.querySelectorAll('.enemy-art-figure,.player-figure img')].map(img => img.decode().catch(() => {})))`);
+    await cdp.eval(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+    await sleep(180);
+    const layout = await cdp.eval(`(() => {
+      const rect = selector => document.querySelector(selector)?.getBoundingClientRect();
+      const enemy = rect('.enemy-unit'), player = rect('.player-zone'), hand = rect('.hand-zone');
+      const enemyBody = rect('.enemy-body'), playerAnchor = rect('.player-anchor');
+      const art = document.querySelector('.enemy-art-figure');
+      const playerArt = document.querySelector('.player-figure img');
+      const subjectsOverlap = enemyBody && playerAnchor && enemyBody.left < playerAnchor.right - 2 &&
+        enemyBody.right > playerAnchor.left + 2 && enemyBody.top < playerAnchor.bottom - 2 &&
+        enemyBody.bottom > playerAnchor.top + 2;
+      return {
+        stage: !!document.querySelector('.battlefield .battle-ground'),
+        portrait: !!playerArt?.naturalWidth,
+        artLoaded: !!art?.naturalWidth,
+        subjectsOverlap,
+        headerBottom:rect('.combat-top')?.bottom, intentTop:rect('.intent')?.top,
+        enemyBottom: enemy?.bottom, playerTop: player?.top, playerBottom: player?.bottom,
+        handTop: hand?.top, endTurnBottom: rect('.end-turn')?.bottom,
+        scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight
+      };
+    })()`);
+    if (!layout.stage || !layout.portrait || !layout.artLoaded || layout.subjectsOverlap ||
+        layout.intentTop < layout.headerBottom - 1 || layout.enemyBottom > layout.handTop - 4 ||
+        layout.playerBottom > layout.handTop + 1 || layout.scrollWidth > width + 1 ||
+        (width >= 1060 && layout.endTurnBottom > height + 1) ||
+        (width < 1060 && layout.scrollHeight < layout.endTurnBottom - 1)) {
+      fail(`战斗舞台@${width}×${height}: 敌我或手牌重叠、素材缺失 ${JSON.stringify(layout)}`);
+    }
+    const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    fs.writeFileSync(path.join(outputDir, `boss-${width}x${height}.png`), Buffer.from(data, 'base64'));
+    console.log(`CHECK 战斗舞台@${width}×${height}: ${JSON.stringify(layout)}`);
+    if (width === 1440) {
+      for (const [tier, id] of [['normal', 'shan_xiao'], ['elite', 'jin_jia_shi_jiang'], ['final', 'tai_xu']]) {
+        await cdp.eval(`(() => {
+          WX_UI.state.act=${tier === 'final' ? 3 : 1};
+          WXEngine.startCombat(WX_UI.state,{enemies:[{id:'${id}'}]},'${tier === 'normal' ? 'combat' : tier === 'elite' ? 'elite' : 'boss'}');
+          WX_UI.screen='combat'; WX_UI.render(); return 1;
+        })()`);
+        await cdp.eval(`Promise.all([...document.querySelectorAll('.enemy-art-figure,.player-figure img')].map(img => img.decode().catch(() => {})))`);
+        await cdp.eval(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+        await sleep(180);
+        const image = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        fs.writeFileSync(path.join(outputDir, `${tier}-1440x900.png`), Buffer.from(image.data, 'base64'));
+      }
+    }
+  }
+}
+
 async function auditCombatEffects(cdp, baseUrl) {
   for (const width of [393, 1280]) {
     await cdp.send('Emulation.setDeviceMetricsOverride', {
@@ -867,12 +932,15 @@ try {
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
 
-  if (!process.env.AUDIT_EFFECTS_ONLY) {
+  if (process.env.AUDIT_STAGE_ONLY) {
+    await auditCombatStage(cdp, baseUrl);
+  } else if (!process.env.AUDIT_EFFECTS_ONLY) {
     for (const vp of viewports) await auditAt(cdp, baseUrl, vp);
     await captureCardShowcase(cdp, baseUrl);
     await auditShortCombat(cdp, baseUrl);
+    await auditCombatStage(cdp, baseUrl);
   }
-  await auditCombatEffects(cdp, baseUrl);
+  if (!process.env.AUDIT_STAGE_ONLY) await auditCombatEffects(cdp, baseUrl);
 } finally {
   try { cdp && cdp.close(); } catch {}
   try { chrome && chrome.child.kill('SIGKILL'); } catch {}

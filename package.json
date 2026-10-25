@@ -4,7 +4,7 @@
   "private": true,
   "description": "《五行问道》——五行连携 Roguelike 卡牌游戏",
   "scripts": {
-    "test": "node --test test/engine.test.js test/effects.test.js test/mobile-details.test.js test/attraction-v1.test.js test/dao-v1.test.js test/fate-v1.test.js test/boss-elite-v2.test.js test/sim-report.test.js test/balance-encounters.test.js test/map-generation.test.js test/sword-build-v2.test.js test/alchemist-build-v2.test.js test/monk-build-v2.test.js test/build-report.test.js",
+    "test": "node --test test/engine.test.js test/effects.test.js test/mobile-details.test.js test/combat-ui-v2.test.js test/attraction-v1.test.js test/dao-v1.test.js test/fate-v1.test.js test/boss-elite-v2.test.js test/sim-report.test.js test/balance-encounters.test.js test/map-generation.test.js test/sword-build-v2.test.js test/alchemist-build-v2.test.js test/monk-build-v2.test.js test/build-report.test.js",
     "sim": "node test/sim.js",
     "report:build": "node test/build-report.js",
     "balance:encounters": "node test/balance-encounters.js",

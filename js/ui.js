@@ -1411,8 +1411,10 @@
           : (alive.length > 1
             ? (mobileUI ? `当前目标：${esc(focusName)} · 点按手牌查看详情，确认后选敌人` : `当前目标：${esc(focusName)} · 点击卡牌后点敌人切换 · 数字键直接出牌`)
             : `${mobileUI ? '点按手牌查看详情并确认出牌' : '点击卡牌出牌 · 数字键 1–9 · E 结束回合'}`));
+      const thornAura = identity.tag === 'monk_thorns' && c.statuses.thorns >= 5;
       return `
-      <main class="screen combat-screen ${c.phase === 'enemy' ? 'enemy-phase' : ''} ${arena ? `arena-${esc(arena)} ${featured.boss ? 'arena-boss' : 'arena-elite'}` : ''} ${pathClass} path-level-${identity.level} ${fullResource ? 'resource-full' : ''} ${c.cardsPlayedThisTurn >= 5 ? 'combo-fast' : ''} ${c.chain >= 3 ? 'chain-formed' : ''}">
+      <main class="screen combat-screen combat-v2 act-${st.act} character-${ch.id} ${c.phase === 'enemy' ? 'enemy-phase' : ''} ${arena ? `arena-${esc(arena)} ${featured.boss ? 'arena-boss' : 'arena-elite'}` : ''} ${pathClass} path-level-${identity.level} ${fullResource ? 'resource-full' : ''} ${c.cardsPlayedThisTurn >= 5 ? 'combo-fast' : ''} ${c.chain >= 3 ? 'chain-formed' : ''}">
+        <div class="combat-backdrop" aria-hidden="true"></div>
         <header class="combat-top">
           <div class="turn-tag">第 ${c.turn} 回合</div>
           <div class="combat-act">${esc(E.getActName(st.act))}</div>
@@ -1422,12 +1424,15 @@
             <button class="btn btn-ghost btn-xs" data-action="settings">设置</button>
           </div>
         </header>
-        <section class="enemy-zone ${c.enemies.length > 1 ? 'multi' : ''}">
-          ${enemyHTML}
-        </section>
-        <section class="battle-mid">
-          <div class="player-panel ${identity.tag === 'monk_block' && c.block >= 25 ? 'armor-aura' : ''} ${identity.tag === 'monk_block' && c.block >= 40 ? 'armor-aura-strong' : ''} ${identity.tag === 'monk_thorns' && c.statuses.thorns >= 5 ? 'thorn-aura' : ''} ${identity.tag === 'monk_ritual' && c.characterResource?.value >= 7 ? 'ritual-aura' : ''} ${identity.tag === 'regen' && c.statuses.regen >= 5 ? 'life-aura' : ''}" id="player-panel">
-            <div class="player-portrait"><span>${characterSigil(ch.id)}</span></div>
+        <section class="battlefield" aria-label="战斗场景">
+          <section class="enemy-zone ${c.enemies.length > 1 ? 'multi' : ''}">
+            ${enemyHTML}
+          </section>
+          <div class="battle-ground" aria-hidden="true"><div class="battle-ground-line"></div><div class="battle-ground-runes"></div><div class="battle-ground-mist"></div></div>
+          <section class="player-zone battle-mid">
+          <div class="player-anchor">
+            <div class="player-avatar ${thornAura ? 'thorn-aura' : ''}" aria-hidden="true"><div class="player-aura"></div><div class="player-figure"><span class="player-portrait">${characterSigil(ch.id)}</span><img src="${CHAR_PORTRAITS[ch.id]}" alt="" loading="eager" decoding="async"></div></div>
+          <div class="player-panel ${identity.tag === 'monk_block' && c.block >= 25 ? 'armor-aura' : ''} ${identity.tag === 'monk_block' && c.block >= 40 ? 'armor-aura-strong' : ''} ${thornAura ? 'thorn-aura' : ''} ${identity.tag === 'monk_ritual' && c.characterResource?.value >= 7 ? 'ritual-aura' : ''} ${identity.tag === 'regen' && c.statuses.regen >= 5 ? 'life-aura' : ''}" id="player-panel">
             <div class="player-info">
               <div class="player-name">${esc(ch.name)} <small>${esc(ch.passive)}</small></div>
               ${hpBarHTML(st.hp, st.maxHp)}
@@ -1446,12 +1451,17 @@
             </div>
             <button class="entity-info player-info-btn" data-action="inspect-character" data-char="${ch.id}" aria-label="查看${esc(ch.name)}详情">详情</button>
           </div>
+          </div>
+          <div class="combat-resources">
           ${this.chainHTML()}
           <div class="energy-box" title="灵气：每回合恢复至上限">
             <span class="energy-orb"><b>${c.energy}</b><small>/${c.maxEnergy}</small></span>
             <span class="energy-label">灵气</span>
           </div>
+          </div>
+          </section>
         </section>
+        <section class="combat-bottom">
         <section class="hand-zone">
           <div class="left-tray">
             <div class="potions">
@@ -1471,6 +1481,7 @@
           </div>
         </section>
         <p class="combat-hint ${this.selected != null ? 'targeting' : ''}">${selectedHint}</p>
+        </section>
       </main>`;
     },
     enemyHTML(e, i, targetIdx) {
@@ -1494,7 +1505,7 @@
         ? `${mechanic.name} ${mechanic.value}/${mechanic.max}${mechanic.id === 'arrayBreak' ? ` · ${elem(mechanic.currentElement).glyph} → ${elem(mechanic.nextElement).glyph}` : ''}`
         : `${mechanic.name} · 毒潮播种${mechanic.handCount ? ` · 藤种 ×${mechanic.handCount}` : ''}` : '';
       return `
-      <div class="enemy-unit ${alive ? '' : 'dead'} ${targetable ? 'targetable' : ''} ${i === targetIdx && alive ? 'focused' : ''} ${showTarget ? 'show-target' : ''} ${e.statuses.poison >= 10 ? 'poison-aura' : ''} ${e.statuses.poison >= 20 ? 'poison-aura-strong' : ''} ${e.statuses.poison >= 30 ? 'poison-aura-glow' : ''} ${e.statuses.burn >= 10 ? 'burn-aura' : ''}" style="--enemy-index:${i};--enemy-element:${elem(e.element).color}" data-enemy-uid="${e.uid}" data-action="enemy" data-index="${i}">
+      <div class="enemy-unit ${D.enemies[e.id]?.boss ? 'enemy-boss' : D.enemies[e.id]?.elite ? 'enemy-elite' : 'enemy-normal'} ${e.phase === 2 ? 'phase-2' : ''} ${alive ? '' : 'dead'} ${targetable ? 'targetable' : ''} ${i === targetIdx && alive ? 'focused' : ''} ${showTarget ? 'show-target' : ''} ${e.statuses.poison >= 10 ? 'poison-aura' : ''} ${e.statuses.poison >= 20 ? 'poison-aura-strong' : ''} ${e.statuses.poison >= 30 ? 'poison-aura-glow' : ''} ${e.statuses.burn >= 10 ? 'burn-aura' : ''}" style="--enemy-index:${i};--enemy-element:${elem(e.element).color}" data-enemy-uid="${e.uid}" data-action="enemy" data-index="${i}">
         ${alive ? `<button class="entity-info enemy-info-btn" data-action="inspect-enemy" data-id="${esc(e.id)}" data-index="${i}" aria-label="查看${esc(e.name)}详情">详情</button>` : ''}
         <div class="intent ${intent && intent.damage ? 'intent-attack' : ''}" title="${intent ? esc(intent.name + '：' + intent.label) : ''}">
           <span class="intent-icon">${intent ? esc(intent.icon) : '？'}</span>
@@ -1502,6 +1513,7 @@
           ${detail ? `<span class="intent-detail">${esc(detail)}</span>` : ''}
         </div>
         <div class="enemy-body">
+          ${D.enemies[e.id]?.boss ? `<div class="boss-rubric">第${['一', '二', '三'][this.state.act - 1] || this.state.act}幕之主</div>` : ''}
           <div class="enemy-top">
             <span class="enemy-name">${esc(e.name)}</span>
             ${elemBadge(e.element)}
