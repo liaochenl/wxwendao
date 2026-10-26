@@ -1,3 +1,6 @@
 .DS_Store
 node_modules/
 *.log
+
+# Local QA screenshots are not part of the repository.
+docs/screenshots/
