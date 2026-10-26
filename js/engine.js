@@ -855,6 +855,7 @@
     c.enemies = (encounter.enemies || []).map(spec => createEnemy(state, spec, encounter.hpScale));
     state.screen = 'combat';
     itemDraw(state, 5 + relicPassive(state, 'extraDraw') - relicPassive(state, 'drawPenalty'));
+    if (hasRelic(state, 'shuang_yu_pei')) emit({ t: 'relicTrigger', id: 'shuang_yu_pei' });
     triggerRelic(state, 'combatStart');
     emit({ t: 'combatStart', enemies: c.enemies.map(e => ({ uid: e.uid, name: e.name, element: e.element })) });
     c.enemies.forEach(enemy => {
@@ -924,6 +925,7 @@
       ensureHighlights(state)[field] = Math.max(state.highlights[field], enemy.statuses[key]);
     }
     emit({ t: 'status', target: 'enemy', uid: enemy.uid, key, amount, total: enemy.statuses[key] });
+    if (key === 'poison' && n > 0 && hasRelic(state, 'mu_ling_zhu')) emit({ t: 'relicTrigger', id: 'mu_ling_zhu' });
   }
   function cleansePlayer(state) {
     const c = state.combat;
@@ -939,6 +941,7 @@
     c.block += amount;
     ensureHighlights(state).maxBlock = Math.max(state.highlights.maxBlock, c.block);
     emit({ t: 'block', target: 'player', amount, total: c.block });
+    if (hasRelic(state, 'tu_ling_zhu')) emit({ t: 'relicTrigger', id: 'tu_ling_zhu' });
     return amount;
   }
   function gainEnemyBlock(state, enemy, amount) {
@@ -988,6 +991,9 @@
     recordDamageHighlight(state, actual);
     emit({ t: 'damage', target: 'enemy', uid: enemy.uid, amount: dmg, blocked, hp: enemy.hp, cross: !!opts.cross,
       element: opts.element || null, source: opts.source || undefined });
+    if (opts.attackDamage && hasRelic(state, 'xuan_tie_jian')) emit({ t: 'relicTrigger', id: 'xuan_tie_jian' });
+    if (opts.attackDamage && opts.fireAttackDamage && hasRelic(state, 'huo_ling_zhu')) emit({ t: 'relicTrigger', id: 'huo_ling_zhu' });
+    if (opts.cross && hasRelic(state, 'jin_ling_zhu')) emit({ t: 'relicTrigger', id: 'jin_ling_zhu' });
     afterEnemyHpChange(state, enemy);
     if (actual > 0 && opts.attackDamage && opts.cross && enemy.hp > 0) recordTaiXuCrossHit(state, enemy);
     return loss;
@@ -1781,6 +1787,7 @@
     if (state.hp <= 0) { c.phase = 'lost'; return; }
     triggerRelic(state, 'turnStart');
     itemDraw(state, 5 + relicPassive(state, 'extraDraw') - relicPassive(state, 'drawPenalty'));
+    if (hasRelic(state, 'shuang_yu_pei')) emit({ t: 'relicTrigger', id: 'shuang_yu_pei' });
     // 起始诅咒
     c.hand.forEach(inst => {
       const data = getCardData(inst);
@@ -2001,7 +2008,11 @@
     state.relics.slice().forEach(id => {
       const relic = DATA.relicMap[id];
       if (relic && relic.hooks && typeof relic.hooks[hook] === 'function') {
-        try { relic.hooks[hook](state, api, payload || {}); } catch (err) { /* 单件遗物异常不影响整局 */ }
+        const before = EVENTS.length;
+        try {
+          relic.hooks[hook](state, api, payload || {});
+          if (EVENTS.length > before && hook !== 'pickup' && hook !== 'combatEnd') emit({ t: 'relicTrigger', id });
+        } catch (err) { /* 单件遗物异常不影响整局 */ }
       }
     });
   }
@@ -2015,6 +2026,7 @@
         state.combat.block += amount;
         ensureHighlights(state).maxBlock = Math.max(state.highlights.maxBlock, state.combat.block);
         emit({ t: 'block', target: 'player', amount, total: state.combat.block, relic: true });
+        if (hasRelic(state, 'tu_ling_zhu')) emit({ t: 'relicTrigger', id: 'tu_ling_zhu' });
       },
       status(target, key, n) { if (target === 'player' && state.combat) addPlayerStatus(state, key, n); },
       energy(n) { if (state.combat) { state.combat.energy += n; emit({ t: 'energy', amount: n, energy: state.combat.energy }); } },

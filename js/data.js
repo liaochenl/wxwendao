@@ -418,7 +418,11 @@
     { id: 'fate_creation_jade', name: '造化玉牒', rarity: 'fate', fateOnly: true, desc: '每场战斗第一次触发任意道印时，额外获得 1 点灵气并抽 1 张牌。' }
   ];
   const RELIC_MAP = {};
-  RELICS.forEach(r => { RELIC_MAP[r.id] = r; });
+  const VISIBLE_RELICS = new Set(['wu_xing_huan', 'ju_qi_lu', 'shuang_yu_pei', 'cang_jian_xia', 'gu_deng']);
+  RELICS.forEach(r => {
+    r.presentation = { trigger: r.rarity === 'fate' ? 'highlight' : VISIBLE_RELICS.has(r.id) ? 'normal' : 'quiet' };
+    RELIC_MAP[r.id] = r;
+  });
 
   /* ---------------- 丹药 ---------------- */
   const POTIONS = [

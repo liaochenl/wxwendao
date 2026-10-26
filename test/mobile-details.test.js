@@ -5,10 +5,11 @@ const vm = require('node:vm');
 const path = require('node:path');
 const D = require('../js/data.js');
 const E = require('../js/engine.js');
+const ItemArt = require('../js/item-art.js');
 
 function makeUI(width = 393, effects = null) {
   const listeners = {};
-  const window = { WX_DATA: D, WXEngine: E, WXEffects: effects, innerWidth: width, innerHeight: 852, addEventListener: (name, fn) => { listeners[name] = fn; } };
+  const window = { WX_DATA: D, WXEngine: E, WXEffects: effects, WXItemArt: ItemArt, innerWidth: width, innerHeight: 852, addEventListener: (name, fn) => { listeners[name] = fn; } };
   const document = { getElementById: () => ({ addEventListener() {} }), querySelector: () => null };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../js/ui.js'), 'utf8'), { window, document, clearTimeout() {}, setTimeout(fn) { fn(); return 1; } });
   const ui = window.WX_UI;
@@ -675,7 +676,29 @@ test('遗物与丹药在图鉴和详情中使用可识别的器物造型', () =>
 
   ui.action('inspect-relic', { dataset: { id: 'ju_qi_lu' } });
   assert.match(ui.overlayHTML(), /relic-showcase/);
-  assert.match(ui.overlayHTML(), /relic-emblem/);
+  assert.match(ui.overlayHTML(), /relic-art-ju-qi-lu/);
+});
+
+test('手机烈焰丹先选敌人再确认，其他丹药作用于自身', async () => {
+  const ui = makeUI(393);
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }, { id: 'qing_she' }] }, 'combat');
+  ui.state.potions = ['fire', 'heal'];
+  const firstHp = ui.state.combat.enemies[0].hp;
+  const secondHp = ui.state.combat.enemies[1].hp;
+  ui.inspectPotionSlot(0);
+  ui.confirmDetail();
+  assert.equal(ui.potionTargeting, 0);
+  assert.match(ui.combatHTML(), /potion-targeting/);
+  ui.onEnemyClick(1);
+  assert.equal(ui.detail?.action, 'confirm-potion-target');
+  assert.equal(ui.detail?.targetIndex, 1);
+  ui.confirmDetail();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(ui.state.potions.includes('fire'), false);
+  assert.equal(ui.state.combat.enemies[0].hp, firstHp);
+  assert.ok(ui.state.combat.enemies[1].hp < secondHp);
+  ui.inspectPotionSlot(0);
+  assert.equal(ui.detail?.id, 'heal');
 });
 
 test('特殊卡和诅咒有独立图案，动效尊重减少动态效果设置', () => {

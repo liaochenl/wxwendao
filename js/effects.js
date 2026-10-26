@@ -234,8 +234,78 @@
   function resourceReady({ target, id } = {}) {
     const p = centerOf(target);
     if (!p || reduced()) return Promise.resolve();
-    const flavor = id === 'swordIntent' ? 'metal' : id === 'alchemistHeat' ? 'fire' : 'earth';
+    const flavor = id === 'swordIntent' ? 'metal' : id === 'furnaceFire' ? 'fire' : 'earth';
     return ring(p.x, p.y, flavor, `fx-ring fx-resource-ready fx-resource-ready-${id || 'generic'}`, 240, 1.8);
+  }
+
+  function relicAcquire({ target, rarity = 'common' } = {}) {
+    const p = centerOf(target);
+    if (!p || !ensureLayer()) return Promise.resolve();
+    const duration = reduced() ? 170 : rarity === 'rare' ? 620 : rarity === 'uncommon' ? 520 : 440;
+    const emblem = target.querySelector?.('.relic-art') || target;
+    const glow = node(`fx-relic-acquire fx-relic-acquire-${rarity}`, p.x, p.y, 'metal');
+    const tasks = [animateAndRemove(glow, [
+      { opacity: 0, transform: 'translate(-50%, -50%) scale(.55)' },
+      { opacity: .86, transform: 'translate(-50%, -50%) scale(1)', offset: .45 },
+      { opacity: 0, transform: 'translate(-50%, -50%) scale(1.55)' }
+    ], { duration, easing: 'ease-out' })];
+    if (!reduced()) {
+      try { emblem.animate?.([
+        { opacity: .35, transform: 'translateY(10px) scale(.55)' },
+        { opacity: 1, transform: 'translateY(-5px) scale(1.13)', offset: .6 },
+        { opacity: 1, transform: 'translateY(0) scale(1)' }
+      ], { duration, easing: 'ease-out' }); } catch (_) {}
+    }
+    return Promise.all(tasks);
+  }
+
+  function relicTrigger({ id, target, priority = 'quiet' } = {}) {
+    const p = centerOf(target);
+    if (!p || !ensureLayer()) return Promise.resolve();
+    const art = target.querySelector?.('.relic-art') || target;
+    try {
+      art.animate?.([
+        { filter: 'brightness(1)', transform: 'scale(1)' },
+        { filter: 'brightness(1.7)', transform: reduced() ? 'scale(1)' : 'scale(1.12)', offset: .42 },
+        { filter: 'brightness(1)', transform: 'scale(1)' }
+      ], { duration: reduced() ? 150 : 260, easing: 'ease-out' });
+    } catch (_) {}
+    if (priority === 'quiet' || reduced()) return Promise.resolve();
+    return ring(p.x, p.y, id === 'ju_qi_lu' ? 'fire' : 'metal', `fx-ring fx-relic-trigger fx-relic-trigger-${id}`, priority === 'highlight' ? 330 : 260, 1.25);
+  }
+
+  async function potionUse({ id, source, target } = {}) {
+    const from = centerOf(source), to = centerOf(target);
+    if (!from || !to || !ensureLayer()) return;
+    const element = ({ heal: 'wood', fire: 'fire', block: 'earth', energy: 'water', draw: 'water', cleanse: 'wood', strength: 'metal', chain: 'metal' })[id] || 'wood';
+    const flight = node(`fx-potion-flight fx-potion-flight-${id}`, from.x, from.y, element);
+    if (flight) flight.innerHTML = window.WXItemArt?.potionArt?.(id) || '';
+    const duration = reduced() ? 135 : id === 'chain' ? 300 : 240;
+    await animateAndRemove(flight, [
+      { transform: 'translate(-50%, -50%) scale(1)', opacity: 1 },
+      { transform: `translate(calc(-50% + ${(to.x - from.x) * .38}px), calc(-50% + ${(to.y - from.y) * .38 - (reduced() ? 0 : 38)}px)) scale(1.18)`, opacity: 1, offset: .42 },
+      { transform: `translate(calc(-50% + ${to.x - from.x}px), calc(-50% + ${to.y - from.y}px)) scale(.55)`, opacity: 0 }
+    ], { duration, easing: 'ease-in-out' });
+    if (reduced()) return flash(to.x, to.y, element, `fx-flash fx-potion-land fx-potion-land-${id}`, 120);
+    if (id === 'chain') {
+      await Promise.all(ORDER.map((flavor, i) => {
+        const a = -Math.PI / 2 + i * Math.PI * 2 / 5;
+        const mote = node(`fx-potion-chain-mote fx-element-${flavor}`, to.x, to.y, flavor);
+        return animateAndRemove(mote, [
+          { transform: `translate(calc(-50% + ${Math.cos(a) * 35}px), calc(-50% + ${Math.sin(a) * 35}px)) scale(.75)`, opacity: 0 },
+          { opacity: 1, offset: .24 },
+          { transform: 'translate(-50%, -50%) scale(.2)', opacity: 0 }
+        ], { duration: 280, delay: i * 24, easing: 'ease-in' });
+      }));
+      return;
+    }
+    if (id === 'fire') return Promise.all([flash(to.x, to.y, 'fire', 'fx-flash fx-potion-fire', 180), ring(to.x, to.y, 'fire', 'fx-ring fx-potion-fire-ring', 190, 1.7)]);
+    if (id === 'block') return ring(to.x, to.y, 'earth', 'fx-ring fx-potion-shield', 210, 1.35);
+    if (id === 'cleanse') return Promise.all([ring(to.x, to.y, 'wood', 'fx-ring fx-potion-cleanse', 210, .4), flash(to.x, to.y, 'wood', 'fx-flash fx-potion-heal', 160)]);
+    if (id === 'heal') return flash(to.x, to.y, 'wood', 'fx-flash fx-potion-heal', 180);
+    if (id === 'energy') return ring(to.x, to.y, 'water', 'fx-ring fx-potion-energy', 180, 1.2);
+    if (id === 'draw') return ring(to.x, to.y, 'water', 'fx-ring fx-potion-draw', 170, 1.4);
+    return flash(to.x, to.y, element, `fx-flash fx-potion-land-${id}`, 170);
   }
 
   function screenFlash({ tone = 'gold', intensity = 'strong' } = {}) {
@@ -841,5 +911,5 @@
     await Promise.all(animations);
   }
 
-  window.WXEffects = { init, captureCard, playCardFlight, cardTrail, elementBurst, elementHit, targetLine, clearTargetLine, drawCard, discardHand, cameraPunch, hitStop, resourceReady, screenFlash, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, daoAwakening, fateReveal, fatePulse, encounterIntro, bossPhase, encounterDefeat, statusDetonate, zhoutian, clear };
+  window.WXEffects = { init, captureCard, playCardFlight, cardTrail, elementBurst, elementHit, targetLine, clearTargetLine, drawCard, discardHand, cameraPunch, hitStop, resourceReady, relicAcquire, relicTrigger, potionUse, screenFlash, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, daoAwakening, fateReveal, fatePulse, encounterIntro, bossPhase, encounterDefeat, statusDetonate, zhoutian, clear };
 })();

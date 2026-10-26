@@ -54,6 +54,29 @@ test('天命获取具有独立五行汇聚，战斗触发较轻且减少动态�
   assert.equal(reduced.created.length, 0);
 });
 
+test('角色资源满值使用对应五行颜色', async () => {
+  const { FX, created } = loadEffects();
+  for (const [id, flavor] of [['swordIntent', 'metal'], ['furnaceFire', 'fire'], ['battleMomentum', 'earth']]) {
+    await FX.resourceReady({ target: makeNode(), id });
+    assert.ok(created.some(node => node.className.includes(`fx-resource-ready-${id}`) && node.style['--fx-color'] === D.elements[flavor].color));
+  }
+});
+
+test('丹药从托盘飞向正确目标，五行丹有五色汇聚且减少动态效果不产生粒子', async () => {
+  const normal = loadEffects();
+  const source = makeNode({ left: 20, top: 700, width: 40, height: 40 });
+  const target = makeNode({ left: 170, top: 100, width: 80, height: 80 });
+  await normal.FX.potionUse({ id: 'fire', source, target });
+  assert.ok(normal.created.some(node => node.className.includes('fx-potion-flight-fire')));
+  await normal.FX.potionUse({ id: 'chain', source, target });
+  assert.equal(normal.created.filter(node => node.className.includes('fx-potion-chain-mote')).length, 5);
+  assert.equal(normal.layer.children.length, 0);
+  const reduced = loadEffects(true);
+  await reduced.FX.potionUse({ id: 'chain', source, target });
+  assert.equal(reduced.created.filter(node => node.className.includes('fx-potion-chain-mote')).length, 0);
+  assert.equal(reduced.layer.children.length, 0);
+});
+
 test('精英与幕主登场、二阶段及击败有可复用特效，并尊重减少动态效果', async () => {
   const target = makeNode();
   const normal = loadEffects();

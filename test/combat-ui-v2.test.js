@@ -6,9 +6,10 @@ const path = require('node:path');
 const vm = require('node:vm');
 const D = require('../js/data.js');
 const E = require('../js/engine.js');
+const ItemArt = require('../js/item-art.js');
 
 function makeUI(width = 1280, height = 900, effects = null) {
-  const window = { WX_DATA: D, WXEngine: E, WXEffects: effects, innerWidth: width, innerHeight: height,
+  const window = { WX_DATA: D, WXEngine: E, WXEffects: effects, WXItemArt: ItemArt, innerWidth: width, innerHeight: height,
     addEventListener() {} };
   const document = { getElementById: () => ({ addEventListener() {} }), querySelector: () => null };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../js/ui.js'), 'utf8'),

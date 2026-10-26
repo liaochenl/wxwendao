@@ -4,7 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -1080,6 +1080,77 @@ async function auditCombatEffects(cdp, baseUrl) {
   console.log('CHECK 减少动态效果: 粒子与飞牌已关闭');
 }
 
+async function auditItemVisuals(cdp, baseUrl) {
+  const dir = path.join(ROOT, 'docs', 'screenshots', 'item-v2');
+  fs.mkdirSync(dir, { recursive: true });
+  const capture = async name => {
+    await sleep(130);
+    const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    fs.writeFileSync(path.join(dir, `${name}.png`), Buffer.from(data, 'base64'));
+  };
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, screenWidth: 1280, screenHeight: 900, deviceScaleFactor: 1, mobile: false, scale: 1 });
+  await cdp.send('Page.navigate', { url: `${baseUrl}/index.html?v=${Date.now()}` });
+  await sleep(600);
+  const gallery = (title, items, cellWidth) => `document.getElementById('app').innerHTML = '<style>.item-grid .relic-art{width:72px;height:72px}.item-grid .potion-vessel{width:72px;height:84px}</style><main style="min-height:100vh;padding:28px 40px;background:#0e1418;color:#e9ddc9;font:18px serif"><h1 style="margin:0 0 20px">${title}</h1><div class="item-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(${cellWidth}px,1fr));gap:12px">'+${items}+'</div></main>'`;
+  await cdp.eval(gallery('法宝轮廓', `WX_DATA.relics.map(r=>'<div title="'+r.name+'" style="height:125px;display:grid;place-items:center;border:1px solid #5b5e5d;border-radius:12px;background:#192125"><span style="display:grid;place-items:center;width:72px;height:72px">'+WXItemArt.relicArt(r.id)+'</span></div>').join('')`, 150));
+  const grid = await cdp.eval(`({icons:document.querySelectorAll('.relic-art').length,missing:[...document.querySelectorAll('.relic-art')].filter(x=>!x.querySelector('svg')).length,overflow:document.documentElement.scrollWidth>innerWidth})`);
+  if (grid.icons !== 30 || grid.missing || grid.overflow) fail(`遗物图形网格异常 ${JSON.stringify(grid)}`);
+  await capture('relic-grid');
+  await cdp.eval(gallery('法宝材质层级', `['common','uncommon','rare','fate'].map(r=>'<div style="height:350px;display:grid;place-items:center;border:1px solid #5b5e5d;border-radius:12px;background:#192125"><span class="relic-art rarity-'+r+' motif-gourd" style="width:140px;height:140px"><svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">'+WXItemArt.relicArt('qing_yu').match(/<svg[\\s\\S]*?<\\/svg>/)[0].replace(/<svg[^>]*>/,'').replace('</svg>','')+'</svg></span><b>'+r+'</b></div>').join('')`, 220));
+  await capture('relic-rarity');
+  await cdp.eval(gallery('八种丹药', `WX_DATA.potions.map(p=>'<div style="height:190px;display:grid;place-items:center;border:1px solid #5b5e5d;border-radius:12px;background:#192125"><span style="display:grid;place-items:center;width:90px;height:100px">'+WXItemArt.potionArt(p.id)+'</span><b>'+p.name+'</b></div>').join('')`, 210));
+  await capture('potion-grid');
+  const combat = async (relicIds, potionIds) => {
+    await cdp.eval(`(() => { WX_UI.state=WXEngine.createRun({characterId:'sword',seed:31}); WXEngine.startCombat(WX_UI.state,{enemies:[{id:'shan_xiao'}]},'combat'); WX_UI.state.relics=${JSON.stringify(relicIds)}; WX_UI.state.potions=${JSON.stringify(potionIds)}; WX_UI.screen='combat'; WX_UI.render(); return 1; })()`);
+    await sleep(180);
+  };
+  await combat(['qing_feng','ju_qi_lu','wu_xing_huan','jin_ling_zhu'], []);
+  await capture('relic-hud-4');
+  await combat(['qing_feng','ju_qi_lu','wu_xing_huan','jin_ling_zhu','gu_deng','mu_ling_zhu'], []);
+  await capture('relic-hud-overflow');
+  await combat(['qing_feng'], ['heal','fire','chain']);
+  await capture('potion-tray');
+  await cdp.eval(`WX_UI.usePotion(1)`);
+  const fireTarget = await cdp.eval(`({mode:!!document.querySelector('.potion-targeting'),line:!!document.querySelector('.fx-target-overlay'),source:!!document.querySelector('.potion-btn[data-index="1"]')})`);
+  if (!fireTarget.mode || !fireTarget.line || !fireTarget.source) fail(`烈焰丹选敌状态异常 ${JSON.stringify(fireTarget)}`);
+  await capture('potion-target-fire');
+  console.log('CHECK 物品视觉: 遗物轮廓、品级、HUD、丹药托盘与烈焰丹目标线');
+  if (process.env.AUDIT_ITEM_RECORDINGS) {
+    const recordings = path.join(dir, 'recordings');
+    fs.mkdirSync(recordings, { recursive: true });
+    const record = async (name, expression, frames = 16) => {
+      const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wuxing-item-motion-'));
+      try {
+        await cdp.eval(`setTimeout(() => { ${expression} }, 80); true`);
+        for (let i = 0; i < frames; i++) {
+          const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+          fs.writeFileSync(path.join(temp, `frame${String(i).padStart(3, '0')}.png`), Buffer.from(data, 'base64'));
+          await sleep(65);
+        }
+        const video = path.join(recordings, `${name}.mp4`);
+        const ffmpeg = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', '12', '-i', path.join(temp, 'frame%03d.png'), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '27', video], { encoding: 'utf8' });
+        if (ffmpeg.status !== 0) throw new Error(`录屏生成失败 ${name}: ${ffmpeg.stderr}`);
+      } finally { fs.rmSync(temp, { recursive: true, force: true }); }
+    };
+    for (const [name, id, rarity] of [['acquire-common','qing_yu','common'],['acquire-rare','wu_xing_huan','rare']]) {
+      await cdp.eval(gallery('拾得法宝', `'<div style="height:400px;display:grid;place-items:center;border:1px solid #7a705a;border-radius:16px;background:#192125">'+WXItemArt.relicArt('${id}')+'<b>'+WX_DATA.relicMap['${id}'].name+'</b><span>'+WX_DATA.relicMap['${id}'].desc+'</span></div>'`, 500));
+      await record(name, `WXEffects.relicAcquire({target:document.querySelector('.relic-art'),rarity:'${rarity}'})`);
+    }
+    for (const id of ['gu_deng','ju_qi_lu','jin_ling_zhu']) {
+      await combat([id], []);
+      await record(`trigger-${id}`, `WX_UI.fx([{t:'relicTrigger',id:'${id}'}])`, 12);
+    }
+    await combat(['qing_feng'], ['heal']);
+    await record('potion-heal', 'WX_UI.usePotion(0)', 17);
+    await combat(['qing_feng'], ['fire']);
+    await record('potion-fire', 'WX_UI.usePotion(0,0)', 18);
+    await combat(['qing_feng'], ['chain']);
+    await cdp.eval('WX_UI.state.combat.chain=3; WX_UI.render(); true');
+    await record('potion-chain-zhoutian', 'WX_UI.usePotion(0)', 28);
+    console.log('CHECK 物品动态录屏: 获得、触发、回春、烈焰及五行丹周天');
+  }
+}
+
 let server, chrome, cdp;
 try {
   server = await startServer();
@@ -1093,7 +1164,9 @@ try {
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
 
-  if (process.env.AUDIT_STAGE_ONLY) {
+  if (process.env.AUDIT_ITEMS_ONLY) {
+    await auditItemVisuals(cdp, baseUrl);
+  } else if (process.env.AUDIT_STAGE_ONLY) {
     await auditCombatStage(cdp, baseUrl);
   } else if (!process.env.AUDIT_EFFECTS_ONLY) {
     for (const vp of viewports) await auditAt(cdp, baseUrl, vp);
@@ -1101,7 +1174,7 @@ try {
     await auditShortCombat(cdp, baseUrl);
     await auditCombatStage(cdp, baseUrl);
   }
-  if (!process.env.AUDIT_STAGE_ONLY) await auditCombatEffects(cdp, baseUrl);
+  if (!process.env.AUDIT_STAGE_ONLY && !process.env.AUDIT_ITEMS_ONLY) await auditCombatEffects(cdp, baseUrl);
 } finally {
   try { cdp && cdp.close(); } catch {}
   try { chrome && chrome.child.kill('SIGKILL'); } catch {}

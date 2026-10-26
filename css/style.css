@@ -1141,6 +1141,24 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .entity-showcase .relic-emblem { width: 58px; height: 58px; border-radius: 13px; }
 .entity-showcase .relic-emblem-core { font-size: 27px; }
 
+/* 法宝用物件剪影识别；品级只改变底座材质，不覆盖物件本色。 */
+.relic-art { --relic-metal: #c6ac82; --relic-frame: #786f60; width: 30px; height: 30px; flex: 0 0 auto; display: inline-grid; place-items: center; position: relative; color: var(--relic-metal); border: 1px solid var(--relic-frame); border-radius: 50%; background: radial-gradient(circle at 38% 28%, #ffffff16, transparent 52%), #151b1d; }
+.relic-art svg { width: 83%; height: 83%; overflow: visible; display: block; filter: drop-shadow(0 1px 1px #000b); }
+.relic-art.rarity-starter { --relic-metal: #b3b8b2; --relic-frame: #60645f; box-shadow: inset 0 0 5px #0008; }
+.relic-art.rarity-common { --relic-metal: #c5b08c; --relic-frame: #9b835e; box-shadow: inset 0 1px 5px #eac99626; }
+.relic-art.rarity-uncommon { --relic-metal: #97d4bf; --relic-frame: #6ca995; box-shadow: inset 0 0 0 2px #5ba88c22, 0 0 7px #68b99a40; }
+.relic-art.rarity-rare { --relic-metal: #ddc5e5; --relic-frame: #b383c5; box-shadow: inset 0 0 0 2px #bd72d43b, 0 0 10px #b878ca79; }
+.relic-art.rarity-rare::after { content: ''; position: absolute; inset: -4px; border: 1px solid #bc86cb73; border-radius: 50%; pointer-events: none; }
+.relic-art.rarity-fate { --relic-metal: #fff5db; --relic-frame: #e5d6a3; background: conic-gradient(from 25deg, #86ccbd48, #df8b8b35, #e2c47648, #8db9dc48, #86ccbd48), #172126; box-shadow: inset 0 0 0 2px #fff3d047, 0 0 15px #ecddb27d; }
+.relic-art.rarity-fate::after { content: ''; position: absolute; inset: -5px; border: 1px solid #f4eac49a; border-radius: 50%; pointer-events: none; }
+.relic-art.motif-pearl-fire { --relic-metal: #f18d61; }.relic-art.motif-pearl-earth,.relic-art.motif-pearl-mountain { --relic-metal: #d5b476; }.relic-art.motif-pearl-metal { --relic-metal: #c6e8f2; }.relic-art.motif-pearl-water { --relic-metal: #82c4d8; }.relic-art.motif-pearl-wood { --relic-metal: #88c89c; }.relic-art.motif-blood-jade { --relic-metal: #dc6f75; }.relic-art.motif-gourd,.relic-art.motif-jade-ring,.relic-art.motif-twin-fish { --relic-metal: #99ceb9; }
+.relic-chip .relic-art { width: 28px; height: 28px; }.relic-chip.big .relic-art { width: 40px; height: 40px; }.comp-relic-icon .relic-art { width: 40px; height: 40px; }.fate-card-emblem .relic-art { width: 55px; height: 55px; }.overlay-relic > .relic-art { width: 44px; height: 44px; margin: 3px; }.entity-showcase.relic-showcase { min-height: 164px; }.entity-showcase .relic-art { width: clamp(90px, 24vw, 110px); height: clamp(90px, 24vw, 110px); }
+.fx-relic-acquire { position: fixed; width: 90px; height: 90px; border: 1px solid #d7c69f; border-radius: 50%; box-shadow: 0 0 25px #d7c69f77, inset 0 0 20px #d7c69f55; pointer-events: none; }.fx-relic-acquire-uncommon { border-color: #9ad9bd; box-shadow: 0 0 28px #6cc7a778; }.fx-relic-acquire-rare { border-color: #d6a9e2; box-shadow: 0 0 35px #c181d699; }.fx-relic-trigger { border-color: #cde3da; }.fx-relic-label { color: #dcead9; font-size: 13px; }
+@keyframes relic-loot-reveal { 0% { opacity: 0; transform: translateY(8px) scale(.94); } 70% { opacity: 1; transform: translateY(-3px) scale(1.02); } 100% { opacity: 1; transform: none; } }
+.reward-screen .reward-relic, .treasure-screen .loot-row:has(.relic-art) { animation: relic-loot-reveal .58s ease-out both; }
+.reward-screen .reward-relic > span:last-child, .treasure-screen .loot-row:has(.relic-art) > span:last-child { animation: relic-loot-reveal .4s ease-out .18s both; }
+@media (prefers-reduced-motion: reduce) { .reward-screen .reward-relic, .treasure-screen .loot-row:has(.relic-art), .reward-screen .reward-relic > span:last-child, .treasure-screen .loot-row:has(.relic-art) > span:last-child { animation-duration: .12s; animation-delay: 0s; } }
+
 .potion-vessel { --potion-color: #79c49e; width: 27px; height: 32px; position: relative; display: inline-grid; place-items: center; flex: 0 0 auto; filter: drop-shadow(0 2px 5px color-mix(in srgb, var(--potion-color) 28%, transparent)); }
 .potion-vessel svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .vessel-stop { fill: #b89e70; stroke: #e5d4aa; stroke-width: 1.5; }
@@ -1164,6 +1182,23 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .potion-chip.big .potion-vessel { width: 30px; height: 36px; }
 .entity-showcase .potion-vessel { width: 58px; height: 72px; }
 .entity-showcase .potion-rune { bottom: 10px; font-size: 22px; }
+
+/* 丹药以八种容器轮廓和内部纹样区分。 */
+.potion-vessel { width: 31px; height: 36px; }
+.potion-vessel .potion-body { fill: color-mix(in srgb, var(--potion-color) 18%, #16232a); stroke: color-mix(in srgb, var(--potion-color) 55%, #e1d6bc); stroke-width: 3; }
+.potion-vessel .potion-stop { fill: color-mix(in srgb, var(--potion-color) 30%, #c5ae8a); stroke: #f0dfbc; }
+.potion-vessel .potion-core { fill: color-mix(in srgb, var(--potion-color) 68%, transparent); stroke: var(--potion-color); }
+.potion-vessel .potion-mark { stroke: #e7f6e9; stroke-width: 3.3; filter: drop-shadow(0 0 2px var(--potion-color)); }
+.potion-art-heal { --potion-color: #82d6a2; }.potion-art-fire { --potion-color: #f17c52; }.potion-art-block { --potion-color: #d4b375; }.potion-art-energy { --potion-color: #91cddd; }.potion-art-draw { --potion-color: #c4e5e0; }.potion-art-cleanse { --potion-color: #6ebd8b; }.potion-art-strength { --potion-color: #c698da; }.potion-art-chain { --potion-color: #eddbac; filter: drop-shadow(0 0 7px #dbc78291); }
+.potion-art-chain .potion-core { fill: #333c40; }.potion-element-dot.wood { fill: #83c795; }.potion-element-dot.fire { fill: #ed9272; }.potion-element-dot.earth { fill: #d8b46e; }.potion-element-dot.metal { fill: #cceaf1; }.potion-element-dot.water { fill: #8fbcd9; }
+.potion-btn.empty { border: 1px solid #81948845; border-radius: 50% 50% 9px 9px; background: radial-gradient(ellipse at 50% 80%, #a2bda919, transparent 60%), #0e1517; font-size: 0; }
+.potion-btn.empty::before { content: ''; width: 20px; height: 20px; border: 1px solid #91a99750; border-radius: 50%; }
+.potion-targeting .potion-btn.targeting { border-color: #f28f62; box-shadow: 0 0 12px #e4755799; }
+.potion-using { border-color: #fff0bb !important; box-shadow: 0 0 16px #f7dc9799; }
+.fx-potion-flight { width: 46px; height: 46px; position: fixed; display: grid; place-items: center; pointer-events: none; filter: drop-shadow(0 0 9px var(--fx-color)); }
+.fx-potion-flight .potion-vessel { width: 42px; height: 45px; }
+.fx-potion-chain-mote { position: fixed; width: 11px; height: 11px; border-radius: 50%; background: var(--fx-color); box-shadow: 0 0 10px var(--fx-color); pointer-events: none; }
+.fx-potion-fire { box-shadow: 0 0 18px #f3845d; }.fx-potion-shield { border-color: #dbbf86; }.fx-potion-energy,.fx-potion-draw { border-color: #9cd9e4; }.fx-potion-cleanse { border-color: #80d4a4; }
 
 /* 异数与禁制以独立纹样区分，同时保留纸面文字对比度。 */
 .card.card-special .card-inner { border-color: #b58e51; background: radial-gradient(circle at 80% 12%, #fff7d7, transparent 43%), linear-gradient(160deg, #fbf0d4, #e5d2ac 78%, #d5b985); }

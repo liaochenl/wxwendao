@@ -4,6 +4,7 @@
   const D = window.WX_DATA;
   const E = window.WXEngine;
   const FX = window.WXEffects;
+  const ITEM_ART = window.WXItemArt;
   function visual(method, options) {
     try { return Promise.resolve(FX?.[method]?.(options)).catch(() => {}); }
     catch (_) { return Promise.resolve(); }
@@ -112,12 +113,10 @@
     return `<span class="char-sigil sigil-${esc(id)}" aria-hidden="true"><svg viewBox="0 0 100 96" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" focusable="false">${CHAR_SIGILS[id] || ''}</svg></span>`;
   }
   function relicEmblem(id) {
-    const r = relicById(id);
-    return r ? `<span class="relic-emblem relic-${esc(r.rarity)}" aria-hidden="true"><span class="relic-emblem-core">${esc(r.name.slice(0, 1))}</span></span>` : '';
+    return ITEM_ART?.relicArt(id) || '';
   }
   function potionVessel(id) {
-    const p = potionById(id);
-    return p ? `<span class="potion-vessel potion-${esc(id)}" aria-hidden="true"><svg viewBox="0 0 36 44" focusable="false"><path class="vessel-stop" d="M12 5h12v5H12z"/><path class="vessel-glass" d="M13 10h10v5c0 2 8 8 8 16 0 6-5 9-13 9S5 37 5 31c0-8 8-14 8-16z"/><path class="vessel-liquid" d="M8 29c6-3 13 2 20-1 2 7-2 9-10 9S7 35 8 29z"/><path class="vessel-shine" d="M11 25c1-3 3-6 5-8"/></svg><span class="potion-rune">${esc(p.icon)}</span></span>` : '';
+    return ITEM_ART?.potionArt(id) || '';
   }
   function cardData(inst) { return E.getCardData(inst); }
   function cardArt(element, id, rarity) {
@@ -266,6 +265,7 @@
       this.ascension = 0;
       this.selected = null;
       this.targetIndex = 0;
+      this.potionTargeting = null;
       this.busy = false;
       this.finishing = false;
       this.overlay = null;
@@ -390,6 +390,7 @@
     handleKey(ev) {
       if (ev.key === 'Escape') {
         if (this.overlay) this.closeOverlay();
+        else if (this.screen === 'combat' && this.potionTargeting != null) { this.potionTargeting = null; this.render(); }
         else if (this.screen === 'combat' && this.selected != null) { this.selected = null; this.render(); }
         return;
       }
@@ -461,6 +462,7 @@
     },
     onCardClick(index) {
       if (!this.state || !this.state.combat || this.busy) return;
+      this.potionTargeting = null;
       const c = this.state.combat;
       if (c.phase !== 'player') return;
       const inst = c.hand[index];
@@ -485,6 +487,13 @@
       const c = this.state.combat;
       const enemy = c.enemies[index];
       if (!enemy || enemy.hp <= 0) return;
+      if (this.potionTargeting != null) {
+        const potionIndex = this.potionTargeting;
+        this.targetIndex = index;
+        if (window.innerWidth <= 600) this.openDetail({ kind: 'potion', id: this.state.potions[potionIndex], action: 'confirm-potion-target', index: potionIndex, targetIndex: index });
+        else void this.usePotion(potionIndex, index);
+        return;
+      }
       if (this.selected != null) { this.playCard(this.selected, index); return; }
       this.targetIndex = index;
       this.toast('已锁定目标：' + enemy.name);
@@ -535,6 +544,7 @@
       if (!d || this.overlay !== 'detail') return;
       this.closeOverlay();
       if (d.action === 'use-potion' && this.state && this.state.potions[d.index] === d.id) this.usePotion(d.index);
+      else if (d.action === 'confirm-potion-target' && this.state && this.state.potions[d.index] === d.id) this.usePotion(d.index, d.targetIndex);
       else if (d.action === 'take-card' && this.state && this.state.reward && !this.state.reward.cardTaken && this.state.reward.cards[d.index] && this.state.reward.cards[d.index].id === d.id) this.takeRewardCard(d.index);
       else if (d.action === 'play-card' && this.state && this.state.combat && this.state.combat.hand[d.index] && this.state.combat.hand[d.index].uid === d.uid) this.onCardClick(d.index);
       else if (d.action === 'pick-card' && this.picker && this.state && this.state.deck.some(c => String(c.uid) === String(d.uid))) this.pickCard(d.uid);
@@ -602,17 +612,36 @@
         this.busy = false;
       }
     },
-    async usePotion(index) {
+    async usePotion(index, targetIndex = null) {
       if (this.busy || !this.state || !this.state.combat) return;
       if (this.state.combat.phase !== 'player') return;
+      const id = this.state.potions[index];
+      const potion = potionById(id);
+      if (!potion) return;
+      if (potion.target === 'enemy' && targetIndex == null) {
+        this.potionTargeting = index;
+        this.selected = null;
+        this.render();
+        return;
+      }
+      const source = document.querySelector(`.potion-btn[data-index="${index}"]`);
+      const target = potion.target === 'enemy'
+        ? document.querySelector(`.enemy-unit[data-index="${targetIndex}"] .enemy-art`) || document.querySelector(`.enemy-unit[data-index="${targetIndex}"]`)
+        : id === 'chain' ? document.querySelector('.chain-panel') : id === 'energy' ? document.querySelector('.energy-box') : document.querySelector('.player-figure') || document.getElementById('player-panel');
       this.busy = true;
-      const res = E.usePotion(this.state, index, this.targetIndex);
+      const res = E.usePotion(this.state, index, targetIndex == null ? this.targetIndex : targetIndex);
       if (!res.ok) { this.busy = false; this.toast(res.reason || '无法使用'); this.render(); return; }
-      this.render();
-      await this.fx(res.events);
-      this.busy = false;
-      this.commit();
-      this.checkCombatState();
+      if (id === 'fire') res.events?.forEach(ev => { if (ev.t === 'damage' && ev.target === 'enemy') ev.element = 'fire'; });
+      this.potionTargeting = null;
+      try {
+        source?.classList?.add?.('potion-using');
+        await visual('potionUse', { id, source, target });
+        this.render();
+        await this.fx(res.events);
+        this.busy = false;
+        this.commit();
+        this.checkCombatState();
+      } finally { this.busy = false; }
     },
     async endTurn() {
       if (this.busy || !this.state || !this.state.combat) return;
@@ -620,6 +649,7 @@
       if (c.phase !== 'player') return;
       this.busy = true;
       this.selected = null;
+      this.potionTargeting = null;
       this.sfx('endturn');
       const hasDiscard = c.hand.some(inst => !E.getCardData(inst)?.retain);
       const handRect = hasDiscard ? document.querySelector('.hand')?.getBoundingClientRect() : null;
@@ -742,11 +772,13 @@
       this.commit();
     },
     buy(kind, index) {
+      const purchasedRelic = kind === 'relic' ? this.state.shop?.relics?.[index]?.id : null;
       const res = E.buyItem(this.state, kind, index);
       if (!res.ok) { this.toast(res.reason || '无法购买'); return; }
       this.sfx('coin');
       this.app.saveRun(this.state);
       this.render();
+      if (purchasedRelic) void visual('relicAcquire', { target: document.querySelectorAll('.shop-relic')?.[index]?.querySelector('.relic-art'), rarity: relicById(purchasedRelic)?.rarity });
     },
     openRemovePicker() {
       const shop = this.state.shop;
@@ -994,7 +1026,18 @@
             ]);
             break;
           }
-          case 'potion': this.sfx('potion'); await sleep(60); break;
+          case 'potion': this.sfx('potion'); if (ev.id !== 'chain') await sleep(30); break;
+          case 'relicTrigger': {
+            const relic = relicById(ev.id);
+            const target = document.querySelector(`.relic-chip[data-id="${ev.id}"]`) || document.querySelector('.relic-more') || document.getElementById('player-panel');
+            const priority = relic?.presentation?.trigger || 'quiet';
+            if (priority === 'quiet' && Date.now() - (this._relicPulseAt?.[ev.id] || 0) < 700) break;
+            this._relicPulseAt = this._relicPulseAt || {};
+            this._relicPulseAt[ev.id] = Date.now();
+            void visual('relicTrigger', { id: ev.id, target, priority });
+            if (priority !== 'quiet') this.floatAt(target, `${relic?.name || ''} · ${ev.id === 'gu_deng' ? '抽牌 +2' : ev.id === 'ju_qi_lu' ? '灵气 +1' : ev.id === 'wu_xing_huan' ? '连携启动' : '法宝生效'}`, 'fx-relic-label');
+            break;
+          }
           case 'resource': {
             if (ev.id === 'battleMomentum') break;
             const el = document.querySelector('.character-resource');
@@ -1200,11 +1243,19 @@
         default: html = this.titleHTML(); break;
       }
       app.innerHTML = html + this.overlayHTML();
+      if (screenChanged && this.screen === 'reward' && this.state?.reward?.relicId) {
+        void visual('relicAcquire', { target: app.querySelector?.('.reward-relic .relic-art'), rarity: relicById(this.state.reward.relicId)?.rarity });
+      }
+      if (screenChanged && this.screen === 'treasure' && this.state?.treasure?.relicId) {
+        void visual('relicAcquire', { target: app.querySelector?.('.treasure-panel .relic-art'), rarity: relicById(this.state.treasure.relicId)?.rarity });
+      }
       if (this.screen === 'combat' && this.selected != null) {
         const selectedCard = app.querySelector?.(`.hand .card[data-index="${this.selected}"]`);
         const selectedData = this.state?.combat?.hand?.[this.selected] && cardData(this.state.combat.hand[this.selected]);
         const target = app.querySelector?.('.enemy-unit.focused .enemy-art') || app.querySelector?.('.enemy-unit.focused');
         try { FX?.targetLine?.({ source: selectedCard, target, element: selectedData?.element, overcome: !!selectedData && selectedData.type === 'attack' && elem(selectedData.element).overcomes === this.state?.combat?.enemies?.[this.targetIndex]?.element }); } catch (_) {}
+      } else if (this.screen === 'combat' && this.potionTargeting != null) {
+        try { FX?.targetLine?.({ source: app.querySelector?.(`.potion-btn[data-index="${this.potionTargeting}"]`), target: app.querySelector?.('.enemy-unit.focused .enemy-art'), element: 'fire' }); } catch (_) {}
       } else { try { FX?.clearTargetLine?.(); } catch (_) {} }
       if (oldHand.size && this.screen === 'combat' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
         const newHand = app.querySelectorAll('.hand .card[data-card-uid]');
@@ -1531,7 +1582,7 @@
       }).join('');
       const focusName = c.enemies[targetIdx] && c.enemies[targetIdx].hp > 0 ? c.enemies[targetIdx].name : '';
       const mobileUI = window.innerWidth <= 600;
-      const selectedHint = this.selected != null
+      const selectedHint = this.potionTargeting != null ? '烈焰丹：请选择敌方目标' : this.selected != null
         ? `选择目标：点击敌方单位打出「${esc(cardData(c.hand[this.selected]).name)}」`
         : (c.phase === 'enemy' ? '敌方回合……'
           : (alive.length > 1
@@ -1539,7 +1590,7 @@
             : `${mobileUI ? '点按手牌查看详情并确认出牌' : '点击卡牌出牌 · 数字键 1–9 · E 结束回合'}`));
       const thornAura = identity.tag === 'monk_thorns' && c.statuses.thorns >= 5;
       return `
-      <main class="screen combat-screen combat-v2 act-${st.act} character-${ch.id} ${this.selected != null ? 'combat-targeting' : ''} ${c.phase === 'enemy' ? 'enemy-phase' : ''} ${arena ? `arena-${esc(arena)} ${featured.boss ? 'arena-boss' : 'arena-elite'}` : ''} ${pathClass} path-level-${identity.level} ${fullResource ? 'resource-full' : ''} ${c.cardsPlayedThisTurn >= 5 ? 'combo-fast' : ''} ${c.chain >= 3 ? 'chain-formed' : ''}">
+      <main class="screen combat-screen combat-v2 act-${st.act} character-${ch.id} ${this.selected != null ? 'combat-targeting' : ''} ${this.potionTargeting != null ? 'potion-targeting' : ''} ${c.phase === 'enemy' ? 'enemy-phase' : ''} ${arena ? `arena-${esc(arena)} ${featured.boss ? 'arena-boss' : 'arena-elite'}` : ''} ${pathClass} path-level-${identity.level} ${fullResource ? 'resource-full' : ''} ${c.cardsPlayedThisTurn >= 5 ? 'combo-fast' : ''} ${c.chain >= 3 ? 'chain-formed' : ''}">
         <div class="combat-backdrop" aria-hidden="true"></div>
         <header class="combat-top">
           <div class="turn-tag">第 ${c.turn} 回合</div>
@@ -1591,7 +1642,7 @@
         <section class="hand-zone">
           <div class="left-tray">
             <div class="potions">
-              ${[0, 1, 2].map(i => st.potions[i] ? `<button class="potion-btn filled" data-action="use-potion" data-index="${i}" ${c.phase !== 'player' ? 'disabled' : ''} title="${esc(potionById(st.potions[i]).name)}：${esc(potionById(st.potions[i]).desc)}" aria-label="${esc(potionById(st.potions[i]).name)}：${esc(potionById(st.potions[i]).desc)}">${potionVessel(st.potions[i])}</button>` : `<span class="potion-btn empty">空</span>`).join('')}
+              ${[0, 1, 2].map(i => st.potions[i] ? `<button class="potion-btn filled ${this.potionTargeting === i ? 'targeting' : ''}" data-action="use-potion" data-index="${i}" ${c.phase !== 'player' ? 'disabled' : ''} title="${esc(potionById(st.potions[i]).name)}：${esc(potionById(st.potions[i]).desc)}" aria-label="${esc(potionById(st.potions[i]).name)}：${esc(potionById(st.potions[i]).desc)}">${potionVessel(st.potions[i])}</button>` : `<span class="potion-btn empty">空</span>`).join('')}
             </div>
             <div class="piles">
               <button class="pile-btn" data-action="open-piles" data-pile="draw" title="抽牌堆"><b>${c.drawPile.length}</b><span>抽</span></button>
@@ -1606,7 +1657,7 @@
             <button class="btn btn-primary end-turn" data-action="end-turn" ${c.phase !== 'player' ? 'disabled' : ''}>结束回合 <small>E</small></button>
           </div>
         </section>
-        <p class="combat-hint ${this.selected != null ? 'targeting' : ''}">${selectedHint}</p>
+        <p class="combat-hint ${this.selected != null || this.potionTargeting != null ? 'targeting' : ''}">${selectedHint}</p>
         </section>
       </main>`;
     },
@@ -1617,7 +1668,7 @@
       const weak = weakElement(e.element);
       const statuses = statusChips(e.statuses, 'enemy', i);
       const sub = `${e.block > 0 ? `<span class="block-pill">甲 ${e.block}</span>` : ''}${e.phase === 2 ? '<span class="phase-tag">狂怒</span>' : ''}${statuses ? `<span class="statuses">${statuses}</span>` : ''}`;
-      const targetable = this.selected != null && alive;
+      const targetable = (this.selected != null || this.potionTargeting != null) && alive;
       const showTarget = alive && i === targetIdx && (targetable || this.state.combat.enemies.length > 1);
       const detail = intent ? [
         intent.damage && intent.block ? `+${intent.block} 甲` : '',
@@ -2063,12 +2114,13 @@
         const enemy = this.state && this.state.combat && this.state.combat.enemies[this.targetIndex];
         body = `<div class="entity-showcase potion-showcase">${potionVessel(p.id)}<span>丹 · ${esc(p.name)}</span></div><p class="detail-text">${formatText(p.desc)}</p>
           <p class="detail-note">${p.target === 'enemy' ? `目标：${esc(enemy && enemy.hp > 0 ? enemy.name : '当前敌人')}` : '作用于自身'}</p>`;
-        if (d.action === 'use-potion') confirm = '确认使用';
+        if (d.action === 'use-potion') confirm = p.target === 'enemy' ? '选择敌人' : '确认使用';
+        if (d.action === 'confirm-potion-target') confirm = '确认投掷';
       } else if (d.kind === 'relic') {
         const r = relicById(d.id);
         if (!r) return '';
         title = r.name;
-        body = `<div class="entity-showcase relic-showcase">${relicEmblem(r.id)}<span>器 · ${esc(r.name)}</span></div><div class="detail-meta"><span>${RARITY_LABEL[r.rarity] || '法器'}</span></div><p class="detail-text">${formatText(r.desc)}</p>`;
+        body = `<div class="entity-showcase relic-showcase">${relicEmblem(r.id)}<span>器 · ${esc(r.name)}</span></div><div class="detail-meta"><span>${RARITY_LABEL[r.rarity] || '法器'}</span><span>${r.fateOnly ? '天命法宝' : r.rarity === 'starter' ? '本命法器' : '随身法宝'}</span></div><p class="detail-text">${formatText(r.desc)}</p>`;
       } else if (d.kind === 'status') {
         const status = D.statuses[d.id];
         if (!status) return '';
