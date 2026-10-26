@@ -2,6 +2,58 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const D = require('../js/data.js');
+const fs = require('node:fs');
+const css = fs.readFileSync(require.resolve('../css/style.css'), 'utf8');
+
+function relicRule(selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] || '';
+}
+
+test('遗物品级只控制外围材质，本体颜色由物件决定', () => {
+  assert.match(relicRule('.relic-art'), /color:\s*var\(--relic-object\)/);
+  assert.match(relicRule('.relic-art svg'), /color:\s*var\(--relic-object\)/);
+  for (const rarity of ['starter', 'common', 'uncommon', 'rare']) {
+    const rule = relicRule(`.relic-art.rarity-${rarity}`);
+    assert.match(rule, /--relic-rarity:/, rarity);
+    assert.doesNotMatch(rule, /--relic-object:|--relic-metal:/, rarity);
+  }
+  assert.match(relicRule('.relic-art.rarity-rare::after'), /var\(--relic-rarity\)/);
+  assert.match(relicRule('.relic-art.rarity-fate'), /--relic-object:\s*#fff5db/i);
+});
+
+test('主要法宝与五灵珠各自保留本体色', () => {
+  for (const motif of ['sword-tassel', 'gourd', 'black-sword', 'furnace', 'tortoise-shell', 'ancient-lamp', 'sword-case', 'blood-jade', 'dew-flask', 'five-ring']) {
+    assert.match(relicRule(`.relic-art.motif-${motif}`), /--relic-object:/, motif);
+  }
+  const pearls = ['wood', 'fire', 'earth', 'metal', 'water'].map(element =>
+    relicRule(`.relic-art.motif-pearl-${element}`).match(/--relic-object:\s*(#[0-9a-f]+)/i)?.[1]);
+  assert.equal(new Set(pearls).size, 5);
+  assert.ok(pearls.every(Boolean));
+  assert.match(require('../js/item-art.js').relicArt('wu_xing_huan'), /relic-element-node/g);
+});
+
+test('遗物触发按物件五行取色，五行型用中性法纹', () => {
+  for (const [id, flavor] of Object.entries({
+    huo_ling_zhu: 'fire', jin_ling_zhu: 'metal', mu_ling_zhu: 'wood',
+    shui_ling_zhu: 'water', tu_ling_zhu: 'earth', gu_deng: 'fire',
+    shuang_yu_pei: 'water', wu_xing_huan: 'five', fate_five_elements_book: 'five'
+  })) assert.equal(D.relicMap[id].presentation.flavor, flavor, id);
+
+  const colors = [];
+  const layer = { isConnected: true, appendChild(node) { node.remove = () => {}; } };
+  const document = {
+    getElementById: () => layer,
+    createElement() { return { style: { setProperty(name, value) { if (name === '--fx-color') colors.push(value); } }, animate() { return { finished: Promise.resolve() }; } }; }
+  };
+  const window = { WX_DATA: D, matchMedia: () => ({ matches: false }) };
+  require('node:vm').runInNewContext(fs.readFileSync(require.resolve('../js/effects.js'), 'utf8'), { window, document, setTimeout, clearTimeout });
+  return Promise.all([
+    window.WXEffects.relicTrigger({ id: 'gu_deng', target: { x: 1, y: 2 }, priority: 'normal' }),
+    window.WXEffects.relicTrigger({ id: 'shuang_yu_pei', target: { x: 1, y: 2 }, priority: 'normal' }),
+    window.WXEffects.relicTrigger({ id: 'wu_xing_huan', target: { x: 1, y: 2 }, priority: 'normal' })
+  ]).then(() => assert.deepEqual(colors, [D.elements.fire.color, D.elements.water.color, '#d8b977']));
+});
 
 test('所有遗物具有独立图形入口与材质层级', () => {
   const art = require('../js/item-art.js');

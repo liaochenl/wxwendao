@@ -1141,17 +1141,48 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .entity-showcase .relic-emblem { width: 58px; height: 58px; border-radius: 13px; }
 .entity-showcase .relic-emblem-core { font-size: 27px; }
 
-/* 法宝用物件剪影识别；品级只改变底座材质，不覆盖物件本色。 */
-.relic-art { --relic-metal: #c6ac82; --relic-frame: #786f60; width: 30px; height: 30px; flex: 0 0 auto; display: inline-grid; place-items: center; position: relative; color: var(--relic-metal); border: 1px solid var(--relic-frame); border-radius: 50%; background: radial-gradient(circle at 38% 28%, #ffffff16, transparent 52%), #151b1d; }
-.relic-art svg { width: 83%; height: 83%; overflow: visible; display: block; filter: drop-shadow(0 1px 1px #000b); }
-.relic-art.rarity-starter { --relic-metal: #b3b8b2; --relic-frame: #60645f; box-shadow: inset 0 0 5px #0008; }
-.relic-art.rarity-common { --relic-metal: #c5b08c; --relic-frame: #9b835e; box-shadow: inset 0 1px 5px #eac99626; }
-.relic-art.rarity-uncommon { --relic-metal: #97d4bf; --relic-frame: #6ca995; box-shadow: inset 0 0 0 2px #5ba88c22, 0 0 7px #68b99a40; }
-.relic-art.rarity-rare { --relic-metal: #ddc5e5; --relic-frame: #b383c5; box-shadow: inset 0 0 0 2px #bd72d43b, 0 0 10px #b878ca79; }
-.relic-art.rarity-rare::after { content: ''; position: absolute; inset: -4px; border: 1px solid #bc86cb73; border-radius: 50%; pointer-events: none; }
-.relic-art.rarity-fate { --relic-metal: #fff5db; --relic-frame: #e5d6a3; background: conic-gradient(from 25deg, #86ccbd48, #df8b8b35, #e2c47648, #8db9dc48, #86ccbd48), #172126; box-shadow: inset 0 0 0 2px #fff3d047, 0 0 15px #ecddb27d; }
+/* 本体由 motif 决定，品级只作用于底座、外环和法纹。 */
+.relic-art { --relic-object: #c6ac82; --relic-rarity: #786f60; --relic-rarity-soft: rgba(120, 111, 96, .22); width: 30px; height: 30px; flex: 0 0 auto; display: inline-grid; place-items: center; position: relative; color: var(--relic-object); border: 1px solid var(--relic-rarity); border-radius: 50%; background: radial-gradient(circle at 38% 28%, #ffffff16, transparent 52%), #151b1d; }
+.relic-art svg { color: var(--relic-object); width: 83%; height: 83%; overflow: visible; display: block; filter: drop-shadow(0 1px 1px #000b); }
+.relic-art.rarity-starter { --relic-rarity: #60645f; --relic-rarity-soft: rgba(96, 100, 95, .18); box-shadow: inset 0 0 5px #0008; }
+.relic-art.rarity-common { --relic-rarity: #9b835e; --relic-rarity-soft: rgba(197, 176, 140, .18); box-shadow: inset 0 1px 5px var(--relic-rarity-soft); }
+.relic-art.rarity-uncommon { --relic-rarity: #6ca995; --relic-rarity-soft: rgba(104, 185, 154, .24); box-shadow: inset 0 0 0 2px var(--relic-rarity-soft), 0 0 10px var(--relic-rarity-soft); }
+.relic-art.rarity-rare { --relic-rarity: #b383c5; --relic-rarity-soft: rgba(184, 120, 202, .34); box-shadow: inset 0 0 0 2px var(--relic-rarity-soft), 0 0 10px var(--relic-rarity-soft); }
+.relic-art.rarity-rare::after { content: ''; position: absolute; inset: -4px; border: 1px solid color-mix(in srgb, var(--relic-rarity) 72%, transparent); border-radius: 50%; pointer-events: none; }
+.relic-art.motif-sword-tassel { --relic-object: #c7dce5; }
+.relic-art.motif-herb-pouch { --relic-object: #a9bd8d; }
+.relic-art.motif-armor-plate { --relic-object: #9da8ad; }
+.relic-art.motif-gourd { --relic-object: #99ceb9; }
+.relic-art.motif-five-ring { --relic-object: #d8c692; }
+.relic-art.motif-pearl-fire { --relic-object: #f18d61; }
+.relic-art.motif-black-sword { --relic-object: #85939a; }
+.relic-art.motif-tortoise-shell { --relic-object: #b79a6b; }
+.relic-art.motif-furnace { --relic-object: #b98b68; }
+.relic-art.motif-fox-talisman { --relic-object: #d8c18a; }
+.relic-art.motif-leaf-hairpin { --relic-object: #b0d5bd; }
+.relic-art.motif-command-token { --relic-object: #b58d60; }
+.relic-art.motif-half-mask { --relic-object: #c7b49c; }
+.relic-art.motif-twin-fish { --relic-object: #99ceb9; }
+.relic-art.motif-pearl-earth { --relic-object: #d5b476; }
+.relic-art.motif-pearl-metal { --relic-object: #c6e8f2; }
+.relic-art.motif-pearl-water { --relic-object: #82c4d8; }
+.relic-art.motif-pearl-wood { --relic-object: #88c89c; }
+.relic-art.motif-pearl-mountain { --relic-object: #d5b476; }
+.relic-art.motif-dew-flask { --relic-object: #b7d9cf; }
+.relic-art.motif-sword-case { --relic-object: #8b969c; }
+.relic-art.motif-ancient-lamp { --relic-object: #c79c62; }
+.relic-art.motif-blood-jade { --relic-object: #dc6f75; }
+.relic-art.motif-jade-ring { --relic-object: #99ceb9; }
+.relic-art.motif-five-ring .relic-element-node.wood { fill: #88c89c; }
+.relic-art.motif-five-ring .relic-element-node.fire { fill: #f18d61; }
+.relic-art.motif-five-ring .relic-element-node.earth { fill: #d5b476; }
+.relic-art.motif-five-ring .relic-element-node.metal { fill: #c6e8f2; }
+.relic-art.motif-five-ring .relic-element-node.water { fill: #82c4d8; }
+.relic-art.motif-sword-case .relic-case-body { fill: #353638; }
+.relic-art.motif-sword-case .relic-case-edge { stroke: #c6d9df; }
+.relic-art.motif-dew-flask .relic-flask-body { fill: #b7d9cf29; }
+.relic-art.rarity-fate { --relic-object: #fff5db; --relic-rarity: #e5d6a3; --relic-rarity-soft: #fff3d047; background: conic-gradient(from 25deg, #86ccbd48, #df8b8b35, #e2c47648, #8db9dc48, #86ccbd48), #172126; box-shadow: inset 0 0 0 2px var(--relic-rarity-soft), 0 0 15px #ecddb27d; }
 .relic-art.rarity-fate::after { content: ''; position: absolute; inset: -5px; border: 1px solid #f4eac49a; border-radius: 50%; pointer-events: none; }
-.relic-art.motif-pearl-fire { --relic-metal: #f18d61; }.relic-art.motif-pearl-earth,.relic-art.motif-pearl-mountain { --relic-metal: #d5b476; }.relic-art.motif-pearl-metal { --relic-metal: #c6e8f2; }.relic-art.motif-pearl-water { --relic-metal: #82c4d8; }.relic-art.motif-pearl-wood { --relic-metal: #88c89c; }.relic-art.motif-blood-jade { --relic-metal: #dc6f75; }.relic-art.motif-gourd,.relic-art.motif-jade-ring,.relic-art.motif-twin-fish { --relic-metal: #99ceb9; }
 .relic-chip .relic-art { width: 28px; height: 28px; }.relic-chip.big .relic-art { width: 40px; height: 40px; }.comp-relic-icon .relic-art { width: 40px; height: 40px; }.fate-card-emblem .relic-art { width: 55px; height: 55px; }.overlay-relic > .relic-art { width: 44px; height: 44px; margin: 3px; }.entity-showcase.relic-showcase { min-height: 164px; }.entity-showcase .relic-art { width: clamp(90px, 24vw, 110px); height: clamp(90px, 24vw, 110px); }
 .fx-relic-acquire { position: fixed; width: 90px; height: 90px; border: 1px solid #d7c69f; border-radius: 50%; box-shadow: 0 0 25px #d7c69f77, inset 0 0 20px #d7c69f55; pointer-events: none; }.fx-relic-acquire-uncommon { border-color: #9ad9bd; box-shadow: 0 0 28px #6cc7a778; }.fx-relic-acquire-rare { border-color: #d6a9e2; box-shadow: 0 0 35px #c181d699; }.fx-relic-trigger { border-color: #cde3da; }.fx-relic-label { color: #dcead9; font-size: 13px; }
 @keyframes relic-loot-reveal { 0% { opacity: 0; transform: translateY(8px) scale(.94); } 70% { opacity: 1; transform: translateY(-3px) scale(1.02); } 100% { opacity: 1; transform: none; } }

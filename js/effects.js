@@ -271,7 +271,8 @@
       ], { duration: reduced() ? 150 : 260, easing: 'ease-out' });
     } catch (_) {}
     if (priority === 'quiet' || reduced()) return Promise.resolve();
-    return ring(p.x, p.y, id === 'ju_qi_lu' ? 'fire' : 'metal', `fx-ring fx-relic-trigger fx-relic-trigger-${id}`, priority === 'highlight' ? 330 : 260, 1.25);
+    const flavor = D?.relicMap?.[id]?.presentation?.flavor || 'metal';
+    return ring(p.x, p.y, flavor, `fx-ring fx-relic-trigger fx-relic-trigger-${id}`, priority === 'highlight' ? 330 : 260, 1.25);
   }
 
   async function potionUse({ id, source, target } = {}) {
