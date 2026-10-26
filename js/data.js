@@ -6,7 +6,7 @@
     wood:  { id: 'wood',  name: '木', glyph: '木', color: '#5aa86e', dark: '#20342a', generates: 'fire',  overcomes: 'earth', order: 0 },
     fire:  { id: 'fire',  name: '火', glyph: '火', color: '#d95b45', dark: '#3a201c', generates: 'earth', overcomes: 'metal', order: 1 },
     earth: { id: 'earth', name: '土', glyph: '土', color: '#c6a05a', dark: '#332a1c', generates: 'metal', overcomes: 'water', order: 2 },
-    metal: { id: 'metal', name: '金', glyph: '金', color: '#e8dfc8', dark: '#33312b', generates: 'water', overcomes: 'wood',  order: 3 },
+    metal: { id: 'metal', name: '金', glyph: '金', color: '#AFC9D8', dark: '#243642', generates: 'water', overcomes: 'wood',  order: 3 },
     water: { id: 'water', name: '水', glyph: '水', color: '#5f95bd', dark: '#1d2c38', generates: 'wood',  overcomes: 'fire',  order: 4 },
     none:  { id: 'none',  name: '无', glyph: '无', color: '#9c978c', dark: '#2a2a28', generates: null,    overcomes: null,    order: 5 }
   };

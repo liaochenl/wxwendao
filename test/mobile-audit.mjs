@@ -901,7 +901,7 @@ async function auditCombatStage(cdp, baseUrl) {
     console.log(`CHECK 战斗手牌 ${name}: ${JSON.stringify(metrics)}`);
   }
 
-  async function showRarityGallery(width, name, cards, { mobile = false } = {}) {
+  async function showRarityGallery(width, name, cards, { mobile = false, blurText = false, title = '卡牌品级 · 五行主色保留，牌框逐级成章' } = {}) {
     const height = mobile ? 852 : 900;
     await cdp.send('Emulation.setDeviceMetricsOverride', {
       width, height, screenWidth: width, screenHeight: height,
@@ -919,7 +919,7 @@ async function auditCombatStage(cdp, baseUrl) {
       sheet.setAttribute('aria-label','卡牌品级视觉对照');
       sheet.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;background:rgba(6,10,12,.88);padding:18px;box-sizing:border-box';
       const title=document.createElement('div');
-      title.textContent='卡牌品级 · 五行主色保留，牌框逐级成章';
+      title.textContent=${JSON.stringify(title)};
       title.style.cssText='font:22px serif;color:#ead8ad;letter-spacing:.16em;text-align:center';
       const row=document.createElement('div');
       row.style.cssText='display:flex;align-items:center;justify-content:center;gap:${mobile ? 6 : 18}px;width:100%';
@@ -928,6 +928,7 @@ async function auditCombatStage(cdp, baseUrl) {
         card.classList.remove('in-hand','selected','disabled','chain-next','will-overcome','fan-right');
         card.removeAttribute('data-action'); card.removeAttribute('data-index'); card.removeAttribute('data-card-uid');
         card.style.cssText += ';width:${mobile ? 108 : 190}px;height:${mobile ? 170 : 272}px;flex:0 1 auto;min-width:0;margin:0;transform:none;cursor:default';
+        if (${blurText}) card.querySelectorAll('.card-name,.card-text,.card-rarity,.card-type').forEach(el=>{el.style.filter='blur(3px)';el.style.opacity='.18'});
         row.append(card);
       }
       sheet.append(title,row); document.querySelector('.combat-v2').append(sheet);
@@ -939,8 +940,12 @@ async function auditCombatStage(cdp, baseUrl) {
     fs.writeFileSync(path.join(outputDir,`${name}.png`),Buffer.from(image.data,'base64'));
     const result=await cdp.eval(`(() => ({count:document.querySelectorAll('[aria-label="卡牌品级视觉对照"] .card').length,
       visible:[...document.querySelectorAll('[aria-label="卡牌品级视觉对照"] .card')].every(card=>{const r=card.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth}),
-      rareOrnaments:document.querySelectorAll('[aria-label="卡牌品级视觉对照"] .rarity-rare .card-rarity-ornament').length}))()`);
+      rareOrnaments:document.querySelectorAll('[aria-label="卡牌品级视觉对照"] .rarity-rare .card-rarity-ornament').length,
+      seals:[...document.querySelectorAll('[aria-label="卡牌品级视觉对照"] .card')].map(card=>card.querySelector('.card-rarity-seal')?.textContent||''),
+      finishers:[...document.querySelectorAll('[aria-label="卡牌品级视觉对照"] .card')].map(card=>card.querySelector('.card-finisher-seal')?.textContent||'')}))()`);
     if(result.count!==cards.length||!result.visible) fail(`卡牌品级对照 ${name}: ${JSON.stringify(result)}`);
+    if(name==='rarity-metal-comparison'&&(result.seals.join('')!=='凡灵玄玄'||result.finishers[3]!=='终式')) fail(`金行凡灵玄与终式印记不完整: ${JSON.stringify(result)}`);
+    if(name==='rare-five-elements'&&result.seals.join('')!=='玄玄玄玄玄') fail(`五行玄品标记不完整: ${JSON.stringify(result)}`);
     console.log(`CHECK 卡牌品级对照 ${name}: ${JSON.stringify(result)}`);
   }
   await cdp.send('Page.navigate', { url: `${baseUrl}/index.html?v=${Date.now()}` });
@@ -970,6 +975,10 @@ async function auditCombatStage(cdp, baseUrl) {
     ['alchemist', ['chan_si', 'bai_du_gui_yuan', 'chi_yan']],
     ['monk', ['yan_quan', 'beng_tian_shi', 'jin_zhong']]
   ]) await showHandScene(1440, 900, `finisher-${character}`, { character, cards, fullResource: true });
+  await showRarityGallery(1440, 'rarity-metal-comparison', ['jin_feng','she_ji','wu_lei','yi_jian_kai_tian'], { blurText:true, title:'金行品级识别 · 凡 / 灵 / 玄 / 终式' });
+  await showRarityGallery(1440, 'elements-comparison', ['teng_bian','lie_yan','shi_fu','jin_feng','shui_dun'], { title:'五行识别 · 同为凡品' });
+  await showRarityGallery(1440, 'rare-five-elements', ['qing_mu','xing_huo','da_di','wu_lei','xuan_wu'], { title:'玄品五行 · 元素与品级双通道' });
+  await showRarityGallery(1440, 'metal-upgrade-comparison', ['jin_feng',{id:'jin_feng',up:true},'wu_lei',{id:'wu_lei',up:true}], { title:'金行升级对比 · 冷银蓝主体与局部悟光' });
   await showRarityGallery(1440, 'card-rarity-hierarchy', ['jin_ren','jin_feng','she_ji','wu_lei','yi_jian_kai_tian']);
   await showRarityGallery(1440, 'card-rarity-elements', ['qing_mu','xing_huo','da_di','wu_lei','xuan_wu']);
   await showRarityGallery(1440, 'card-rarity-variants', ['wu_lei',{id:'wu_lei',up:true},'yi_jian_kai_tian']);

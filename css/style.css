@@ -20,6 +20,11 @@
   --earth: #c6a05a;
   --metal: #e8dfc8;
   --water: #5f95bd;
+  --rarity-starter: #837D73;
+  --rarity-common: #B07A48;
+  --rarity-uncommon: #43A99A;
+  --rarity-rare: #8B67C7;
+  --rarity-finisher: #D3AE58;
   --radius: 12px;
   --serif: "Songti SC", "STSong", "Noto Serif SC", "SimSun", serif;
   --sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
@@ -729,7 +734,7 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
   position: relative; width: 70px; height: 100%; color: var(--el); opacity: 0.95;
   filter: drop-shadow(0 1px 3px #000a);
 }
-.card-art-icon.motif-metal { color: #f1e5c5; }
+.card-art-icon.motif-metal { color: #D8ECF5; }
 .card-art-icon.motif-fire { color: #f59469; }
 .card-art-icon.motif-earth { color: #edc982; }
 .card-art-icon.motif-water { color: #99c9e5; }
@@ -2195,4 +2200,75 @@ body.zhoutian-flash::after {
 }
 @media (max-width: 600px) {
   .card.rarity-rare .card-rarity-ornament::after { display: none; }
+}
+
+/* V2-B.1 patch: element identity uses the main color, rarity uses its own seal and frame. */
+:root { --metal: #AFC9D8; }
+.card.rarity-starter { --rarity-accent: var(--rarity-starter); --rarity-ink: var(--rarity-starter); }
+.card.rarity-common { --rarity-accent: var(--rarity-common); --rarity-ink: var(--rarity-common); }
+.card.rarity-uncommon { --rarity-accent: var(--rarity-uncommon); --rarity-ink: var(--rarity-uncommon); }
+.card.rarity-rare { --rarity-accent: var(--rarity-rare); --rarity-ink: var(--rarity-rare); }
+.card.card-finisher { --rarity-accent: var(--rarity-finisher); }
+.card .card-rarity-seal {
+  position: absolute; z-index: 6; top: 25px; right: 4px; width: 19px; height: 19px;
+  display: grid; place-items: center; border: 1px solid var(--rarity-accent); border-radius: 3px;
+  color: #fff6df; background: color-mix(in srgb, var(--rarity-accent) 80%, #1a1b1d);
+  box-shadow: 0 1px 5px #0009, 0 0 7px color-mix(in srgb, var(--rarity-accent) 42%, transparent);
+  font: 12px/1 var(--serif); text-shadow: 0 1px 2px #000a; pointer-events: none;
+}
+.card.rarity-starter .card-rarity-seal { display: none; }
+.card.rarity-common .card-rarity-seal { color: #ffe8ce; background: #694326; box-shadow: 0 1px 4px #0008; }
+.card.rarity-uncommon .card-rarity-seal { color: #e5fff7; background: #14544d; box-shadow: 0 0 8px #43a99a66; }
+.card.rarity-rare .card-rarity-seal { color: #fff4ff; background: #493365; border-color: #c4a7e5; box-shadow: 0 0 9px #8b67c799; }
+.card.rarity-rare .card-inner { border-color: var(--el); }
+.card.rarity-rare .card-inner::after { border-color: var(--rarity-rare); opacity: .96; }
+.card.rarity-rare .card-rarity-ornament {
+  background:
+    linear-gradient(90deg, var(--rarity-rare) 0 14px, transparent 14px) left top / 18px 1.5px,
+    linear-gradient(var(--rarity-rare) 0 14px, transparent 14px) left top / 1.5px 18px,
+    linear-gradient(90deg, transparent 3px, var(--rarity-rare) 3px 7px, transparent 7px) left 4px top 4px / 10px 10px,
+    linear-gradient(90deg, transparent 0 4px, var(--rarity-rare) 4px 18px) right top / 18px 1.5px,
+    linear-gradient(var(--rarity-rare) 0 14px, transparent 14px) right top / 1.5px 18px,
+    linear-gradient(90deg, var(--rarity-rare) 0 14px, transparent 14px) left bottom / 18px 1.5px,
+    linear-gradient(var(--rarity-rare) 0 14px, transparent 14px) left bottom / 1.5px 18px,
+    linear-gradient(90deg, transparent 0 4px, var(--rarity-rare) 4px 18px) right bottom / 18px 1.5px,
+    linear-gradient(var(--rarity-rare) 0 14px, transparent 14px) right bottom / 1.5px 18px;
+  background-repeat: no-repeat;
+}
+.card.rarity-rare .card-rarity-ornament::before {
+  content: '◇──◇'; top: -4px; left: 50%; right: auto; width: 42px; height: 13px;
+  transform: translateX(-50%); background: #f1e7f8; color: var(--rarity-rare);
+  font: 10px/13px var(--serif); letter-spacing: .04em; text-align: center; opacity: 1;
+}
+.card.rarity-rare .card-rarity-ornament::after { border-color: var(--rarity-rare); background: radial-gradient(circle, #8b67c7 0 1.5px, transparent 2px); }
+.card.rarity-rare .card-rarity { color: var(--rarity-rare); }
+.card.rarity-rare.card-finisher .card-rarity-seal { width: 16px; height: 16px; top: 27px; right: 5px; opacity: .62; font-size: 10px; }
+.card.rarity-rare.card-finisher .card-inner { border-color: var(--rarity-finisher); box-shadow: 0 11px 24px -12px #000e, inset 0 0 0 2px #fff7ddaa, inset 0 0 0 4px var(--rarity-finisher); }
+.card.rarity-rare.card-finisher .card-inner::after { border-color: var(--rarity-finisher); opacity: .78; }
+.card.rarity-rare.card-finisher .card-rarity-ornament { opacity: .58; }
+.card.rarity-rare.card-finisher .card-finisher-seal { border-color: var(--rarity-finisher); color: #fff0bd; background: #342914; box-shadow: 0 0 10px #d3ae5866; }
+.card.el-metal .card-inner { border-color: #AFC9D8; }
+.card.el-metal .card-art {
+  background:
+    linear-gradient(128deg, transparent 0 38%, rgba(225,243,250,.3) 39% 40%, transparent 41% 58%, rgba(175,201,216,.24) 59% 60%, transparent 61%),
+    radial-gradient(ellipse at 50% 30%, rgba(175,201,216,.34), transparent 66%),
+    linear-gradient(160deg, #1b2b35, #111b22);
+  border-color: #AFC9D8;
+}
+.card.el-metal .card-art::after { border-color: rgba(216,236,245,.82); box-shadow: 8px 8px 0 -7px #e1f3fa, 16px 16px 0 -15px #afc9d8; }
+.card.el-metal .card-art-icon.motif-metal { color: #D8ECF5; filter: drop-shadow(0 0 4px #afc9d877); }
+.card.el-metal .card-elem { color: #142531; background: #c8deea; border-color: #e2f4fc; }
+.card.upgraded .card-inner { background: linear-gradient(160deg, #f1e8d6, #e5d7bd 68%, #d1bc91); }
+.card.el-metal.upgraded .card-art { background-color: #162630; }
+.card.el-metal.upgraded .card-inner::before { background: linear-gradient(90deg, transparent, #d3ae58, transparent); }
+.card.rarity-rare.upgraded .card-rarity-ornament { filter: drop-shadow(0 0 2px #8b67c7aa); }
+.card.rarity-uncommon .card-inner::after { opacity: 1; }
+.card.rarity-uncommon .card-rarity-ornament { filter: drop-shadow(0 0 1px #43a99a88); }
+.card.rarity-rare .card-art { box-shadow: inset 0 0 0 1px var(--rarity-rare), 0 0 7px #8b67c722; }
+@media (hover: hover) and (pointer: fine) {
+  .card.rarity-rare:hover .card-inner::after { filter: brightness(1.18); }
+}
+@media (max-width: 600px) {
+  .card .card-rarity-seal { width: 18px; height: 18px; top: 24px; right: 3px; font-size: 11px; }
+  .card.rarity-rare.card-finisher .card-rarity-seal { width: 15px; height: 15px; top: 26px; right: 4px; }
 }

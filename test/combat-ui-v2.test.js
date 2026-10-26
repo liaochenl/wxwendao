@@ -173,3 +173,37 @@ test('卡牌品级 class 与类型、终式、升级和异数身份互不覆盖'
   assert.doesNotMatch(cards[7], /rarity-(starter|common|uncommon|rare)/);
   assert.equal((html.match(/card-rarity-ornament/g) || []).length, 3);
 });
+
+test('金行采用冷银蓝，凡灵玄印与终式、升级印记独立显示', () => {
+  assert.equal(D.elements.metal.color, '#AFC9D8');
+  assert.equal(D.elements.metal.dark, '#243642');
+  const ui = makeUI(1280, 900);
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  ui.state.combat.hand = [
+    { id: 'jin_ren' },
+    { id: 'jin_feng' },
+    { id: 'she_ji' },
+    { id: 'wu_lei' },
+    { id: 'wu_lei', up: true },
+    { id: 'yi_jian_kai_tian', up: true }
+  ];
+  const cards = ui.combatHTML().match(/<button[^>]*in-hand[^>]*>[\s\S]*?<\/button>/g) || [];
+  assert.equal(cards.length, 6);
+  for (const [index, seal] of [[1, '凡'], [2, '灵'], [3, '玄'], [4, '玄']]) {
+    assert.match(cards[index], /card-rarity-seal/);
+    assert.match(cards[index], new RegExp(`card-rarity-seal[^>]*>${seal}<`));
+  }
+  assert.doesNotMatch(cards[0], /card-rarity-seal/);
+  assert.match(cards[4], /rarity-rare/);
+  assert.match(cards[4], /upgraded/);
+  assert.match(cards[5], /card-finisher/);
+  assert.match(cards[5], /card-finisher-seal[^>]*>终式</);
+  assert.match(cards[5], /card-rarity-seal[^>]*>玄</);
+
+  const css = fs.readFileSync(path.join(__dirname, '../css/style.css'), 'utf8');
+  for (const token of ['--rarity-starter: #837D73', '--rarity-common: #B07A48', '--rarity-uncommon: #43A99A', '--rarity-rare: #8B67C7', '--rarity-finisher: #D3AE58']) {
+    assert.ok(css.includes(token), `missing ${token}`);
+  }
+  assert.match(css, /\.card\.el-metal \.card-art[^{]*\{[^}]*#1b2b35/is);
+  assert.match(css, /\.card\.rarity-rare \.card-inner::after[^{]*\{[^}]*var\(--rarity-rare\)/is);
+});

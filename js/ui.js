@@ -32,6 +32,7 @@
     3: '天阙将倾，五行失序。去问一问，这天到底是谁的天。'
   };
   const RARITY_LABEL = { starter: '初始', common: '凡品', uncommon: '灵品', rare: '玄品', fate: '天命', curse: '禁制', special: '异数' };
+  const RARITY_SEAL = { starter: '', common: '凡', uncommon: '灵', rare: '玄' };
   const BUILD_TAG_NAMES = { sword_intent: '剑意', sword_cycle: '流云', sword_chain: '金水', poison: '万毒', burn: '焚炉', regen: '生生', monk_block: '镇岳', monk_thorns: '金刚', monk_ritual: '蓄势' };
   const DAO_RANK_NAMES = ['未得', '一重', '二重'];
   const DAO_RANK_MARKS = ['', 'Ⅰ', 'Ⅱ'];
@@ -213,6 +214,7 @@
           ${data.finisher ? '<span class="card-finisher-seal" aria-hidden="true">终式</span>' : ''}
           ${upgraded ? '<span class="card-up-mark" aria-label="已升级">悟</span>' : ''}
           <span class="card-elem" style="--el:${el.color}">${esc(el.glyph)}</span>
+          ${RARITY_SEAL[data.rarity] ? `<span class="card-rarity-seal" aria-hidden="true">${RARITY_SEAL[data.rarity]}</span>` : ''}
           ${cardArt(data.element, data.id, data.rarity)}
           <span class="card-type">${TYPE_NAMES[data.type] || ''} · ${RARITY_LABEL[data.rarity] || ''}</span>
         </div>
