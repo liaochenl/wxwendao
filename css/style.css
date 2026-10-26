@@ -1330,14 +1330,14 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .fx-particle.fx-element-wood { width: 9px; height: 17px; border-radius: 100% 0 100% 0; background: linear-gradient(135deg, #d0f5bd, var(--fx-color)); box-shadow: 0 0 16px var(--fx-color); }
 .fx-particle.fx-element-fire { width: 7px; height: 18px; border-radius: 70% 0 70% 40%; background: radial-gradient(circle at 38% 23%, #fff9d6, #ffd77d 30%, #ef8145 62%, var(--fx-color)); box-shadow: 0 0 18px #ec7846; }
 .fx-particle.fx-element-earth { width: 12px; height: 10px; clip-path: polygon(12% 20%, 80% 0, 100% 75%, 32% 100%); background: linear-gradient(135deg, #ffe4a9, var(--fx-color)); }
-.fx-particle.fx-element-metal { width: 18px; height: 4px; border-radius: 2px; background: linear-gradient(90deg, transparent, #fff, var(--fx-color)); box-shadow: 0 0 13px #fff3c8; }
+.fx-particle.fx-element-metal { width: 18px; height: 4px; border-radius: 2px; background: linear-gradient(90deg, transparent, #fff, var(--fx-color)); box-shadow: 0 0 13px #a9e3ff; }
 .fx-particle.fx-element-water { width: 10px; height: 15px; border-radius: 65% 65% 65% 0; background: linear-gradient(135deg, #d7f7ff, var(--fx-color)); box-shadow: 0 0 14px rgba(120, 206, 255, .65); }
 .fx-ring { width: 70px; height: 70px; border: 2px solid var(--fx-color); border-radius: 50%; box-shadow: 0 0 15px var(--fx-color), inset 0 0 15px var(--fx-color); }
 .fx-ring.fx-element-wood { box-shadow: 0 0 22px var(--fx-color), inset 0 0 18px var(--fx-color); }
 .fx-ring.fx-element-earth { border-width: 5px; border-style: dashed; }
 .fx-ring.fx-element-water { width: 86px; height: 86px; border-width: 2px 3px 1px; box-shadow: 0 0 20px var(--fx-color), inset 0 0 12px var(--fx-color); }
 .fx-ring.fx-element-fire { border-width: 3px; box-shadow: 0 0 28px #ef6f39; }
-.fx-slash { width: min(170px, 42vw); height: 8px; border-radius: 100%; background: linear-gradient(90deg, transparent, #fff4cf 25%, #fff 55%, transparent); box-shadow: 0 0 20px #ffe5a0; }
+.fx-slash { width: min(170px, 42vw); height: 8px; border-radius: 100%; background: linear-gradient(90deg, transparent, #d9f2ff 25%, #fff 55%, transparent); box-shadow: 0 0 20px #9ddfff; }
 .fx-slash-secondary { width: min(112px, 28vw); height: 4px; opacity: .65; }
 .fx-flash { width: 112px; height: 112px; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.85), rgba(255,235,170,.35) 35%, transparent 70%); }
 .fx-fire-core { background: radial-gradient(circle, rgba(255,249,215,.96), rgba(255,161,70,.56) 34%, transparent 72%); }
@@ -1369,6 +1369,7 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
   animation: floatUp 1.05s ease-out forwards; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
   white-space: nowrap;
 }
+.card-flight-hidden { opacity: 0 !important; pointer-events: none !important; }
 @keyframes floatUp {
   0% { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
   18% { opacity: 1; transform: translate(-50%, -74%) scale(1.1); }
@@ -1381,10 +1382,25 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .fx-buff { color: #b6e3c4; }
 .fx-debuff { color: #d9a4b8; }
 .fx-cross { color: #ffcf72; font-size: 25px; }
+.fx-damage-seal { color: #ffd889; font-size: 18px; letter-spacing: .12em; text-shadow: 0 0 12px #f0b84a, 0 2px 4px #000; }
+.fx-cross-number { color: #fff0c2; font-size: 26px; text-shadow: 0 0 14px #f0b84a, 0 2px 4px #000; }
+.fx-damage-wood { color: #c4f1c5; }
+.fx-damage-fire { color: #ffb38c; }
+.fx-damage-earth { color: #f0d6a0; }
+.fx-damage-metal { color: #d9f2ff; text-shadow: 0 0 10px #8ccde9, 0 2px 4px #000; }
+.fx-damage-water { color: #b7e8ff; }
+.fx-hit-highlight { animation: hitNumber 420ms cubic-bezier(.18,.84,.24,1) both; }
+@keyframes hitNumber {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.65); }
+  42% { opacity: 1; transform: translate(-50%, -65%) scale(1.2); }
+  68% { opacity: 1; transform: translate(-50%, -78%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -130%) scale(.98); }
+}
 .fx-burst-number { font-size: 38px; font-weight: 800; text-shadow: 0 0 20px rgba(255, 224, 153, .85), 0 3px 5px #000; animation-duration: 1.35s; }
 .fx-strong-number { font-size: 29px; text-shadow: 0 0 12px rgba(255, 219, 151, .55), 0 3px 5px #000; }
 .fx-legend-number { color: #fff1bc; font-size: 50px; font-weight: 900; text-shadow: 0 0 28px #f5c567, 0 0 8px #fff, 0 3px 6px #000; animation: legendNumber 1.35s ease-out forwards; }
 @keyframes legendNumber { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.6); } 10%, 18% { opacity: 1; transform: translate(-50%, -75%) scale(1.25); } 26% { transform: translate(-50%, -78%) scale(1.1); } 100% { opacity: 0; transform: translate(-50%, -170%) scale(.92); } }
+.fx-hit-highlight.fx-legend-number { animation: hitNumber 420ms cubic-bezier(.18,.84,.24,1) both; }
 .fx-impact-legend, .fx-empowered, .fx-build-awakening { border-color: #fff1c5; box-shadow: 0 0 27px #f4d991, inset 0 0 18px #fff3cf; }
 .fx-awakening-text { color: #fff1c5; font-size: 29px; letter-spacing: .15em; text-shadow: 0 0 20px #e9be73; animation-duration: .9s; }
 .fx-resource { color: #b4dff6; font-size: 18px; }
@@ -1394,6 +1410,16 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .fx-finisher-slash { width: min(240px, 58vw); height: 12px; box-shadow: 0 0 30px #fff1c5; }
 .fx-finisher-particle { width: 24px; height: 4px; box-shadow: 0 0 16px #fff4d5; }
 .fx-finisher-flash { width: 170px; height: 170px; }
+.fx-finisher-metal { background: linear-gradient(90deg, transparent, #d9f4ff 25%, #fff 54%, transparent); box-shadow: 0 0 28px #9bdfff; }
+.fx-finisher-metal-ring { border-color: #d9f4ff !important; box-shadow: 0 0 28px #83cbe9, inset 0 0 18px #d9f4ff !important; }
+.fx-detonate-stack { position: fixed; z-index: 87; color: #b9ffd0; font-size: 25px; font-weight: 800; text-shadow: 0 0 14px #42d886, 0 2px 4px #06140c; pointer-events: none; }
+.fx-detonate-fire-gather { position: fixed; width: 60px; height: 80px; border-radius: 50%; background: radial-gradient(ellipse, #fff5c9 0 12%, #ffb34f 35%, #eb5535 66%, transparent 75%); filter: drop-shadow(0 0 14px #ff572c); pointer-events: none; }
+.fx-detonate-regen-gather { filter: drop-shadow(0 0 10px #91f5b5); }
+.fx-detonate-regen-gather.fx-ring { border-color: #a5f6c0; box-shadow: 0 0 18px #5ed98f, inset 0 0 14px #a5f6c0; }
+.fx-boss-phase { pointer-events: none; }
+.fx-boss-phase-shan-gui { position: fixed; display: block; width: min(240px, 68vw); height: 92px; background: linear-gradient(108deg, transparent 0 18%, #fff0c7 19% 20%, transparent 21% 47%, #f6d48f 48% 49%, transparent 50%), linear-gradient(72deg, transparent 0 43%, #d4a85c 44% 45%, transparent 46%); filter: drop-shadow(0 7px 8px #bd854e); }
+.fx-boss-phase-chi-ba { filter: saturate(1.4) drop-shadow(0 0 18px #ff4a25); }
+.fx-boss-phase-tai-xu { border-color: #fff; box-shadow: 0 0 28px #fff, inset 0 0 18px #fff; }
 .fx-detonate-poison { border-color: #63d99a; box-shadow: 0 0 22px #1e9e66, inset 0 0 15px #abffd3; }
 .fx-detonate-vortex { position: fixed; width: min(28vw, 190px); aspect-ratio: 1; border: 2px solid #59d98d; border-radius: 50%; background: repeating-conic-gradient(transparent 0 18deg, #36b87466 19deg 24deg, transparent 25deg 44deg); box-shadow: 0 0 28px #2caf6e, inset 0 0 22px #78efad; pointer-events: none; }
 .fx-detonate-burn { border-color: #ffb16c; box-shadow: 0 0 28px #e9502c, inset 0 0 18px #fff2ce; }
@@ -1404,7 +1430,7 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .fx-block-cashout { color: #f4d9a2; text-shadow: 0 0 13px #a7783c; font-size: 20px; }
 .fx-detonate-thorns { border-color: #e6c589; box-shadow: 0 0 26px #b38844, inset 0 0 17px #fff1ca; }
 .fx-monk-han-shan-shi { border-color: #d8b36f; box-shadow: 0 0 18px #96723c; }
-.fx-monk-jin-gang-zhen-nu { border-color: #f5d693; box-shadow: 0 0 24px #ca984b; }
+.fx-monk-jin-gang-zhen-nu { border-color: #d9f4ff; box-shadow: 0 0 24px #83cbe9; }
 .fx-monk-beng-tian-shi { border-color: #ffe0a0; box-shadow: 0 0 32px #d0954e; }
 .card-finisher .card-inner { box-shadow: 0 7px 18px -8px rgba(0, 0, 0, .72), inset 0 0 0 2px rgba(255, 247, 218, .65), inset 0 0 23px rgba(216, 185, 119, .28), 0 0 14px rgba(216, 185, 119, .14); }
 .fx-chain { color: #f0d59a; font-size: 25px; letter-spacing: 0.08em; }

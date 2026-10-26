@@ -7,12 +7,12 @@ const vm = require('node:vm');
 const D = require('../js/data.js');
 const E = require('../js/engine.js');
 
-function makeUI(width = 1280, height = 900) {
-  const window = { WX_DATA: D, WXEngine: E, WXEffects: null, innerWidth: width, innerHeight: height,
+function makeUI(width = 1280, height = 900, effects = null) {
+  const window = { WX_DATA: D, WXEngine: E, WXEffects: effects, innerWidth: width, innerHeight: height,
     addEventListener() {} };
   const document = { getElementById: () => ({ addEventListener() {} }), querySelector: () => null };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../js/ui.js'), 'utf8'),
-    { window, document, clearTimeout() {}, setTimeout() {} });
+    { window, document, clearTimeout, setTimeout });
   const ui = window.WX_UI;
   ui.state = E.createRun({ characterId: 'sword', seed: 71 });
   ui.screen = 'combat';
@@ -38,6 +38,95 @@ test('普通战斗拥有同一战场层级、幕别背景和独立玩家主体',
   alchemist.state = E.createRun({ characterId: 'alchemist', seed: 71 });
   E.startCombat(alchemist.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
   assert.match(alchemist.combatHTML(), /character-alchemist/);
+});
+
+test('攻击牌先飞抵目标，再结算生命并按命中、数字、Hit Stop 顺序反馈', async () => {
+  const order = [];
+  const effects = {
+    captureCard() { return { ghost: {} }; },
+    async playCardFlight() {
+      order.push('flight-start');
+      order.push(`flight-state:${ui.state.combat.enemies[0].hp}:${ui.state.combat.hand.length}`);
+      order.push('flight-end');
+    },
+    async elementHit() { order.push('impact'); },
+    async hitStop() { order.push('hit-stop'); },
+    clear() {}
+  };
+  const ui = makeUI(393, 852, effects);
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_gui' }] }, 'combat');
+  ui.state.combat.hand = [{ uid: 'timing-attack', id: 'jin_feng', up: false }];
+  ui.state.combat.energy = 10;
+  ui.state.combat.enemies[0].hp = 100;
+  ui.state.combat.enemies[0].maxHp = 100;
+  ui.render = () => {};
+  ui.sync = () => {};
+  ui.checkCombatState = () => {};
+  ui.floatAt = (_el, text, cls) => order.push(`number:${text}:${cls}`);
+  ui.hitPulse = () => {};
+  ui.sfx = () => {};
+  await ui.playCard(0, 0);
+  assert.ok(order.indexOf('flight-start') < order.indexOf('impact'));
+  const firstDamageNumber = order.findIndex(item => item.startsWith('number:-') || item.startsWith('number:0:') || item.startsWith('number:6:'));
+  assert.ok(order.indexOf('impact') < firstDamageNumber, JSON.stringify(order));
+  assert.ok(order.find(item => item.startsWith('flight-state:')).includes(':100:1'), '飞行期间规则状态不应提前变化');
+  assert.equal(order.includes('hit-stop'), false, '普通伤害不应停顿');
+  assert.equal(ui.state.combat.enemies[0].hp, 90);
+  assert.equal(ui.state.combat.hand.length, 0);
+  await ui.fx([{ t: 'damage', target: 'enemy', uid: ui.state.combat.enemies[0].uid, amount: 18, cross: true, element: 'metal' }]);
+  const crossDamageNumber = order.findIndex(item => item.startsWith('number:-18:'));
+  assert.ok(crossDamageNumber >= 0);
+  assert.ok(order.findIndex(item => item === 'hit-stop') > crossDamageNumber, '克制伤害数字出现后短暂停顿');
+});
+
+test('同一目标的多段伤害按约 85ms 逐段出现', async () => {
+  const effects = { async elementHit() {}, async hitStop() {} };
+  const ui = makeUI(393, 852, effects);
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  const uid = ui.state.combat.enemies[0].uid;
+  const shownAt = [];
+  ui.render = () => {};
+  ui.hitPulse = () => {};
+  ui.sfx = () => {};
+  ui.floatAt = (_el, text) => { if (text.startsWith('-')) shownAt.push(Date.now()); };
+  await ui.fx(Array.from({ length: 4 }, () => ({ t: 'damage', target: 'enemy', uid, amount: 6, element: 'metal' })));
+  assert.equal(shownAt.length, 4);
+  for (let i = 1; i < shownAt.length; i++) {
+    const spacing = shownAt[i] - shownAt[i - 1];
+    assert.ok(spacing >= 75 && spacing <= 125, `第 ${i + 1} 段间隔 ${spacing}ms`);
+  }
+});
+
+test('终式伤害数字延后到飞行后的主视觉命中段', async () => {
+  const effects = { async elementHit() {}, async hitStop() {} };
+  const ui = makeUI(393, 852, effects);
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  const shownAt = Date.now();
+  let damageAt = 0;
+  ui.hitPulse = () => {};
+  ui.sfx = () => {};
+  ui.floatAt = (_el, text) => { if (text.startsWith('-')) damageAt = Date.now(); };
+  await ui.fx([{ t: 'damage', target: 'enemy', uid: ui.state.combat.enemies[0].uid, amount: 30, element: 'metal' }], { finisher: true });
+  assert.ok(damageAt - shownAt >= 140, `终式伤害只延迟了 ${damageAt - shownAt}ms`);
+});
+
+test('状态兑现先显示聚拢提示，最终伤害数字等演出结束后出现', async () => {
+  const order = [];
+  const effects = { async statusDetonate({ stacks }) { order.push(`detonate-start:${stacks}`); await new Promise(resolve => setTimeout(resolve, 2)); order.push('detonate-end'); } };
+  const ui = makeUI(393, 852, effects);
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  const uid = ui.state.combat.enemies[0].uid;
+  ui.floatAt = (_el, text) => order.push(`float:${text}`);
+  ui.hitPulse = () => {};
+  ui.sfx = () => {};
+  await ui.fx([
+    { t: 'statusDetonate', status: 'poison', uid, target: 'enemy', stacks: 6, damage: 42 },
+    { t: 'damage', target: 'enemy', uid, amount: 42, source: 'poison', element: 'wood' }
+  ]);
+  assert.equal(order[0], 'float:毒层收束 ×6');
+  assert.equal(order[1], 'detonate-start:6');
+  assert.ok(order.indexOf('detonate-end') < order.findIndex(item => item === 'float:-42'));
+  assert.ok(!order.some(item => item.includes('毒层收束') && item.includes('42')));
 });
 
 test('精英和幕主有不同视觉等级，Boss 二阶段持续可见', () => {

@@ -158,26 +158,26 @@
       { transform: 'translateY(0) scaleY(1)' }
     ] : [
       { transform: 'translateX(0)' }, { transform: 'translateX(-3px)' }, { transform: 'translateX(3px)' }, { transform: 'translateX(0)' }
-    ], { duration: heavy ? 230 : 175, easing: 'ease-out' }); } catch (_) {}
-    const animations = [ring(pos.x, pos.y, type, `fx-ring fx-element-${type} ${className}`, heavy ? 390 : 300, type === 'water' ? 2.9 : 2.35)];
+    ], { duration: heavy ? 205 : 155, easing: 'ease-out' }); } catch (_) {}
+    const animations = [ring(pos.x, pos.y, type, `fx-ring fx-element-${type} ${className}`, heavy ? 210 : 175, type === 'water' ? 2.9 : 2.35)];
     if (type === 'wood') {
       for (let i = 0; i < 3; i++) animations.push(animateAndRemove(node(`fx-vine ${className}`, pos.x, pos.y, type), [
         { transform: `translate(-50%, -50%) rotate(${i * 60 - 60}deg) scaleX(.05)`, opacity: 0 },
         { transform: `translate(-50%, -50%) rotate(${i * 60 - 60}deg) scaleX(1)`, opacity: .85, offset: .55 },
         { transform: `translate(-50%, -50%) rotate(${i * 60 - 60}deg) scaleX(1.2)`, opacity: 0 }
-      ], { duration: 330, easing: 'ease-out' }));
+      ], { duration: 190, easing: 'ease-out' }));
     } else if (type === 'fire') {
-      animations.push(flash(pos.x, pos.y, type, `fx-flash fx-fire-core ${className}`, 220));
+      animations.push(flash(pos.x, pos.y, type, `fx-flash fx-fire-core ${className}`, 180));
     } else if (type === 'earth') {
-      animations.push(ring(pos.x, pos.y + 18, type, `fx-ring fx-earth-impact ${className}`, 330, 3.2));
+      animations.push(ring(pos.x, pos.y + 18, type, `fx-ring fx-earth-impact ${className}`, 190, 3.2));
     } else if (type === 'metal') {
       for (let i = 0; i < (heavy ? 3 : 2); i++) animations.push(animateAndRemove(node(`fx-slash ${className}`, pos.x, pos.y, type), [
         { transform: `translate(-50%, -50%) rotate(${i ? 30 : -32}deg) scaleX(.05)`, opacity: 0 },
         { transform: `translate(-50%, -50%) rotate(${i ? 30 : -32}deg) scaleX(1.25)`, opacity: 1, offset: .42 },
         { transform: `translate(-50%, -50%) rotate(${i ? 30 : -32}deg) scaleX(.45)`, opacity: 0 }
-      ], { duration: 235 + i * 30, delay: i * 35, easing: 'ease-out' }));
+      ], { duration: 175 + i * 15, delay: i * 20, easing: 'ease-out' }));
     } else {
-      animations.push(ring(pos.x, pos.y, type, `fx-ring fx-water-ripple ${className}`, 420, 3.3, 55));
+      animations.push(ring(pos.x, pos.y, type, `fx-ring fx-water-ripple ${className}`, 190, 3.3, 25));
     }
     if (overcome) animations.push(overcomeBurst({ target, element: type }));
     return Promise.all(animations);
@@ -213,6 +213,22 @@
       { transform: `translate(${px}px, ${-px / 2}px)` }, { transform: 'translate(0, 0)' }
     ], { duration: strength === 'heavy' ? 230 : 160, easing: 'ease-out' }); } catch (_) {}
     return Promise.resolve();
+  }
+
+  async function hitStop({ duration = 45 } = {}) {
+    if (reduced()) return;
+    const ms = Math.max(0, Math.min(70, Number(duration) || 0));
+    if (!ms) return;
+    let animations;
+    try {
+      const scopes = [document.querySelector?.('.battlefield'), document.getElementById?.('fx-layer')].filter(Boolean);
+      animations = [...new Set(scopes.flatMap(scope => scope.getAnimations?.({ subtree: true }) || []))]
+        .filter(animation => animation.playState === 'running' && typeof animation.pause === 'function');
+    }
+    catch (_) { return; }
+    for (const animation of animations) { try { animation.pause(); } catch (_) {} }
+    try { await new Promise(resolve => setTimeout(resolve, ms)); }
+    finally { for (const animation of animations) { try { if (animation.playState === 'paused') animation.play(); } catch (_) {} } }
   }
 
   function resourceReady({ target, id } = {}) {
@@ -251,7 +267,7 @@
     const destination = centerOf(target) || { x: window.innerWidth / 2, y: window.innerHeight * .38 };
     const dx = destination.x - visual.centerX;
     const dy = destination.y - visual.centerY;
-    const duration = finisher ? 350 : cardType === 'power' ? 445 : cardType === 'skill' ? 400 : 375;
+    const duration = finisher ? 295 : cardType === 'power' ? 285 : cardType === 'skill' ? 255 : 230;
     try {
       if (!reduced()) {
         void cardTrail({ from: { x: visual.centerX, y: visual.centerY }, to: destination, element, finisher });
@@ -409,12 +425,12 @@
     const isThorns = cardId === 'jin_gang_zhen_nu';
     const color = isThorns ? 'metal' : element;
     const animations = [
-      ring(pos.x, pos.y, color, `fx-ring ${style}${empowered ? ' fx-empowered' : ''}`, isThorns ? 500 : 570, empowered ? 4.3 : isThorns ? 3.2 : 3.8),
-      flash(pos.x, pos.y, color, `fx-flash ${style}`, isThorns ? 220 : 270, isThorns ? 60 : 120),
+      ring(pos.x, pos.y, color, `fx-ring ${style}${empowered ? ' fx-empowered' : ''}${isThorns ? ' fx-finisher-metal-ring' : ''}`, isThorns ? 390 : 420, empowered ? 4.3 : isThorns ? 3.2 : 3.8),
+      flash(pos.x, pos.y, color, `fx-flash ${style}`, isThorns ? 180 : 205, isThorns ? 45 : 85),
       cameraPunch({ strength: 'heavy' })
     ];
-    if (isThorns) animations.push(ring(origin.x, origin.y, color, `fx-ring ${style}`, 460, 2.7));
-    else animations.push(ring(pos.x, pos.y, color, `fx-ring ${style}`, 520, 2.7, 55));
+    if (isThorns) animations.push(ring(origin.x, origin.y, color, `fx-ring ${style}`, 360, 2.7));
+    else animations.push(ring(pos.x, pos.y, color, `fx-ring ${style}`, 390, 2.7, 45));
     const particleCount = (isThorns ? 8 : 6) + (empowered ? 2 : 0);
     for (let i = 0; i < particleCount; i++) {
       const angle = i * Math.PI * 2 / particleCount;
@@ -423,6 +439,7 @@
       const x = isBlock || isThorns ? origin.x : pos.x;
       const y = isBlock || isThorns ? origin.y : pos.y;
       const particle = node(`fx-particle fx-finisher-particle ${style}`, x, y, color);
+      if (isThorns) particle?.classList?.add?.('fx-finisher-metal');
       animations.push(animateAndRemove(particle, isBlock ? [
         { transform: 'translate(-50%, -50%) scale(.3)', opacity: 0 },
         { transform: `translate(calc(-50% + ${(pos.x - origin.x) * .55 + dx * .2}px), calc(-50% + ${(pos.y - origin.y) * .55 + dy * .2}px)) scale(1)`, opacity: 1, offset: .52 },
@@ -431,7 +448,7 @@
         { transform: 'translate(-50%, -50%) scale(.2)', opacity: 0 },
         { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(1.1)`, opacity: 1, offset: .42 },
         { transform: `translate(calc(-50% + ${dx * 1.3}px), calc(-50% + ${dy * 1.3}px)) scale(.15)`, opacity: 0 }
-      ], { duration: isThorns ? 480 : 590, easing: 'ease-out' }));
+      ], { duration: isThorns ? 360 : 400, easing: 'ease-out' }));
     }
     return Promise.all(animations);
   }
@@ -443,44 +460,44 @@
       return monkFinisher({ target, source, cardId, element, empowered });
     }
     if (kind === 'alchemist') return alchemistFinisher({ target, source, cardId, element, empowered });
-    const slash = node('fx-slash fx-finisher-slash', pos.x, pos.y, element);
+    const slash = node(`fx-slash fx-finisher-slash fx-finisher-${element}`, pos.x, pos.y, element);
     const animations = [
-      ring(pos.x, pos.y, element, `fx-ring fx-finisher-ring${empowered ? ' fx-empowered' : ''}`, 520, empowered ? 3.8 : 3.2),
-      ring(pos.x, pos.y, element, 'fx-ring fx-finisher-ring fx-finisher-echo', 480, 2.6, 35),
-      flash(pos.x, pos.y, element, 'fx-flash fx-finisher-flash', 260, 110),
+      ring(pos.x, pos.y, element, `fx-ring fx-finisher-ring${empowered ? ' fx-empowered' : ''}`, 360, empowered ? 3.8 : 3.2),
+      ring(pos.x, pos.y, element, 'fx-ring fx-finisher-ring fx-finisher-echo', 330, 2.6, 30),
+      flash(pos.x, pos.y, element, 'fx-flash fx-finisher-flash', 190, 75),
       cameraPunch({ strength: 'heavy' }),
       animateAndRemove(slash, [
         { transform: 'translate(-90%, -50%) rotate(-34deg) scaleX(.1)', opacity: 0 },
         { transform: 'translate(-50%, -50%) rotate(-34deg) scaleX(1.35)', opacity: 1, offset: .5 },
         { transform: 'translate(10%, -50%) rotate(-34deg) scaleX(.8)', opacity: 0 }
-      ], { duration: 510, easing: 'ease-out' })
+      ], { duration: 330, easing: 'ease-out' })
     ];
     const particleCount = empowered ? 8 : 6;
     for (let index = 0; index < particleCount; index++) {
       const angle = Math.PI * 2 * index / particleCount;
       const dx = Math.cos(angle) * 95;
       const dy = Math.sin(angle) * 75;
-      animations.push(animateAndRemove(node('fx-particle fx-element-metal fx-finisher-particle', pos.x, pos.y, element), [
+      animations.push(animateAndRemove(node(`fx-particle fx-element-metal fx-finisher-particle${element === 'metal' ? ' fx-finisher-metal' : ''}`, pos.x, pos.y, element), [
         { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(.7)`, opacity: 0 },
         { transform: `translate(calc(-50% + ${dx * .7}px), calc(-50% + ${dy * .7}px)) scale(1)`, opacity: 1, offset: .25 },
         { transform: 'translate(-50%, -50%) scale(.2)', opacity: 0 }
-      ], { duration: 410, easing: 'ease-in' }));
+      ], { duration: 300, easing: 'ease-in' }));
     }
     if (cardId === 'cang_lang') {
       for (let i = 0; i < 3; i++) animations.push(animateAndRemove(node(`fx-slash fx-finisher-slash fx-sword-cang-lang`, pos.x, pos.y, 'water'), [
         { transform: `translate(-50%, -50%) translateX(-70px) rotate(${i * 12 - 28}deg) scaleX(.1)`, opacity: 0 },
         { transform: `translate(-50%, -50%) rotate(${i * 12 - 28}deg) scaleX(1.2)`, opacity: 1, offset: .46 },
         { transform: `translate(-50%, -50%) translateX(70px) rotate(${i * 12 - 28}deg) scaleX(.7)`, opacity: 0 }
-      ], { duration: 340, delay: i * 70, easing: 'ease-out' }));
+      ], { duration: 200, delay: i * 45, easing: 'ease-out' }));
     } else if (cardId === 'tian_he') {
-      animations.push(ring(pos.x - 54, pos.y, 'water', 'fx-ring fx-sword-tian-he', 520, 2.4));
-      animations.push(ring(pos.x + 54, pos.y, 'metal', 'fx-ring fx-sword-tian-he', 520, 2.4, 50));
+      animations.push(ring(pos.x - 54, pos.y, 'water', 'fx-ring fx-sword-tian-he', 350, 2.4));
+      animations.push(ring(pos.x + 54, pos.y, 'metal', 'fx-ring fx-sword-tian-he', 350, 2.4, 40));
     } else if (cardId === 'yi_jian_kai_tian') {
       animations.push(animateAndRemove(node('fx-slash fx-finisher-slash fx-sword-kai-tian', pos.x, pos.y, 'metal'), [
         { transform: 'translate(-50%, -50%) rotate(-70deg) scaleX(.05)', opacity: 0 },
         { transform: 'translate(-50%, -50%) rotate(-70deg) scaleX(1.45)', opacity: 1, offset: .42 },
         { transform: 'translate(-50%, -50%) rotate(-70deg) scaleX(1.1)', opacity: 0 }
-      ], { duration: 430, delay: 70, easing: 'ease-out' }));
+      ], { duration: 300, delay: 50, easing: 'ease-out' }));
     }
     return Promise.all(animations);
   }
@@ -489,20 +506,20 @@
     const pos = centerOf(target), origin = centerOf(source) || { x: window.innerWidth / 2, y: window.innerHeight * .68 };
     if (!pos) return Promise.resolve();
     const style = `fx-alchemist-${(cardId || 'finisher').replaceAll('_', '-')}`;
-    const animations = [ring(pos.x, pos.y, element, `fx-ring fx-finisher-ring ${style}${empowered ? ' fx-empowered' : ''}`, 620, empowered ? 4.1 : 3.4)];
+    const animations = [ring(pos.x, pos.y, element, `fx-ring fx-finisher-ring ${style}${empowered ? ' fx-empowered' : ''}`, 420, empowered ? 4.1 : 3.4)];
     if (cardId === 'bai_du_gui_yuan') {
       animations.push(animateAndRemove(node(`fx-alchemist-vortex ${style}`, pos.x, pos.y, 'wood'), [
         { transform: 'translate(-50%, -50%) scale(2.8) rotate(0deg)', opacity: 0 },
         { transform: 'translate(-50%, -50%) scale(1.25) rotate(150deg)', opacity: .95, offset: .52 },
         { transform: 'translate(-50%, -50%) scale(.1) rotate(300deg)', opacity: 0 }
-      ], { duration: 540, easing: 'ease-in' }));
+      ], { duration: 410, easing: 'ease-in' }));
     } else if (cardId === 'chi_lu_fen_tian') {
       animations.push(animateAndRemove(node(`fx-alchemist-pillar ${style}`, pos.x, pos.y + 30, 'fire'), [
         { transform: 'translate(-50%, 0) scaleY(.1)', opacity: 0 },
         { transform: 'translate(-50%, -80px) scaleY(1)', opacity: .9, offset: .5 },
         { transform: 'translate(-50%, -130px) scaleY(.7)', opacity: 0 }
-      ], { duration: 520, easing: 'ease-out' }));
-      animations.push(flash(pos.x, pos.y, 'fire', `fx-flash ${style}`, 250, 180));
+      ], { duration: 360, easing: 'ease-out' }));
+      animations.push(flash(pos.x, pos.y, 'fire', `fx-flash ${style}`, 200, 125));
     } else if (cardId === 'qing_di_hui_tian') {
       for (let i = 0; i < (empowered ? 7 : 5); i++) {
         const angle = i * Math.PI * 2 / 5;
@@ -511,7 +528,7 @@
           { transform: 'translate(-50%, -50%) scale(.25)', opacity: 0 },
           { transform: `translate(calc(-50% + ${(pos.x - sx) * .55}px), calc(-50% + ${(pos.y - sy) * .55}px)) scale(1.2)`, opacity: 1, offset: .55 },
           { transform: `translate(calc(-50% + ${pos.x - sx}px), calc(-50% + ${pos.y - sy}px)) scale(.1)`, opacity: 0 }
-        ], { duration: 500 + i * 18, delay: i * 28, easing: 'ease-in' }));
+        ], { duration: 340 + i * 12, delay: i * 20, easing: 'ease-in' }));
       }
     }
     return Promise.all(animations);
@@ -585,24 +602,71 @@
     ]);
   }
 
-  function bossPhase({ target, element = 'earth' } = {}) {
+  async function bossPhase({ target, element = 'earth', enemyId } = {}) {
     const pos = centerOf(target);
     if (!pos || reduced()) return Promise.resolve();
-    return Promise.all([
-      ring(pos.x, pos.y, element, 'fx-ring fx-boss-phase', 700, 4),
-      cameraPunch({ strength: 'heavy' }),
-      flash(pos.x, pos.y, element, 'fx-flash fx-boss-phase', 440, 110),
-      ...Array.from({ length: 5 }, (_, index) => {
-        const angle = index * Math.PI * 2 / 5;
-        const x = pos.x + Math.cos(angle) * 55;
-        const y = pos.y + Math.sin(angle) * 42;
-        return animateAndRemove(node('fx-particle fx-boss-phase', x, y, ORDER[index]), [
+    const identity = enemyId === 'shan_gui' ? 'shan-gui' : enemyId === 'chi_ba' ? 'chi-ba' : enemyId === 'tai_xu' ? 'tai-xu' : 'generic';
+    const animations = identity === 'tai-xu' ? [] : [cameraPunch({ strength: 'heavy' })];
+    if (identity === 'shan-gui') {
+      try { target?.querySelector?.('.enemy-art')?.animate?.([
+        { transform: 'translateY(0)' }, { transform: 'translateY(6px)' },
+        { transform: 'translateY(-2px)' }, { transform: 'translateY(0)' }
+      ], { duration: 220, easing: 'ease-out' }); } catch (_) {}
+      const crack = node('fx-boss-phase fx-boss-phase-shan-gui', pos.x, pos.y + 52, 'earth');
+      animations.push(animateAndRemove(crack, [
+        { transform: 'translate(-50%, -50%) scale(.35, .2)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) scale(1, 1)', opacity: .95, offset: .38 },
+        { transform: 'translate(-50%, -50%) scale(1.35, .65)', opacity: 0 }
+      ], { duration: 350, easing: 'ease-out' }));
+      for (let i = 0; i < 7; i++) {
+        const angle = i * Math.PI * 2 / 7;
+        animations.push(animateAndRemove(node('fx-particle fx-boss-phase fx-boss-phase-shan-gui', pos.x, pos.y + 45, 'earth'), [
           { transform: 'translate(-50%, -50%) scale(.4)', opacity: 0 },
-          { transform: `translate(calc(-50% + ${Math.cos(angle) * 75}px), calc(-50% + ${Math.sin(angle) * 55}px)) scale(1.1)`, opacity: .8, offset: .45 },
-          { transform: 'translate(-50%, -50%) scale(0)', opacity: 0 }
-        ], { duration: 620, easing: 'ease-out' });
-      })
-    ]);
+          { transform: `translate(calc(-50% + ${Math.cos(angle) * 62}px), calc(-50% + ${Math.sin(angle) * 36}px - 18px)) scale(1)`, opacity: .9, offset: .45 },
+          { transform: `translate(calc(-50% + ${Math.cos(angle) * 92}px), calc(-50% + ${Math.sin(angle) * 58}px)) scale(.2)`, opacity: 0 }
+        ], { duration: 390, delay: i * 12, easing: 'ease-out' }));
+      }
+    } else if (identity === 'chi-ba') {
+      const pillar = node('fx-boss-phase fx-boss-phase-chi-ba fx-alchemist-pillar', pos.x, pos.y + 52, 'fire');
+      animations.push(animateAndRemove(pillar, [
+        { transform: 'translate(-50%, 0) scaleY(.08)', opacity: 0 },
+        { transform: 'translate(-50%, -90px) scaleY(1.15)', opacity: .98, offset: .52 },
+        { transform: 'translate(-50%, -145px) scaleY(.7)', opacity: 0 }
+      ], { duration: 430, easing: 'ease-out' }));
+      animations.push(flash(pos.x, pos.y, 'fire', 'fx-flash fx-boss-phase fx-boss-phase-chi-ba', 220));
+      animations.push(screenFlash({ tone: 'fire', intensity: 'strong' }));
+      for (let i = 0; i < 6; i++) {
+        const x = pos.x + (i - 2.5) * 18;
+        animations.push(animateAndRemove(node('fx-particle fx-boss-phase fx-boss-phase-chi-ba', x, pos.y + 42, 'fire'), [
+          { transform: 'translate(-50%, 0) scale(.8)', opacity: 0 },
+          { transform: 'translate(-50%, -65px) scale(1)', opacity: 1, offset: .35 },
+          { transform: `translate(calc(-50% + ${(i - 2.5) * 13}px), -130px) scale(.2)`, opacity: 0 }
+        ], { duration: 400, delay: i * 24, easing: 'ease-out' }));
+      }
+    } else if (identity === 'tai-xu') {
+      const fiveElements = [];
+      for (let index = 0; index < ORDER.length; index++) {
+        const angle = index * Math.PI * 2 / ORDER.length - Math.PI / 2;
+        const x = pos.x + Math.cos(angle) * 100, y = pos.y + Math.sin(angle) * 68;
+        const element = ORDER[index], delay = index * 45;
+        fiveElements.push(animateAndRemove(node(`fx-particle fx-boss-phase fx-boss-phase-tai-xu fx-element-${element}`, x, y, element), [
+          { transform: 'translate(-50%, -50%) scale(.35)', opacity: 0 },
+          { transform: 'translate(-50%, -50%) scale(1.15)', opacity: .95, offset: .4 },
+          { transform: `translate(calc(-50% + ${pos.x - x}px), calc(-50% + ${pos.y - y}px)) scale(.18)`, opacity: 0 }
+        ], { duration: 230, delay, easing: 'ease-in' }));
+      }
+      await Promise.all(fiveElements);
+      return Promise.all([
+        cameraPunch({ strength: 'heavy' }),
+        ring(pos.x, pos.y, 'metal', 'fx-ring fx-boss-phase fx-boss-phase-tai-xu', 360, 3.6),
+        flash(pos.x, pos.y, 'metal', 'fx-flash fx-boss-phase fx-boss-phase-tai-xu', 220),
+        screenFlash({ tone: 'metal', intensity: 'strong' })
+      ]);
+    } else {
+      animations.push(ring(pos.x, pos.y, element, 'fx-ring fx-boss-phase', 380, 3.2));
+      animations.push(flash(pos.x, pos.y, element, 'fx-flash fx-boss-phase', 220, 80));
+    }
+    return Promise.all(animations);
   }
 
   function encounterDefeat({ target, tier = 'elite', element = 'metal' } = {}) {
@@ -614,93 +678,148 @@
     ]);
   }
 
-  function statusDetonate({ status, target, source } = {}) {
+  async function statusDetonate({ status, target, source, stacks = 0 } = {}) {
     if (reduced()) return Promise.resolve();
     const dest = centerOf(target);
     if (!dest || !['poison', 'burn', 'regen', 'thorns'].includes(status)) return Promise.resolve();
     const element = status === 'burn' ? 'fire' : status === 'thorns' ? 'metal' : 'wood';
     const origin = centerOf(source) || dest;
-    const animations = [
-      ring(dest.x, dest.y, element, `fx-ring fx-detonate-${status}`, status === 'burn' || status === 'thorns' ? 450 : 420, status === 'burn' || status === 'thorns' ? 3.6 : 3.1),
-      flash(dest.x, dest.y, element, `fx-flash fx-detonate-${status}`, 230, 90)
-    ];
-    if (status === 'poison') animations.push(animateAndRemove(node('fx-detonate-vortex', dest.x, dest.y, element), [
-      { transform: 'translate(-50%, -50%) scale(1.8) rotate(0deg)', opacity: 0 },
-      { transform: 'translate(-50%, -50%) scale(.62) rotate(185deg)', opacity: .9, offset: .64 },
-      { transform: 'translate(-50%, -50%) scale(2.8) rotate(300deg)', opacity: 0 }
-    ], { duration: 400, easing: 'ease-in' }));
-    if (status === 'burn') animations.push(animateAndRemove(node('fx-detonate-fire-column', dest.x, dest.y + 35, element), [
-      { transform: 'translate(-50%, 0) scaleY(.1)', opacity: 0 },
-      { transform: 'translate(-50%, -95px) scaleY(1)', opacity: .9, offset: .55 },
-      { transform: 'translate(-50%, -155px) scaleY(.65)', opacity: 0 }
-    ], { duration: 440, easing: 'ease-out' }));
+    const stackSeal = status === 'poison' ? node('fx-detonate-stack fx-detonate-poison', dest.x, dest.y, element) : null;
+    if (stackSeal) stackSeal.textContent = stacks > 0 ? `×${stacks}` : '';
+    if (status === 'poison') {
+      await animateAndRemove(stackSeal, [
+        { transform: 'translate(-50%, -50%) scale(.65)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) scale(1.2)', opacity: 1, offset: .5 },
+        { transform: 'translate(-50%, -50%) scale(1.45)', opacity: .88 }
+      ], { duration: 110, easing: 'ease-out' });
+      const vortex = node('fx-detonate-vortex', dest.x, dest.y, element);
+      await animateAndRemove(vortex, [
+        { transform: 'translate(-50%, -50%) scale(1.55) rotate(0deg)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) scale(.62) rotate(180deg)', opacity: .95, offset: .64 },
+        { transform: 'translate(-50%, -50%) scale(.18) rotate(285deg)', opacity: .3 }
+      ], { duration: 100, easing: 'ease-in' });
+      const burst = [ring(dest.x, dest.y, element, 'fx-ring fx-detonate-poison', 160, 3.1), flash(dest.x, dest.y, element, 'fx-flash fx-detonate-poison', 145)];
+      for (let index = 0; index < 8; index++) {
+        const angle = 2 * Math.PI * index / 8;
+        const dx = Math.cos(angle) * 80, dy = Math.sin(angle) * 80;
+        burst.push(animateAndRemove(node('fx-particle fx-detonate-particle fx-detonate-poison', dest.x, dest.y, element), [
+          { transform: 'translate(-50%, -50%) scale(.25)', opacity: .1 },
+          { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(1.2)`, opacity: 1, offset: .32 },
+          { transform: `translate(calc(-50% + ${dx * 1.25}px), calc(-50% + ${dy * 1.25}px)) scale(.2)`, opacity: 0 }
+        ], { duration: 145, easing: 'ease-out' }));
+      }
+      await Promise.all(burst);
+      return;
+    }
+    if (status === 'burn') {
+      await animateAndRemove(node('fx-detonate-fire-gather', dest.x, dest.y + 42, element), [
+        { transform: 'translate(-50%, -50%) scale(.4)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) scale(1.15)', opacity: 1, offset: .55 },
+        { transform: 'translate(-50%, -50%) scale(.82)', opacity: .9 }
+      ], { duration: 100, easing: 'ease-in' });
+      const column = animateAndRemove(node('fx-detonate-fire-column', dest.x, dest.y + 35, element), [
+        { transform: 'translate(-50%, 0) scaleY(.12)', opacity: 0 },
+        { transform: 'translate(-50%, -95px) scaleY(1.08)', opacity: .98, offset: .52 },
+        { transform: 'translate(-50%, -155px) scaleY(.55)', opacity: 0 }
+        ], { duration: 220, easing: 'ease-out' });
+      const burst = [column, ring(dest.x, dest.y, element, 'fx-ring fx-detonate-burn', 220, 3.6), flash(dest.x, dest.y, element, 'fx-flash fx-detonate-burn', 170)];
+      for (let index = 0; index < 8; index++) {
+        const angle = 2 * Math.PI * index / 8, dx = Math.cos(angle) * 94, dy = Math.sin(angle) * 94;
+        burst.push(animateAndRemove(node('fx-particle fx-detonate-particle fx-detonate-burn', dest.x, dest.y, element), [
+          { transform: 'translate(-50%, -50%) scale(.2)', opacity: 0 },
+          { transform: `translate(calc(-50% + ${dx * .35}px), calc(-50% + ${dy * .35 - 35}px)) scale(1)`, opacity: 1, offset: .38 },
+          { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy - 60}px)) scale(.18)`, opacity: 0 }
+        ], { duration: 220, easing: 'ease-out' }));
+      }
+      await Promise.all(burst);
+      return;
+    }
+    if (status === 'regen') {
+      await Promise.all([
+        ring(origin.x, origin.y, 'wood', 'fx-ring fx-detonate-regen-gather', 150, 1.6),
+        ...Array.from({ length: 5 }, (_, i) => {
+          const angle = i * Math.PI * 2 / 5, sx = origin.x + Math.cos(angle) * 34, sy = origin.y + Math.sin(angle) * 25;
+          return animateAndRemove(node('fx-particle fx-detonate-regen-gather fx-element-wood', sx, sy, 'wood'), [
+            { transform: 'translate(-50%, -50%) scale(.25)', opacity: 0 },
+            { transform: `translate(calc(-50% + ${origin.x - sx}px), calc(-50% + ${origin.y - sy}px)) scale(.85)`, opacity: 1 }
+          ], { duration: 140, easing: 'ease-in' });
+        })
+      ]);
+      const release = [];
+      for (let i = 0; i < 6; i++) {
+        const sx = origin.x + (i - 2.5) * 9;
+        release.push(animateAndRemove(node('fx-particle fx-detonate-particle fx-detonate-regen fx-element-wood', sx, origin.y, 'wood'), [
+          { transform: 'translate(-50%, -50%) scale(.3)', opacity: 0 },
+          { transform: `translate(calc(-50% + ${(dest.x - sx) * .55}px), calc(-50% + ${(dest.y - origin.y) * .55}px)) scale(1)`, opacity: 1, offset: .6 },
+          { transform: `translate(calc(-50% + ${dest.x - sx}px), calc(-50% + ${dest.y - origin.y}px)) scale(.2)`, opacity: 0 }
+        ], { duration: 220, delay: i * 12, easing: 'ease-in' }));
+      }
+      release.push(ring(dest.x, dest.y, 'wood', 'fx-ring fx-detonate-regen', 160, 1.9, 60));
+      await Promise.all(release);
+      return;
+    }
+    const animations = [ring(dest.x, dest.y, element, 'fx-ring fx-detonate-thorns', 260, 3.1), flash(dest.x, dest.y, element, 'fx-flash fx-detonate-thorns', 170)];
     for (let index = 0; index < 8; index++) {
       const angle = 2 * Math.PI * index / 8;
-      const spread = status === 'burn' ? 104 : 80;
+      const spread = 80;
       const dx = Math.cos(angle) * spread;
       const dy = Math.sin(angle) * spread;
-      const x = status === 'regen' ? origin.x : dest.x;
-      const y = status === 'regen' ? origin.y : dest.y;
-      const particle = node(`fx-particle fx-detonate-particle fx-detonate-${status}`, x, y, element);
-      animations.push(animateAndRemove(particle, status === 'regen' ? [
-        { transform: 'translate(-50%, -50%) scale(.3)', opacity: 0 },
-        { transform: `translate(calc(-50% + ${(dest.x - origin.x) * .45 + dx * .2}px), calc(-50% + ${(dest.y - origin.y) * .45 + dy * .2}px)) scale(1.1)`, opacity: 1, offset: .45 },
-        { transform: `translate(calc(-50% + ${dest.x - origin.x + dx}px), calc(-50% + ${dest.y - origin.y + dy}px)) scale(.25)`, opacity: 0 }
-      ] : [
+      const particle = node('fx-particle fx-detonate-particle fx-detonate-thorns', dest.x, dest.y, element);
+      animations.push(animateAndRemove(particle, [
         { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(.6)`, opacity: 0 },
         { transform: 'translate(-50%, -50%) scale(1.2)', opacity: 1, offset: .38 },
         { transform: `translate(calc(-50% + ${dx * 1.25}px), calc(-50% + ${dy * 1.25}px)) scale(.2)`, opacity: 0 }
-      ], { duration: status === 'burn' ? 440 : 420, easing: 'ease-out' }));
+      ], { duration: 260, easing: 'ease-out' }));
     }
-    return Promise.all(animations);
+    await Promise.all(animations);
   }
 
   async function zhoutian() {
     if (reduced() || !ensureLayer()) return;
     const x = window.innerWidth / 2;
     const y = window.innerHeight * .5;
-    const ringNode = node('fx-zhoutian-ring', x, y, 'metal');
-    if (ringNode) ringNode.style.background = `conic-gradient(${ORDER.map(color).join(',')},${color('wood')})`;
-    const wave = node('fx-zhoutian-wave', x, y, 'metal');
-    const secondWave = node('fx-zhoutian-wave fx-zhoutian-wave-echo', x, y, 'metal');
-    const animations = [
-      cameraPunch({ strength: 'heavy' }),
-      screenFlash({ tone: 'gold', intensity: 'ritual' }),
-      animateAndRemove(ringNode, [
-        { transform: 'translate(-50%, -50%) scale(.3) rotate(0deg)', opacity: 0 },
-        { transform: 'translate(-50%, -50%) scale(1) rotate(180deg)', opacity: 1, offset: .52 },
-        { transform: 'translate(-50%, -50%) scale(1.35) rotate(235deg)', opacity: 0 }
-      ], { duration: 650, easing: 'ease-out' }),
-      animateAndRemove(wave, [
-        { transform: 'translate(-50%, -50%) scale(.2)', opacity: 0, offset: 0 },
-        { transform: 'translate(-50%, -50%) scale(.45)', opacity: .8, offset: .46 },
-        { transform: 'translate(-50%, -50%) scale(3.4)', opacity: 0 }
-      ], { duration: 650, easing: 'ease-out' }),
-      animateAndRemove(secondWave, [
-        { transform: 'translate(-50%, -50%) scale(.3)', opacity: 0 },
-        { transform: 'translate(-50%, -50%) scale(.7)', opacity: .95, offset: .24 },
-        { transform: 'translate(-50%, -50%) scale(2.4)', opacity: 0 }
-      ], { duration: 330, delay: 320, easing: 'ease-out' }),
-      flash(x, y, 'metal', 'fx-flash fx-zhoutian-core', 250, 300)
-    ];
+    const prelude = [];
     for (let i = 0; i < ORDER.length; i++) {
       const angle = i * Math.PI * 2 / ORDER.length - Math.PI / 2;
       const sx = x + Math.cos(angle) * 120, sy = y + Math.sin(angle) * 88;
       const element = ORDER[i];
-      const seal = node('fx-ring fx-zhoutian-node', sx, sy, element);
+      const seal = node(`fx-ring fx-zhoutian-node fx-zhoutian-node-${element}`, sx, sy, element);
       const stream = node(`fx-particle fx-zhoutian-converge fx-element-${element}`, sx, sy, element);
-      const delay = i * 45;
-      animations.push(animateAndRemove(seal, [
+      const delay = i * 40;
+      prelude.push(animateAndRemove(seal, [
         { transform: 'translate(-50%, -50%) scale(.55)', opacity: .25 },
         { transform: 'translate(-50%, -50%) scale(1.25)', opacity: .9, offset: .38 },
         { transform: `translate(calc(-50% + ${x - sx}px), calc(-50% + ${y - sy}px)) scale(.2)`, opacity: 0 }
-      ], { duration: 480, delay, easing: 'ease-in' }));
-      animations.push(animateAndRemove(stream, [
+      ], { duration: 300, delay, easing: 'ease-in' }));
+      prelude.push(animateAndRemove(stream, [
         { transform: `translate(calc(-50% + ${-Math.cos(angle) * 18}px), calc(-50% + ${-Math.sin(angle) * 18}px)) scale(.65)`, opacity: 0 },
         { transform: `translate(calc(-50% + ${(x - sx) * .62}px), calc(-50% + ${(y - sy) * .62}px)) scale(1.1)`, opacity: 1, offset: .62 },
         { transform: `translate(calc(-50% + ${x - sx}px), calc(-50% + ${y - sy}px)) scale(.3)`, opacity: 0 }
-      ], { duration: 500, delay, easing: 'ease-in' }));
+      ], { duration: 300, delay, easing: 'ease-in' }));
     }
+    await Promise.all(prelude);
+    const ringNode = node('fx-zhoutian-ring', x, y, 'metal');
+    if (ringNode) ringNode.style.background = `conic-gradient(${ORDER.map(color).join(',')},${color('wood')})`;
+    const wave = node('fx-zhoutian-wave', x, y, 'metal');
+    const secondWave = node('fx-zhoutian-wave fx-zhoutian-wave-echo', x, y, 'metal');
+    const animations = [cameraPunch({ strength: 'heavy' }), screenFlash({ tone: 'gold', intensity: 'ritual' }),
+      animateAndRemove(ringNode, [
+        { transform: 'translate(-50%, -50%) scale(.3) rotate(0deg)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) scale(1) rotate(180deg)', opacity: 1, offset: .52 },
+        { transform: 'translate(-50%, -50%) scale(1.35) rotate(235deg)', opacity: 0 }
+      ], { duration: 360, easing: 'ease-out' }),
+      animateAndRemove(wave, [
+        { transform: 'translate(-50%, -50%) scale(.2)', opacity: 0, offset: 0 },
+        { transform: 'translate(-50%, -50%) scale(.45)', opacity: .8, offset: .46 },
+        { transform: 'translate(-50%, -50%) scale(3.4)', opacity: 0 }
+      ], { duration: 360, easing: 'ease-out' }),
+      animateAndRemove(secondWave, [
+        { transform: 'translate(-50%, -50%) scale(.3)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) scale(.7)', opacity: .95, offset: .24 },
+        { transform: 'translate(-50%, -50%) scale(2.4)', opacity: 0 }
+      ], { duration: 210, delay: 140, easing: 'ease-out' }),
+      flash(x, y, 'metal', 'fx-flash fx-zhoutian-core', 200)
+    ];
     for (let i = 0; i < 25; i++) {
       const a = Math.PI * 2 * i / 25;
       const p = node('fx-particle fx-element-' + ORDER[i % 5], x, y, ORDER[i % 5]);
@@ -709,18 +828,18 @@
         { transform: 'translate(-50%, -50%) scale(1.2)', opacity: 0, offset: .46 },
         { transform: `translate(calc(-50% + ${Math.cos(a) * 160}px), calc(-50% + ${Math.sin(a) * 105}px)) scale(.75)`, opacity: 1, offset: .69 },
         { transform: `translate(calc(-50% + ${Math.cos(a) * 225}px), calc(-50% + ${Math.sin(a) * 145}px)) scale(.2)`, opacity: 0 }
-      ], { duration: 650, easing: 'ease-out' }));
+      ], { duration: 340, easing: 'ease-out' }));
     }
     try {
       document.querySelectorAll?.('.enemy-unit:not(.dead)').forEach(enemy => {
         enemy.animate?.([
           { transform: 'translateX(0)' }, { transform: 'translateX(-3px)' },
           { transform: 'translateX(3px)' }, { transform: 'translateX(0)' }
-        ], { duration: 180, delay: 380 });
+        ], { duration: 180 });
       });
     } catch (_) {}
     await Promise.all(animations);
   }
 
-  window.WXEffects = { init, captureCard, playCardFlight, cardTrail, elementBurst, elementHit, targetLine, clearTargetLine, drawCard, discardHand, cameraPunch, resourceReady, screenFlash, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, daoAwakening, fateReveal, fatePulse, encounterIntro, bossPhase, encounterDefeat, statusDetonate, zhoutian, clear };
+  window.WXEffects = { init, captureCard, playCardFlight, cardTrail, elementBurst, elementHit, targetLine, clearTargetLine, drawCard, discardHand, cameraPunch, hitStop, resourceReady, screenFlash, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, daoAwakening, fateReveal, fatePulse, encounterIntro, bossPhase, encounterDefeat, statusDetonate, zhoutian, clear };
 })();

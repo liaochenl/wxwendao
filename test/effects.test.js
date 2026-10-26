@@ -24,17 +24,19 @@ function loadEffects(reduced = false) {
   const body = makeNode();
   const battlefield = makeNode();
   const created = [];
+  const running = { playState: 'running', pauses: 0, resumes: 0, pause() { this.playState = 'paused'; this.pauses++; }, play() { this.playState = 'running'; this.resumes++; } };
+  battlefield.getAnimations = () => [running];
   const document = {
     body,
     getElementById(id) { return id === 'fx-layer' ? layer : null; },
     createElement() { const el = makeNode(); el.setAttribute = (name, value) => { el[name === 'class' ? 'className' : name] = value; }; created.push(el); return el; },
     createElementNS(_ns, tag) { const el = makeNode(); el.tagName = tag; el.setAttribute = (name, value) => { el[name === 'class' ? 'className' : name] = value; }; created.push(el); return el; },
     querySelector(selector) { return selector === '.battlefield' ? battlefield : null; },
-    querySelectorAll() { return []; }
+    querySelectorAll() { return []; },
   };
   const window = { WX_DATA: D, matchMedia: () => ({ matches: reduced }), innerWidth: 393, innerHeight: 852 };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../js/effects.js'), 'utf8'), { window, document, setTimeout, clearTimeout });
-  return { FX: window.WXEffects, layer, document, created, battlefield };
+  return { FX: window.WXEffects, layer, document, created, battlefield, running };
 }
 
 test('天命获取具有独立五行汇聚，战斗触发较轻且减少动态效果时不生成粒子', async () => {
@@ -57,10 +59,13 @@ test('精英与幕主登场、二阶段及击败有可复用特效，并尊重�
   const normal = loadEffects();
   await normal.FX.encounterIntro({ target, tier: 'elite', element: 'metal' });
   await normal.FX.encounterIntro({ target, tier: 'boss', element: 'earth' });
-  await normal.FX.bossPhase({ target, element: 'fire' });
+  await normal.FX.bossPhase({ target, element: 'fire', enemyId: 'chi_ba' });
+  await normal.FX.bossPhase({ target, element: 'earth', enemyId: 'shan_gui' });
+  await normal.FX.bossPhase({ target, element: 'none', enemyId: 'tai_xu' });
   await normal.FX.encounterDefeat({ target, tier: 'boss', element: 'water' });
   assert.ok(normal.created.some(node => node.className.includes('fx-encounter-intro')));
   assert.ok(normal.created.some(node => node.className.includes('fx-boss-phase')));
+  for (const identity of ['shan-gui', 'chi-ba', 'tai-xu']) assert.ok(normal.created.some(node => node.className.includes(`fx-boss-phase-${identity}`)), identity);
   assert.ok(normal.created.some(node => node.className.includes('fx-encounter-defeat')));
   const reduced = loadEffects(true);
   await reduced.FX.encounterIntro({ target, tier: 'boss' });
@@ -69,17 +74,52 @@ test('精英与幕主登场、二阶段及击败有可复用特效，并尊重�
   assert.equal(reduced.created.length, 0);
 });
 
-test('不同卡牌飞行时长和放大阶段有清晰层次', async () => {
+test('太虚五行依序收束后才触发白色核心和重击', async () => {
+  const { FX, created } = loadEffects();
+  const phase = FX.bossPhase({ target: { x: 180, y: 200 }, enemyId: 'tai_xu' });
+  assert.deepEqual(created.filter(el => el.className.includes('fx-boss-phase-tai-xu') && el.className.includes('fx-element-'))
+    .map(el => el.className.match(/fx-element-(wood|fire|earth|metal|water)/)?.[1]), ['wood', 'fire', 'earth', 'metal', 'water']);
+  const hasCoreRing = () => created.some(el => el.className.includes('fx-ring') && el.className.includes('fx-boss-phase-tai-xu'));
+  assert.equal(hasCoreRing(), false, '五行收束前不提前落环');
+  await phase;
+  assert.ok(hasCoreRing());
+});
+
+test('普通、技法、功法和终式飞行在 220~300ms 内完成并保留抬牌阶段', async () => {
   const { FX } = loadEffects();
-  for (const [type, min, max] of [['attack', 360, 390], ['skill', 380, 420], ['power', 420, 460]]) {
+  for (const [type, min, max, finisher] of [['attack', 220, 300, false], ['skill', 220, 300, false], ['power', 220, 300, false], ['attack', 220, 300, true]]) {
     const card = makeNode();
     const visual = FX.captureCard(card);
-    await FX.playCardFlight({ visual, element: 'wood', cardType: type, target: { x: 230, y: 160 } });
+    await FX.playCardFlight({ visual, element: 'wood', cardType: type, target: { x: 230, y: 160 }, finisher });
     const flight = visual.ghost.animations[0];
-    assert.ok(flight.options.duration >= min && flight.options.duration <= max, `${type} 飞行时长`);
+    assert.ok(flight.options.duration >= min && flight.options.duration <= max, `${type}${finisher ? ' finisher' : ''} 飞行时长`);
     assert.ok(flight.frames.some(frame => /scale\(1\.2[0-4]\)/.test(frame.transform)), `${type} 抬牌阶段应明显放大`);
     assert.equal(flight.options.easing, 'linear', `${type} 飞牌进度应与实际时间一致`);
     assert.ok(flight.frames.filter(frame => frame.offset <= .82).every(frame => frame.opacity === 1), `${type} 接近目标前应保持清晰`);
+  }
+});
+
+test('Hit Stop 暂停当前战斗动画后恢复，并遵守减少动态效果', async () => {
+  const normal = loadEffects();
+  await normal.FX.hitStop({ duration: 1 });
+  assert.equal(normal.running.pauses, 1);
+  assert.equal(normal.running.resumes, 1);
+  assert.equal(normal.running.playState, 'running');
+  const reduced = loadEffects(true);
+  await reduced.FX.hitStop({ duration: 1 });
+  assert.equal(reduced.running.pauses, 0);
+});
+
+test('五行命中 Impact 演出在 120~220ms 内完成', async () => {
+  for (const element of ['wood', 'fire', 'earth', 'metal', 'water']) {
+    const { FX, created } = loadEffects();
+    await FX.elementHit({ element, target: { x: 180, y: 200 } });
+    const impacts = created.filter(node => node.className.includes(`fx-hit-${element}`));
+    assert.ok(impacts.length, element);
+    for (const impact of impacts) {
+      const { duration = 0, delay = 0 } = impact.animations[0]?.options || {};
+      assert.ok(duration >= 120 && duration + delay <= 220, `${element}: ${duration}ms + ${delay}ms`);
+    }
   }
 });
 
@@ -120,10 +160,17 @@ test('五行爆发、剑光、命中和周天增强时长但保持粒子上限',
   await FX.impact({ target: { x: 160, y: 160 }, element: 'earth', heavy: true });
   const impact = created.find(el => el.className.includes('fx-impact-heavy'));
   assert.ok(impact.animations[0].options.duration >= 300);
-  await FX.zhoutian();
+  const zhouPlayback = FX.zhoutian();
+  assert.equal(created.filter(el => el.className.includes('fx-zhoutian-ring')).length, 0, '五行节点汇聚前不提前出现中央周天环');
+  assert.deepEqual(created.filter(el => el.className.includes('fx-zhoutian-node-')).map(el => el.className.match(/fx-zhoutian-node-(\w+)/)?.[1]), ['wood', 'fire', 'earth', 'metal', 'water']);
+  await zhouPlayback;
   assert.ok(created.filter(el => el.className.includes('fx-zhoutian-wave')).length >= 2);
   const zhou = created.find(el => el.className.includes('fx-zhoutian-ring'));
-  assert.ok(zhou.animations[0].options.duration >= 620 && zhou.animations[0].options.duration <= 680);
+  assert.ok(zhou.animations[0].options.duration >= 320 && zhou.animations[0].options.duration <= 400);
+  for (const [index, element] of ['wood', 'fire', 'earth', 'metal', 'water'].entries()) {
+    const seal = created.find(el => el.className.includes(`fx-zhoutian-node-${element}`));
+    assert.ok(seal?.animations[0].options.delay === index * 40, `${element} 周天前摇顺序`);
+  }
   assert.ok(created.filter(el => el.className.includes('fx-particle')).length <= 42);
   assert.equal(layer.children.length, 0);
 });
@@ -133,7 +180,7 @@ test('剑修终结演出比普通命中更重且尊重减少动态效果', async
   await FX.finisher({ target: { x: 190, y: 210 }, element: 'metal', kind: 'swordIntent' });
   const rings = created.filter(el => el.className.includes('fx-finisher-ring'));
   assert.ok(rings.length >= 2);
-  assert.ok(rings.some(el => el.animations[0].options.duration >= 500));
+  assert.ok(rings.some(el => el.animations[0].options.duration >= 320 && el.animations[0].options.duration <= 400));
   assert.ok(created.some(el => el.className.includes('fx-finisher-slash')));
   assert.ok(created.filter(el => el.className.includes('fx-finisher-particle')).length >= 4);
   const reduced = loadEffects(true);
@@ -168,6 +215,13 @@ test('毒爆火爆和生机化攻分别有独立粒子，并在结束后清理',
     assert.ok(created.filter(el => el.className.includes('fx-detonate-particle')).length >= 4, status);
     if (status === 'poison') assert.ok(created.some(el => el.className.includes('fx-detonate-vortex')));
     if (status === 'burn') assert.ok(created.some(el => el.className.includes('fx-detonate-fire-column')));
+    if (status === 'poison') {
+      const gather = created.findIndex(el => el.className.includes('fx-detonate-vortex'));
+      const burst = created.findIndex(el => el.className.includes('fx-detonate-particle'));
+      assert.ok(gather >= 0 && burst > gather, '毒层先收束再爆开');
+    }
+    if (status === 'burn') assert.ok(created.some(el => el.className.includes('fx-detonate-fire-gather')));
+    if (status === 'regen') assert.ok(created.some(el => el.className.includes('fx-detonate-regen-gather')));
     assert.equal(layer.children.length, 0, status);
   }
   const reduced = loadEffects(true);

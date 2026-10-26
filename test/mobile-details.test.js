@@ -174,7 +174,7 @@ test('剑修面板显示剑意，终结牌结算时调用专属演出', async ()
   assert.deepEqual(order, [['flight', true], ['finisher'], ['events']]);
 });
 
-test('终结演出与伤害反馈在飞牌结束前并行启动', async () => {
+test('终结卡命中与伤害反馈只在飞牌结束后并行启动', async () => {
   const started = [];
   let finishFlight, finishFinisher, finishEvents;
   const effects = {
@@ -191,9 +191,11 @@ test('终结演出与伤害反馈在飞牌结束前并行启动', async () => {
   ui.checkCombatState = () => {};
   const play = ui.playCard(0, 0);
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(started, ['flight', 'finisher', 'events']);
+  assert.deepEqual(started, ['flight']);
   assert.equal(ui.busy, true);
   finishFlight();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(started, ['flight', 'finisher', 'events']);
   finishFinisher();
   finishEvents();
   await play;

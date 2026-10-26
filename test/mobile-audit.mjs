@@ -1015,7 +1015,7 @@ async function auditCombatEffects(cdp, baseUrl) {
       const overlay=document.createElement('div'); overlay.className='overlay'; document.body.appendChild(overlay);
       const overlayZ=Number(getComputedStyle(overlay).zIndex); overlay.remove();
       const before=combat.hand.length;
-      return { before,
+      return { before, enemyHp:combat.enemies[0].hp,
         pointer:getComputedStyle(document.getElementById('fx-layer')).pointerEvents,
         fxZ:Number(getComputedStyle(document.getElementById('fx-layer')).zIndex),
         overlayZ, targeting };
@@ -1030,9 +1030,11 @@ async function auditCombatEffects(cdp, baseUrl) {
       fs.writeFileSync(path.join(SHOT_DIR, 'target-mode-393.png'), Buffer.from(data, 'base64'));
       console.log('CHECK 目标选择@393: 战斗进入瞄准态并生成五行目标线');
     }
-    const played = await cdp.eval(`(() => { const before=WX_UI.state.combat.hand.length; window.__fxPlay=WX_UI.playCard(0,0); return { before, after:WX_UI.state.combat.hand.length, ghost:!!document.querySelector('.fx-card-ghost') }; })()`);
-    if (!played.ghost || played.after !== played.before - 1) fail(`出牌特效@${width}: 快照或即时结算异常 ${JSON.stringify(played)}`);
-    await cdp.eval(`(() => { WXEffects.clearTargetLine(); WX_UI.selected=null; WX_UI.render(); return true; })()`);
+    const played = await cdp.eval(`(() => { const before=WX_UI.state.combat.hand.length, enemyHp=WX_UI.state.combat.enemies[0].hp;
+      window.__fxPlay=WX_UI.playCard(0,0);
+      return { before, after:WX_UI.state.combat.hand.length, enemyHp, hpDuringFlight:WX_UI.state.combat.enemies[0].hp,
+        ghost:!!document.querySelector('.fx-card-ghost') }; })()`);
+    if (!played.ghost || played.after !== played.before || played.hpDuringFlight !== played.enemyHp) fail(`出牌特效@${width}: 飞行期间不应提前结算 ${JSON.stringify(played)}`);
     await sleep(175);
     const midFlight = await cdp.eval(`(() => { const ghost=document.querySelector('.fx-card-ghost');
       return { visible:!!ghost, opacity:ghost?Number(getComputedStyle(ghost).opacity):0 }; })()`);
@@ -1041,7 +1043,7 @@ async function auditCombatEffects(cdp, baseUrl) {
     const settled = await cdp.eval(`(() => ({ busy:WX_UI.busy, ghost:document.querySelectorAll('.fx-card-ghost').length,
       temporary:document.querySelectorAll('#fx-layer .fx-particle,#fx-layer .fx-ring,#fx-layer .fx-slash,#fx-layer .fx-flash').length,
       hand:WX_UI.state.combat.hand.length }))()`);
-    if (settled.busy || settled.ghost || settled.temporary || settled.hand) fail(`出牌特效@${width}: 动画未清理或忙碌状态未解除 ${JSON.stringify(settled)}`);
+    if (settled.busy || settled.ghost || settled.temporary || settled.hand !== played.before - 1) fail(`出牌特效@${width}: 动画未清理、结算数量异常或忙碌状态未解除 ${JSON.stringify(settled)}`);
     for (const element of ['wood','fire','earth','metal','water']) {
       const burst = await cdp.eval(`(() => {
         window.__fxBurst=WXEffects.elementBurst({element:'${element}',x:innerWidth/2,y:innerHeight/2});
@@ -1055,9 +1057,14 @@ async function auditCombatEffects(cdp, baseUrl) {
     }
     const zhou = await cdp.eval(`(() => { window.__fxZhou=WXEffects.zhoutian();
       return { ring:document.querySelectorAll('.fx-zhoutian-ring').length,
+        nodes:document.querySelectorAll('#fx-layer .fx-zhoutian-node').length,
         particles:document.querySelectorAll('#fx-layer .fx-particle').length }; })()`);
-    if (zhou.ring !== 1 || zhou.particles > 30) fail(`周天特效@${width}: 环或粒子异常 ${JSON.stringify(zhou)}`);
-    const zhouFinished = await cdp.eval(`Promise.race([window.__fxZhou.then(()=>true),new Promise(resolve=>setTimeout(()=>resolve(false),1100))])`);
+    if (zhou.ring !== 0 || zhou.nodes !== 5 || zhou.particles !== 5) fail(`周天前摇未先展示五行节点 ${JSON.stringify(zhou)}`);
+    await sleep(520);
+    const zhouBurst = await cdp.eval(`(() => ({ ring:document.querySelectorAll('.fx-zhoutian-ring').length,
+      particles:document.querySelectorAll('#fx-layer .fx-particle').length }))()`);
+    if (zhouBurst.ring !== 1 || zhouBurst.particles > 30 || zhouBurst.particles < 25) fail(`周天汇聚后环或粒子异常 ${JSON.stringify(zhouBurst)}`);
+    const zhouFinished = await cdp.eval(`Promise.race([window.__fxZhou.then(()=>true),new Promise(resolve=>setTimeout(()=>resolve(false),500))])`);
     if (!zhouFinished || await cdp.eval(`(() => document.querySelectorAll('.fx-zhoutian-ring,.fx-zhoutian-wave,#fx-layer .fx-particle,#fx-layer .fx-flash').length)()`)) fail(`周天特效@${width}: 动画未结束或节点未清理`);
     console.log(`CHECK 出牌特效@${width}: 飞牌、五行、周天、清理和层级`);
   }

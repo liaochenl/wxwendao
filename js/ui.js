@@ -543,6 +543,8 @@
       if (this.busy) return;
       const c = this.state.combat;
       if (!c || c.phase !== 'player') return;
+      const can = E.canPlayCard(this.state, index);
+      if (!can.ok) { this.toast(can.reason || '无法打出'); return; }
       const card = c.hand[index];
       const cardData = card && E.getCardData(card);
       const cardEl = document.querySelector('.hand .card[data-index="' + index + '"]');
@@ -563,7 +565,17 @@
       this.busy = true;
       this.selected = null;
       this.sfx('card');
+      try { FX?.clearTargetLine?.(); } catch (_) {}
+      cardEl?.classList?.add?.('card-flight-hidden');
       try {
+        if (cardData?.finisher) {
+          combatScreen = document.querySelector('.combat-screen');
+          combatScreen?.classList.add('combat-finisher-stage');
+          if (toneClass) combatScreen?.classList.add(toneClass);
+        }
+        const finisherRect = cardData?.id === 'qing_di_hui_tian' ? document.querySelector('.enemy-zone')?.getBoundingClientRect() : null;
+        const finisherDestination = finisherRect ? { x: finisherRect.left + finisherRect.width / 2, y: finisherRect.top + finisherRect.height / 2 } : destination;
+        await visual('playCardFlight', { visual: captured, element: cardData?.element, cardType: cardData?.type, target: destination, finisher: !!cardData?.finisher });
         const res = E.playCard(this.state, index, target);
         if (!res.ok) {
           this.toast(res.reason || '无法打出');
@@ -572,30 +584,19 @@
         }
         this.render();
         if (cardData?.finisher) {
-          combatScreen = document.querySelector('.combat-screen');
-          combatScreen?.classList.add('combat-finisher-stage');
-          if (toneClass) combatScreen?.classList.add(toneClass);
-        }
-        const finisherRect = cardData?.id === 'qing_di_hui_tian' ? document.querySelector('.enemy-zone')?.getBoundingClientRect() : null;
-        const finisherDestination = finisherRect ? { x: finisherRect.left + finisherRect.width / 2, y: finisherRect.top + finisherRect.height / 2 } : destination;
-        const flight = visual('playCardFlight', { visual: captured, element: cardData?.element, cardType: cardData?.type, target: destination, finisher: !!cardData?.finisher });
-        if (cardData?.finisher) {
-          // 接近目标时开始聚剑；命中反馈与终结演出同步，避免串行拖长整次出牌。
-          await Promise.race([flight, sleep(300)]);
           await Promise.all([
-            flight,
             visual('finisher', { target: finisherDestination, source: document.querySelector('.player-figure'), element: cardData.element, kind: this.state.characterId, cardId: cardData.id, empowered: E.getBuildIdentity(this.state).level === 3 && cardData.tags?.includes(E.getBuildIdentity(this.state).tag) }),
             visual('screenFlash', { tone: cardData.element || 'gold', intensity: 'finisher' }),
-            this.fx(res.events)
+            this.fx(res.events, { finisher: true })
           ]);
         } else {
-          await flight;
           await this.fx(res.events);
         }
         this.busy = false;
         this.commit();
         this.checkCombatState();
       } finally {
+        cardEl?.classList?.remove?.('card-flight-hidden');
         try { FX?.clear(captured); } catch (_) {}
         combatScreen?.classList.remove('combat-finisher-stage'); if (toneClass) combatScreen?.classList.remove(toneClass);
         this.busy = false;
@@ -837,11 +838,14 @@
       try { await sleep(reduced ? Math.min(duration, 350) : duration); }
       finally { node.remove(); }
     },
-    async fx(events) {
+    async fx(events, { finisher = false } = {}) {
       if (!events || !events.length) return;
+      if (finisher && !events.some(ev => ev.t === 'statusDetonate')) await sleep(150);
       let drawIndex = 0;
       const drawTotal = events.filter(ev => ev.t === 'draw').length;
-      for (const ev of events) {
+      const hitAnimations = [];
+      for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
+        const ev = events[eventIndex];
         switch (ev.t) {
           case 'damage': {
             const el = ev.target === 'player' ? document.getElementById('player-panel') : document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
@@ -858,19 +862,30 @@
               this.floatAt(el, ev.blocked > 0 && amount === 0 ? '格挡' : '-' + amount, ev.blocked > 0 ? 'fx-block' : 'fx-hurt', hitOffset);
               this.sfx(ev.blocked > 0 && amount === 0 ? 'block' : 'hurt');
             } else {
-              this.hitPulse(el?.querySelector?.('.enemy-art-figure') || el?.querySelector?.('.enemy-art'));
-              this.floatAt(el, ev.cross ? '克制 -' + amount : '-' + amount, `${ev.cross ? 'fx-cross' : 'fx-damage'}${amount >= 70 ? ' fx-legend-number' : amount >= 40 ? ' fx-burst-number' : amount >= 20 ? ' fx-strong-number' : ''}`, hitOffset);
-              this.sfx(ev.cross ? 'cross' : 'hit');
               const hitTarget = el?.querySelector?.('.enemy-art') || el;
-              if (ev.source === 'poison' || ev.source === 'burn') void visual('status', { target: hitTarget, key: ev.source, debuff: true });
-              else void visual('elementHit', { target: hitTarget, element: ev.element, heavy: ev.cross || amount >= 20 });
-              if (ev.cross || amount >= 20) void visual('cameraPunch', { strength: ev.cross ? 'heavy' : 'normal' });
+              const highlighted = finisher || ev.source === 'poison' || ev.source === 'burn' || amount >= 20;
+              if (ev.source === 'poison' || ev.source === 'burn') hitAnimations.push(visual('status', { target: hitTarget, key: ev.source, debuff: true }));
+              else hitAnimations.push(visual('elementHit', { target: hitTarget, element: ev.element, heavy: ev.cross || amount >= 20 || finisher, overcome: !!ev.cross }));
+              this.hitPulse(el?.querySelector?.('.enemy-art-figure') || el?.querySelector?.('.enemy-art'));
+              const tier = amount >= 70 ? ' fx-legend-number' : amount >= 40 ? ' fx-burst-number' : amount >= 20 ? ' fx-strong-number' : '';
               if (ev.cross) {
-                void visual('overcomeBurst', { target: el, element: ev.element });
+                this.floatAt(el, '克', `fx-damage-seal${finisher ? ' fx-hit-highlight' : ''}`, hitOffset - 15);
+                this.floatAt(el, '-' + amount, `fx-cross-number${tier}${highlighted ? ' fx-hit-highlight' : ''}`, hitOffset + 15);
+              } else {
+                const elementClass = ev.element ? ` fx-damage-${ev.element}` : '';
+                this.floatAt(el, '-' + amount, `fx-damage${elementClass}${tier}${highlighted ? ' fx-hit-highlight' : ''}`, hitOffset);
               }
+              this.sfx(ev.cross ? 'cross' : 'hit');
+              const strength = finisher ? null : ev.cross || amount >= 40 ? 'heavy' : amount >= 20 ? 'normal' : null;
+              if (strength) hitAnimations.push(visual('cameraPunch', { strength }));
             }
-            if (ev.target !== 'player' && (ev.cross || amount >= 20)) await sleep(45);
-            await sleep(ev.target === 'player' ? 110 : 85);
+            const isEnemyHit = ev.target !== 'player';
+            const hitStopMs = isEnemyHit ? (finisher ? 65 : ev.cross ? 42 : amount >= 20 ? 45 : 0) : 0;
+            if (hitStopMs) await visual('hitStop', { duration: hitStopMs });
+            const next = events[eventIndex + 1];
+            const followsSameTarget = next?.t === 'damage' && next.target !== 'player' && next.uid === ev.uid;
+            if (followsSameTarget) await sleep(Math.max(0, 85 - hitStopMs));
+            else await sleep(ev.target === 'player' ? 110 : 55);
             break;
           }
           case 'block': {
@@ -927,7 +942,7 @@
             const enemy = this.state.combat?.enemies.find(item => item.uid === ev.uid);
             this.sfx('phase');
             if (ev.line) await Promise.all([
-              visual('bossPhase', { target: el, element: enemy?.element }),
+              visual('bossPhase', { target: el, element: enemy?.element, enemyId: enemy?.id }),
               this.encounterMoment({ tier: 'phase', title: '二阶段', name: ev.name, line: ev.line, duration: 700 })
             ]);
             else { this.banner(ev.log || '阶段转换'); await sleep(700); }
@@ -1025,9 +1040,9 @@
           case 'statusDetonate': {
             const source = document.getElementById('player-panel');
             const target = ev.target === 'player' ? document.querySelector('.enemy-zone') : document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
-            const label = { poison: '毒爆', burn: '焚炉', regen: '生机化攻', thorns: '金刚震怒' }[ev.status] || '状态爆发';
-            this.floatAt(ev.target === 'player' ? source : target, `${label} ${ev.damageAll ? `每敌 ${ev.damageAll}` : ev.damage || ''}`, 'fx-status-detonate');
-            await visual('statusDetonate', { status: ev.status, target, source });
+            const label = { poison: '毒层收束', burn: '火势聚集', regen: '生机汇聚', thorns: '金刚震怒' }[ev.status] || '状态聚集';
+            this.floatAt(ev.target === 'player' ? source : target, `${label}${ev.stacks ? ` ×${ev.stacks}` : ''}`, 'fx-status-detonate');
+            await visual('statusDetonate', { status: ev.status, target, source, stacks: ev.stacks });
             break;
           }
           case 'energy': {
@@ -1054,6 +1069,7 @@
           default: break;
         }
       }
+      await Promise.all(hitAnimations);
     },
     floatAt(el, text, cls, offsetX = 0) {
       if (!el || !text) return;
