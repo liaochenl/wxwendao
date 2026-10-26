@@ -995,19 +995,35 @@ async function auditCombatEffects(cdp, baseUrl) {
       WX_UI.render();
       const card=document.querySelector('.hand .card');
       if (!card) return { error:'missing hand card' };
+      WX_UI.selected=0; WX_UI.render();
+      const targeting={ active:document.querySelector('.combat-screen').classList.contains('combat-targeting'),
+        line:!!document.querySelector('#fx-layer .fx-target-overlay path'), seal:!!document.querySelector('#fx-layer .fx-target-seal'),
+        focused:!!document.querySelector('.enemy-unit.focused .enemy-art'),
+        path:document.querySelector('#fx-layer .fx-target-overlay path')?.getAttribute('d'),
+        stroke:document.querySelector('#fx-layer .fx-target-overlay path') && getComputedStyle(document.querySelector('#fx-layer .fx-target-overlay path')).stroke,
+        lineBox:document.querySelector('#fx-layer .fx-target-overlay')?.getBoundingClientRect().toJSON() };
+      if (!targeting.active || !targeting.line || !targeting.focused) return { error:'target mode failed', targeting };
       const overlay=document.createElement('div'); overlay.className='overlay'; document.body.appendChild(overlay);
       const overlayZ=Number(getComputedStyle(overlay).zIndex); overlay.remove();
       const before=combat.hand.length;
-      window.__fxPlay=WX_UI.playCard(0,0);
-      const ghost=document.querySelector('.fx-card-ghost');
-      return { before, after:combat.hand.length, ghost:!!ghost,
+      return { before,
         pointer:getComputedStyle(document.getElementById('fx-layer')).pointerEvents,
         fxZ:Number(getComputedStyle(document.getElementById('fx-layer')).zIndex),
-        overlayZ };
+        overlayZ, targeting };
     })()`);
-    if (started.error || !started.ghost || started.after !== started.before - 1 || started.pointer !== 'none' || started.fxZ >= started.overlayZ) {
+    if (started.error || started.pointer !== 'none' || started.fxZ >= started.overlayZ) {
       fail(`出牌特效@${width}: 快照、即时结算或遮挡层级异常 ${JSON.stringify(started)}`);
     }
+    if (width === 393) console.log(`CHECK 目标线样式@${width}: ${JSON.stringify(started.targeting)}`);
+    if (width === 393) {
+      const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      fs.mkdirSync(SHOT_DIR, { recursive: true });
+      fs.writeFileSync(path.join(SHOT_DIR, 'target-mode-393.png'), Buffer.from(data, 'base64'));
+      console.log('CHECK 目标选择@393: 战斗进入瞄准态并生成五行目标线');
+    }
+    const played = await cdp.eval(`(() => { const before=WX_UI.state.combat.hand.length; window.__fxPlay=WX_UI.playCard(0,0); return { before, after:WX_UI.state.combat.hand.length, ghost:!!document.querySelector('.fx-card-ghost') }; })()`);
+    if (!played.ghost || played.after !== played.before - 1) fail(`出牌特效@${width}: 快照或即时结算异常 ${JSON.stringify(played)}`);
+    await cdp.eval(`(() => { WXEffects.clearTargetLine(); WX_UI.selected=null; WX_UI.render(); return true; })()`);
     await sleep(175);
     const midFlight = await cdp.eval(`(() => { const ghost=document.querySelector('.fx-card-ghost');
       return { visible:!!ghost, opacity:ghost?Number(getComputedStyle(ghost).opacity):0 }; })()`);

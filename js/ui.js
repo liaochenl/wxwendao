@@ -184,7 +184,7 @@
     if (isHand) classes.push('in-hand');
     if (isHand && canPlay && !canPlay.ok) classes.push('disabled');
     if (isHand && canPlay && !canPlay.ok && cost > UI.state.combat.energy) classes.push('energy-short');
-    if (isHand && UI.selected === opts.index) classes.push('selected');
+    if (isHand && UI.selected === opts.index) classes.push('selected', 'selected-target-card');
     if (isHand && opts.chainNext) classes.push('chain-next');
     if (isHand && opts.willOvercome) classes.push('will-overcome');
     if (isHand && opts.fanRight) classes.push('fan-right');
@@ -399,7 +399,11 @@
         if (c && c.hand[i]) {
           ev.preventDefault();
           const can = E.canPlayCard(this.state, i);
-          if (can.ok) this.playCard(i, this.targetIndex);
+          if (can.ok) {
+            const data = cardData(c.hand[i]);
+            if (E.cardNeedsTarget(data)) this.onCardClick(i);
+            else this.playCard(i, this.targetIndex);
+          }
           else this.toast(can.reason || '无法打出');
         }
       }
@@ -465,10 +469,10 @@
       const can = E.canPlayCard(this.state, index);
       if (!can.ok) { this.toast(can.reason || '无法打出'); return; }
       const alive = c.enemies.filter(e => e.hp > 0);
-      if (E.cardNeedsTarget(data) && alive.length > 1) {
+      if (E.cardNeedsTarget(data)) {
         if (this.selected === index) { this.selected = null; this.render(); return; }
         this.selected = index;
-        this.targetIndex = 0;
+        if (!alive.some(e => c.enemies.indexOf(e) === this.targetIndex)) this.targetIndex = c.enemies.indexOf(alive[0]);
         this.render();
         return;
       }
@@ -542,16 +546,18 @@
       const cardEl = document.querySelector('.hand .card[data-index="' + index + '"]');
       let captured = null;
       try { captured = FX?.captureCard(cardEl, cardData?.element); } catch (_) {}
-      const allEnemies = cardData?.effects?.some(effect => effect.op === 'damage' && effect.target === 'all');
+      const allEnemies = cardData?.effects?.some(effect => effect.target === 'all');
       let targetEl = null;
-      if (E.cardNeedsTarget(cardData)) {
-        targetEl = allEnemies ? document.querySelector('.enemy-zone') :
-          document.querySelector('[data-enemy-uid="' + c.enemies[target]?.uid + '"]') ||
-          document.querySelector('.enemy-unit[data-index="' + target + '"]');
-      }
+      if (allEnemies) targetEl = document.querySelector('.enemy-zone');
+      else if (E.cardNeedsTarget(cardData)) targetEl = document.querySelector('[data-enemy-uid="' + c.enemies[target]?.uid + '"] .enemy-art') ||
+        document.querySelector('[data-enemy-uid="' + c.enemies[target]?.uid + '"]') ||
+        document.querySelector('.enemy-unit[data-index="' + target + '"] .enemy-art');
+      else if (!E.cardNeedsTarget(cardData)) targetEl = document.querySelector('.player-aura') || document.querySelector('.player-figure');
       const rect = targetEl?.getBoundingClientRect();
       const destination = rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } :
         { x: window.innerWidth / 2, y: window.innerHeight * .38 };
+      let combatScreen = null;
+      const toneClass = cardData?.element === 'metal' ? 'fx-tone-metal' : cardData?.element === 'fire' ? 'fx-tone-fire' : cardData?.element === 'earth' ? 'fx-tone-earth' : cardData?.element === 'wood' ? 'fx-tone-wood' : cardData?.element === 'water' ? 'fx-tone-water' : '';
       this.busy = true;
       this.selected = null;
       this.sfx('card');
@@ -563,13 +569,21 @@
           return;
         }
         this.render();
+        if (cardData?.finisher) {
+          combatScreen = document.querySelector('.combat-screen');
+          combatScreen?.classList.add('combat-finisher-stage');
+          if (toneClass) combatScreen?.classList.add(toneClass);
+        }
+        const finisherRect = cardData?.id === 'qing_di_hui_tian' ? document.querySelector('.enemy-zone')?.getBoundingClientRect() : null;
+        const finisherDestination = finisherRect ? { x: finisherRect.left + finisherRect.width / 2, y: finisherRect.top + finisherRect.height / 2 } : destination;
         const flight = visual('playCardFlight', { visual: captured, element: cardData?.element, cardType: cardData?.type, target: destination, finisher: !!cardData?.finisher });
         if (cardData?.finisher) {
           // 接近目标时开始聚剑；命中反馈与终结演出同步，避免串行拖长整次出牌。
           await Promise.race([flight, sleep(300)]);
           await Promise.all([
             flight,
-            visual('finisher', { target: destination, source: document.getElementById('player-panel'), element: cardData.element, kind: this.state.characterId, cardId: cardData.id, empowered: E.getBuildIdentity(this.state).level === 3 && cardData.tags?.includes(E.getBuildIdentity(this.state).tag) }),
+            visual('finisher', { target: finisherDestination, source: document.querySelector('.player-figure'), element: cardData.element, kind: this.state.characterId, cardId: cardData.id, empowered: E.getBuildIdentity(this.state).level === 3 && cardData.tags?.includes(E.getBuildIdentity(this.state).tag) }),
+            visual('screenFlash', { tone: cardData.element || 'gold', intensity: 'finisher' }),
             this.fx(res.events)
           ]);
         } else {
@@ -581,6 +595,7 @@
         this.checkCombatState();
       } finally {
         try { FX?.clear(captured); } catch (_) {}
+        combatScreen?.classList.remove('combat-finisher-stage'); if (toneClass) combatScreen?.classList.remove(toneClass);
         this.busy = false;
       }
     },
@@ -603,8 +618,12 @@
       this.busy = true;
       this.selected = null;
       this.sfx('endturn');
+      const hasDiscard = c.hand.some(inst => !E.getCardData(inst)?.retain);
+      const handRect = hasDiscard ? document.querySelector('.hand')?.getBoundingClientRect() : null;
+      const handBeforeDiscard = handRect ? { x: handRect.left + handRect.width / 2, y: handRect.top + handRect.height / 2 } : null;
       const res = E.endPlayerTurn(this.state);
       this.render();
+      void visual('discardHand', { target: handBeforeDiscard });
       await this.fx(res.events);
       this.busy = false;
       this.commit();
@@ -818,22 +837,37 @@
     },
     async fx(events) {
       if (!events || !events.length) return;
+      let drawIndex = 0;
+      const drawTotal = events.filter(ev => ev.t === 'draw').length;
       for (const ev of events) {
         switch (ev.t) {
           case 'damage': {
             const el = ev.target === 'player' ? document.getElementById('player-panel') : document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
             const amount = Math.max(0, (ev.amount || 0) - (ev.blocked || 0));
+            const hitKey = ev.uid || 'player';
+            const now = Date.now();
+            const prior = this._damageFloatSequence?.[hitKey];
+            const sequence = prior && now - prior.at < 420 ? prior.count + 1 : 0;
+            this._damageFloatSequence = this._damageFloatSequence || {};
+            this._damageFloatSequence[hitKey] = { at: now, count: sequence };
+            const hitOffset = sequence === 0 ? 0 : (sequence % 2 ? 1 : -1) * (14 + Math.ceil(sequence / 2) * 8);
             if (ev.target === 'player') {
-              this.shakeScreen();
-              this.floatAt(el, ev.blocked > 0 && amount === 0 ? '格挡' : '-' + amount, ev.blocked > 0 ? 'fx-block' : 'fx-hurt');
+              this.hitPulse(document.querySelector('.player-figure'));
+              this.floatAt(el, ev.blocked > 0 && amount === 0 ? '格挡' : '-' + amount, ev.blocked > 0 ? 'fx-block' : 'fx-hurt', hitOffset);
               this.sfx(ev.blocked > 0 && amount === 0 ? 'block' : 'hurt');
             } else {
-              this.hitPulse(el);
-              this.floatAt(el, ev.cross ? '克制 -' + amount : '-' + amount, `${ev.cross ? 'fx-cross' : 'fx-damage'}${amount >= 70 ? ' fx-legend-number' : amount >= 40 ? ' fx-burst-number' : amount >= 20 ? ' fx-strong-number' : ''}`);
+              this.hitPulse(el?.querySelector?.('.enemy-art-figure') || el?.querySelector?.('.enemy-art'));
+              this.floatAt(el, ev.cross ? '克制 -' + amount : '-' + amount, `${ev.cross ? 'fx-cross' : 'fx-damage'}${amount >= 70 ? ' fx-legend-number' : amount >= 40 ? ' fx-burst-number' : amount >= 20 ? ' fx-strong-number' : ''}`, hitOffset);
               this.sfx(ev.cross ? 'cross' : 'hit');
-              void visual('impact', { target: el, element: ev.element, heavy: ev.cross || amount >= 20, legend: amount >= 70 });
-              if (ev.cross) void visual('overcomeBurst', { target: el, element: ev.element });
+              const hitTarget = el?.querySelector?.('.enemy-art') || el;
+              if (ev.source === 'poison' || ev.source === 'burn') void visual('status', { target: hitTarget, key: ev.source, debuff: true });
+              else void visual('elementHit', { target: hitTarget, element: ev.element, heavy: ev.cross || amount >= 20 });
+              if (ev.cross || amount >= 20) void visual('cameraPunch', { strength: ev.cross ? 'heavy' : 'normal' });
+              if (ev.cross) {
+                void visual('overcomeBurst', { target: el, element: ev.element });
+              }
             }
+            if (ev.target !== 'player' && (ev.cross || amount >= 20)) await sleep(45);
             await sleep(ev.target === 'player' ? 110 : 85);
             break;
           }
@@ -841,7 +875,7 @@
             const el = ev.target === 'player' ? document.getElementById('player-panel') : document.querySelector('[data-enemy-uid="' + ev.uid + '"]');
             this.floatAt(el, '甲 +' + ev.amount, 'fx-block');
             this.sfx('block');
-            void visual('block', { target: el });
+            void visual('block', { target: el, amount: ev.amount });
             await sleep(60);
             break;
           }
@@ -954,6 +988,12 @@
           case 'resourceReady': {
             const el = document.querySelector('.character-resource');
             this.floatAt(el, `${resourceName(ev.id)}已满`, 'fx-resource-ready');
+            void visual('resourceReady', { target: el, id: ev.id });
+            break;
+          }
+          case 'draw': {
+            const card = document.querySelector(`.hand .card[data-card-uid="${ev.uid}"]`) || document.querySelector('.hand');
+            void visual('drawCard', { target: card, index: drawIndex++, total: drawTotal });
             break;
           }
           case 'buildAwakened': {
@@ -1013,13 +1053,13 @@
         }
       }
     },
-    floatAt(el, text, cls) {
+    floatAt(el, text, cls, offsetX = 0) {
       if (!el || !text) return;
       const rect = el.getBoundingClientRect();
       const span = document.createElement('span');
       span.className = 'float-text ' + (cls || '');
       span.textContent = text;
-      span.style.left = (rect.left + rect.width / 2 + (Math.random() * 30 - 15)) + 'px';
+      span.style.left = (rect.left + rect.width / 2 + offsetX + (Math.random() * 12 - 6)) + 'px';
       span.style.top = (rect.top + rect.height * 0.32) + 'px';
       document.getElementById('fx-layer').appendChild(span);
       setTimeout(() => span.remove(), 1100);
@@ -1142,6 +1182,12 @@
         default: html = this.titleHTML(); break;
       }
       app.innerHTML = html + this.overlayHTML();
+      if (this.screen === 'combat' && this.selected != null) {
+        const selectedCard = app.querySelector?.(`.hand .card[data-index="${this.selected}"]`);
+        const selectedData = this.state?.combat?.hand?.[this.selected] && cardData(this.state.combat.hand[this.selected]);
+        const target = app.querySelector?.('.enemy-unit.focused .enemy-art') || app.querySelector?.('.enemy-unit.focused');
+        try { FX?.targetLine?.({ source: selectedCard, target, element: selectedData?.element, overcome: !!selectedData && selectedData.type === 'attack' && elem(selectedData.element).overcomes === this.state?.combat?.enemies?.[this.targetIndex]?.element }); } catch (_) {}
+      } else { try { FX?.clearTargetLine?.(); } catch (_) {} }
       if (oldHand.size && this.screen === 'combat' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
         const newHand = app.querySelectorAll('.hand .card[data-card-uid]');
         const handChanged = newHand.length !== oldHand.size || [...newHand].some(card => !oldHand.has(card.dataset.cardUid));
@@ -1475,7 +1521,7 @@
             : `${mobileUI ? '点按手牌查看详情并确认出牌' : '点击卡牌出牌 · 数字键 1–9 · E 结束回合'}`));
       const thornAura = identity.tag === 'monk_thorns' && c.statuses.thorns >= 5;
       return `
-      <main class="screen combat-screen combat-v2 act-${st.act} character-${ch.id} ${c.phase === 'enemy' ? 'enemy-phase' : ''} ${arena ? `arena-${esc(arena)} ${featured.boss ? 'arena-boss' : 'arena-elite'}` : ''} ${pathClass} path-level-${identity.level} ${fullResource ? 'resource-full' : ''} ${c.cardsPlayedThisTurn >= 5 ? 'combo-fast' : ''} ${c.chain >= 3 ? 'chain-formed' : ''}">
+      <main class="screen combat-screen combat-v2 act-${st.act} character-${ch.id} ${this.selected != null ? 'combat-targeting' : ''} ${c.phase === 'enemy' ? 'enemy-phase' : ''} ${arena ? `arena-${esc(arena)} ${featured.boss ? 'arena-boss' : 'arena-elite'}` : ''} ${pathClass} path-level-${identity.level} ${fullResource ? 'resource-full' : ''} ${c.cardsPlayedThisTurn >= 5 ? 'combo-fast' : ''} ${c.chain >= 3 ? 'chain-formed' : ''}">
         <div class="combat-backdrop" aria-hidden="true"></div>
         <header class="combat-top">
           <div class="turn-tag">第 ${c.turn} 回合</div>

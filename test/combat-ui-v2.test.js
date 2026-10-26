@@ -65,6 +65,22 @@ test('双敌保持独立单位且玩家仍可选择目标', () => {
   assert.equal((html.match(/enemy-normal/g) || []).length, 2);
   assert.equal((html.match(/data-action="enemy"/g) || []).length, 2);
   assert.match(html, /targetable/);
+  assert.match(html, /combat-targeting/);
+  assert.match(handCards(html)[0][1], /selected-target-card/);
+});
+
+test('单敌定向牌也先进入瞄准态，确认点击敌人后才交给规则结算', () => {
+  const ui = makeUI();
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }] }, 'combat');
+  ui.state.combat.hand = [{ id: 'jin_ren', up: false, uid: 'aim-card' }];
+  ui.render = () => {};
+  let played = null;
+  ui.playCard = (index, target) => { played = { index, target }; };
+  ui.onCardClick(0);
+  assert.equal(ui.selected, 0);
+  assert.equal(played, null);
+  ui.onEnemyClick(0);
+  assert.deepEqual(played, { index: 0, target: 0 });
 });
 
 function handCards(html) {

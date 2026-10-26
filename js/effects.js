@@ -5,6 +5,8 @@
   const D = window.WX_DATA;
   const ORDER = ['wood', 'fire', 'earth', 'metal', 'water'];
   let layer;
+  let targetOverlay;
+  let targetSeal;
 
   function reduced() {
     try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; }
@@ -98,6 +100,152 @@
 
   function clear(visual) { try { visual?.ghost?.remove(); } catch (_) {} }
 
+  function clearTargetLine() {
+    try { targetOverlay?.remove(); } catch (_) {}
+    try { targetSeal?.remove(); } catch (_) {}
+    targetOverlay = null;
+    targetSeal = null;
+  }
+
+  function targetLine({ source, target, element = 'earth', overcome = false } = {}) {
+    clearTargetLine();
+    const sourceRect = source?.getBoundingClientRect?.();
+    const from = sourceRect ? { x: sourceRect.left + sourceRect.width / 2, y: sourceRect.top + 2 } : centerOf(source);
+    const to = centerOf(target), root = ensureLayer();
+    if (!from || !to || !root) return null;
+    const svg = document.createElementNS?.('http://www.w3.org/2000/svg', 'svg');
+    if (!svg) return null;
+    svg.setAttribute('class', `fx-target-overlay fx-target-${element}${overcome ? ' will-overcome' : ''}`);
+    svg.setAttribute('viewBox', `0 0 ${Math.max(1, window.innerWidth)} ${Math.max(1, window.innerHeight)}`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const dx = to.x - from.x, dy = to.y - (from.y - 10);
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const bend = Math.max(26, Math.min(54, length * .075));
+    const side = from.x < window.innerWidth / 2 ? 1 : -1;
+    const controlX = (from.x + to.x) / 2 + (-dy / length) * bend * side;
+    const controlY = ((from.y - 10) + to.y) / 2 + (dx / length) * bend * side;
+    const d = `M ${from.x} ${from.y - 10} Q ${controlX} ${controlY} ${to.x} ${to.y}`;
+    const glow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    glow.setAttribute('d', d);
+    glow.setAttribute('class', 'fx-target-glow');
+    svg.appendChild(glow);
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'fx-target-path');
+    svg.appendChild(path);
+    root.appendChild(svg);
+    targetOverlay = svg;
+    if (overcome) {
+      const seal = node('fx-target-seal', to.x, to.y, element);
+      targetSeal = seal;
+      if (seal) { seal.textContent = '克'; if (!reduced()) animateAndRemove(seal, [
+        { transform: 'translate(-50%, -50%) scale(.5)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) scale(1.08)', opacity: 1, offset: .55 },
+        { transform: 'translate(-50%, -50%) scale(.8)', opacity: .72 }
+      ], { duration: 900, easing: 'ease-out' }); }
+    }
+    return svg;
+  }
+
+  function elementHit({ element, target, heavy = false, overcome = false } = {}) {
+    const pos = centerOf(target);
+    if (!pos || reduced()) return Promise.resolve();
+    const type = ORDER.includes(element) ? element : 'earth';
+    const className = `fx-hit-${type}`;
+    const figure = target?.querySelector?.('.enemy-art-figure') || target?.querySelector?.('.enemy-art');
+    try { figure?.animate?.(type === 'earth' ? [
+      { transform: 'translateY(0) scaleY(1)' }, { transform: heavy ? 'translateY(4px) scaleY(.92)' : 'translateY(2px) scaleY(.97)' },
+      { transform: 'translateY(0) scaleY(1)' }
+    ] : [
+      { transform: 'translateX(0)' }, { transform: 'translateX(-3px)' }, { transform: 'translateX(3px)' }, { transform: 'translateX(0)' }
+    ], { duration: heavy ? 230 : 175, easing: 'ease-out' }); } catch (_) {}
+    const animations = [ring(pos.x, pos.y, type, `fx-ring fx-element-${type} ${className}`, heavy ? 390 : 300, type === 'water' ? 2.9 : 2.35)];
+    if (type === 'wood') {
+      for (let i = 0; i < 3; i++) animations.push(animateAndRemove(node(`fx-vine ${className}`, pos.x, pos.y, type), [
+        { transform: `translate(-50%, -50%) rotate(${i * 60 - 60}deg) scaleX(.05)`, opacity: 0 },
+        { transform: `translate(-50%, -50%) rotate(${i * 60 - 60}deg) scaleX(1)`, opacity: .85, offset: .55 },
+        { transform: `translate(-50%, -50%) rotate(${i * 60 - 60}deg) scaleX(1.2)`, opacity: 0 }
+      ], { duration: 330, easing: 'ease-out' }));
+    } else if (type === 'fire') {
+      animations.push(flash(pos.x, pos.y, type, `fx-flash fx-fire-core ${className}`, 220));
+    } else if (type === 'earth') {
+      animations.push(ring(pos.x, pos.y + 18, type, `fx-ring fx-earth-impact ${className}`, 330, 3.2));
+    } else if (type === 'metal') {
+      for (let i = 0; i < (heavy ? 3 : 2); i++) animations.push(animateAndRemove(node(`fx-slash ${className}`, pos.x, pos.y, type), [
+        { transform: `translate(-50%, -50%) rotate(${i ? 30 : -32}deg) scaleX(.05)`, opacity: 0 },
+        { transform: `translate(-50%, -50%) rotate(${i ? 30 : -32}deg) scaleX(1.25)`, opacity: 1, offset: .42 },
+        { transform: `translate(-50%, -50%) rotate(${i ? 30 : -32}deg) scaleX(.45)`, opacity: 0 }
+      ], { duration: 235 + i * 30, delay: i * 35, easing: 'ease-out' }));
+    } else {
+      animations.push(ring(pos.x, pos.y, type, `fx-ring fx-water-ripple ${className}`, 420, 3.3, 55));
+    }
+    if (overcome) animations.push(overcomeBurst({ target, element: type }));
+    return Promise.all(animations);
+  }
+
+  function drawCard({ target, index = 0, total = 1 } = {}) {
+    const p = centerOf(target);
+    if (!p || reduced()) return Promise.resolve();
+    const el = node('fx-draw-card', p.x + 18, p.y + 12, 'water');
+    return animateAndRemove(el, [
+      { transform: 'translate(-50%, -50%) translate(16px, 22px) scale(.72)', opacity: 0 },
+      { transform: 'translate(-50%, -50%) translate(0, 0) scale(1)', opacity: 1 }
+    ], { duration: 200, delay: Math.max(0, index) * Math.min(55, 180 / Math.max(1, total)), easing: 'cubic-bezier(.2,.8,.3,1)' });
+  }
+
+  function discardHand({ target } = {}) {
+    const p = centerOf(target);
+    if (!p || reduced()) return Promise.resolve();
+    const el = node('fx-discard', p.x, p.y, 'earth');
+    return animateAndRemove(el, [
+      { transform: 'translate(-50%, -50%) translateY(0)', opacity: 1 },
+      { transform: 'translate(-50%, -50%) translateY(24px)', opacity: 0 }
+    ], { duration: 165, easing: 'ease-in' });
+  }
+
+  function cameraPunch({ strength = 'normal' } = {}) {
+    if (reduced()) return Promise.resolve();
+    const battlefield = document.querySelector?.('.battlefield');
+    if (!battlefield?.animate) return Promise.resolve();
+    const px = strength === 'heavy' ? 6 : strength === 'light' ? 2 : 3;
+    try { battlefield.animate([
+      { transform: 'translate(0, 0)' }, { transform: `translate(${-px}px, ${px / 2}px)` },
+      { transform: `translate(${px}px, ${-px / 2}px)` }, { transform: 'translate(0, 0)' }
+    ], { duration: strength === 'heavy' ? 230 : 160, easing: 'ease-out' }); } catch (_) {}
+    return Promise.resolve();
+  }
+
+  function resourceReady({ target, id } = {}) {
+    const p = centerOf(target);
+    if (!p || reduced()) return Promise.resolve();
+    const flavor = id === 'swordIntent' ? 'metal' : id === 'alchemistHeat' ? 'fire' : 'earth';
+    return ring(p.x, p.y, flavor, `fx-ring fx-resource-ready fx-resource-ready-${id || 'generic'}`, 240, 1.8);
+  }
+
+  function screenFlash({ tone = 'gold', intensity = 'strong' } = {}) {
+    if (reduced() || !ensureLayer()) return Promise.resolve();
+    const el = node(`fx-screen-flash fx-screen-flash-${tone} fx-screen-flash-${intensity}`, window.innerWidth / 2, window.innerHeight / 2, 'metal');
+    return animateAndRemove(el, [
+      { opacity: 0 }, { opacity: intensity === 'ritual' ? .16 : intensity === 'finisher' ? .12 : .08, offset: .18 }, { opacity: 0 }
+    ], { duration: intensity === 'ritual' ? 360 : 190, easing: 'ease-out' });
+  }
+
+  function cardTrail({ from, to, element = 'earth', finisher = false } = {}) {
+    const start = centerOf(from), end = centerOf(to);
+    if (!start || !end || reduced()) return Promise.resolve();
+    const count = finisher ? 5 : 3;
+    return Promise.all(Array.from({ length: count }, (_, i) => {
+      const nodeEl = node(`fx-card-trail fx-card-trail-${element}`, start.x, start.y, element);
+      const t = (i + 1) / (count + 1);
+      const x = end.x - start.x, y = end.y - start.y;
+      return animateAndRemove(nodeEl, [
+        { transform: `translate(-50%, -50%) translate(${x * (t - .16)}px, ${y * (t - .16)}px) scale(.45)`, opacity: 0 },
+        { transform: `translate(-50%, -50%) translate(${x * t}px, ${y * t}px) scale(1)`, opacity: finisher ? .85 : .58, offset: .42 },
+        { transform: `translate(-50%, -50%) translate(${x * (t + .1)}px, ${y * (t + .1)}px) scale(.2)`, opacity: 0 }
+      ], { duration: finisher ? 280 : 220, delay: i * (finisher ? 34 : 28), easing: 'ease-out' });
+    }));
+  }
+
   async function playCardFlight({ visual, element, cardType, target, finisher = false } = {}) {
     if (!visual?.ghost) return;
     const destination = centerOf(target) || { x: window.innerWidth / 2, y: window.innerHeight * .38 };
@@ -106,15 +254,15 @@
     const duration = finisher ? 350 : cardType === 'power' ? 445 : cardType === 'skill' ? 400 : 375;
     try {
       if (!reduced()) {
+        void cardTrail({ from: { x: visual.centerX, y: visual.centerY }, to: destination, element, finisher });
         await animateAndRemove(visual.ghost, [
           { transform: 'translate(0, 0) scale(1)', opacity: 1, offset: 0, easing: 'ease-out' },
           { transform: `translate(0, -18px) scale(${finisher ? 1.34 : 1.20})`, opacity: 1, offset: .2, easing: 'cubic-bezier(.2,.8,.25,1)' },
+          { transform: `translate(0, -18px) scale(${finisher ? 1.34 : 1.20})`, opacity: 1, filter: 'drop-shadow(0 0 25px var(--fx-color))', offset: .31, easing: 'ease-in' },
           { transform: `translate(${dx * .53}px, ${dy * .47 - 32}px) rotate(${cardType === 'attack' ? -9 : 3}deg) scale(1.23)`, opacity: 1, offset: .58, easing: 'ease-in' },
           { transform: `translate(${dx * .88}px, ${dy * .84}px) rotate(0deg) scale(1.05)`, opacity: 1, offset: .82, easing: 'ease-in' },
           { transform: `translate(${dx}px, ${dy}px) rotate(0deg) scale(.82)`, opacity: 0, offset: 1 }
         ], { duration, easing: 'linear' });
-        try { void elementBurst({ element, x: destination.x, y: destination.y, strength: cardType === 'attack' ? 1 : .8 }).catch(() => {}); }
-        catch (_) {}
       }
     } finally { clear(visual); }
   }
@@ -157,7 +305,7 @@
     const pos = centerOf(target);
     if (!pos || reduced()) return;
     try {
-      const hitEl = target?.querySelector?.('.enemy-body') || target;
+      const hitEl = target?.querySelector?.('.enemy-art-figure') || target?.querySelector?.('.enemy-art') || target?.querySelector?.('.enemy-body') || target;
       if (hitEl && typeof hitEl.animate === 'function') {
         hitEl.animate(element === 'earth' ? [
           { transform: 'translateY(0) scaleY(1)' }, { transform: heavy ? 'translateY(3px) scaleY(.94)' : 'translateY(1.5px) scaleY(.98)' },
@@ -178,9 +326,19 @@
     ]);
   }
 
-  function block({ target } = {}) {
+  function block({ target, amount = 0 } = {}) {
     const p = centerOf(target);
-    return p && !reduced() ? ring(p.x, p.y, 'water', 'fx-ring fx-shield', 300, 2.3) : Promise.resolve();
+    if (!p || reduced()) return Promise.resolve();
+    const arc = offsetY => animateAndRemove(node('fx-shield-arc', p.x, p.y + offsetY, 'water'), [
+      { transform: 'translate(-50%, -45%) scale(.72)', opacity: 0 },
+      { transform: 'translate(-50%, -50%) scale(1)', opacity: .9, offset: .4 },
+      { transform: 'translate(-50%, -58%) scale(1.18)', opacity: 0 }
+    ], { duration: 230, easing: 'ease-out' });
+    return Promise.all([
+      ring(p.x, p.y, 'water', 'fx-ring fx-shield', 300, 2.3),
+      arc(0),
+      amount >= 15 ? arc(12) : Promise.resolve()
+    ]);
   }
 
   function heal({ target } = {}) {
@@ -203,7 +361,22 @@
     const p = centerOf(target);
     if (!p || reduced()) return Promise.resolve();
     const element = key === 'poison' ? 'wood' : key === 'burn' ? 'fire' : debuff ? 'fire' : 'earth';
-    return ring(p.x, p.y, element, debuff ? 'fx-ring fx-status-debuff' : 'fx-ring fx-status-buff', 280, 1.65);
+    const animations = [ring(p.x, p.y, element, debuff ? 'fx-ring fx-status-debuff' : 'fx-ring fx-status-buff', 280, 1.65)];
+    if (key === 'poison') for (let i = 0; i < 4; i++) {
+      const x = p.x + (i - 1.5) * 17, y = p.y + 16;
+      animations.push(animateAndRemove(node('fx-poison-mist', x, y, 'wood'), [
+        { transform: 'translate(-50%, 0) scale(.65)', opacity: 0 },
+        { transform: `translate(calc(-50% + ${(i - 1.5) * 10}px), -22px) scale(1.1)`, opacity: .72, offset: .38 },
+        { transform: `translate(calc(-50% + ${(i - 1.5) * 15}px), -38px) scale(.7)`, opacity: 0 }
+      ], { duration: 320 + i * 24, easing: 'ease-out' }));
+    } else if (key === 'burn') {
+      animations.push(animateAndRemove(node('fx-status-flame', p.x, p.y + 28, 'fire'), [
+        { transform: 'translate(-50%, -50%) scale(.45)', opacity: 0 },
+        { transform: 'translate(-50%, -85%) scale(1)', opacity: .9, offset: .3 },
+        { transform: 'translate(-50%, -140%) scale(.65)', opacity: 0 }
+      ], { duration: 390, easing: 'ease-out' }));
+    }
+    return Promise.all(animations);
   }
 
   function chainPulse({ target, element } = {}) {
@@ -222,7 +395,8 @@
       elementBurst({ element, x: p.x, y: p.y, strength: 1.4 }),
       ring(p.x, p.y, element, 'fx-ring fx-overcome', 340, 2.7),
       ring(p.x, p.y, element, 'fx-ring fx-overcome-echo', 330, 3, 70),
-      flash(p.x, p.y, element, 'fx-flash fx-overcome-flash', 190)
+      flash(p.x, p.y, element, 'fx-flash fx-overcome-flash', 190),
+      screenFlash({ tone: 'overcome', intensity: 'strong' })
     ]);
   }
 
@@ -236,7 +410,8 @@
     const color = isThorns ? 'metal' : element;
     const animations = [
       ring(pos.x, pos.y, color, `fx-ring ${style}${empowered ? ' fx-empowered' : ''}`, isThorns ? 500 : 570, empowered ? 4.3 : isThorns ? 3.2 : 3.8),
-      flash(pos.x, pos.y, color, `fx-flash ${style}`, isThorns ? 220 : 270, isThorns ? 60 : 120)
+      flash(pos.x, pos.y, color, `fx-flash ${style}`, isThorns ? 220 : 270, isThorns ? 60 : 120),
+      cameraPunch({ strength: 'heavy' })
     ];
     if (isThorns) animations.push(ring(origin.x, origin.y, color, `fx-ring ${style}`, 460, 2.7));
     else animations.push(ring(pos.x, pos.y, color, `fx-ring ${style}`, 520, 2.7, 55));
@@ -267,11 +442,13 @@
     if (kind === 'monk' && ['han_shan_shi', 'jin_gang_zhen_nu', 'beng_tian_shi'].includes(cardId)) {
       return monkFinisher({ target, source, cardId, element, empowered });
     }
+    if (kind === 'alchemist') return alchemistFinisher({ target, source, cardId, element, empowered });
     const slash = node('fx-slash fx-finisher-slash', pos.x, pos.y, element);
     const animations = [
       ring(pos.x, pos.y, element, `fx-ring fx-finisher-ring${empowered ? ' fx-empowered' : ''}`, 520, empowered ? 3.8 : 3.2),
       ring(pos.x, pos.y, element, 'fx-ring fx-finisher-ring fx-finisher-echo', 480, 2.6, 35),
       flash(pos.x, pos.y, element, 'fx-flash fx-finisher-flash', 260, 110),
+      cameraPunch({ strength: 'heavy' }),
       animateAndRemove(slash, [
         { transform: 'translate(-90%, -50%) rotate(-34deg) scaleX(.1)', opacity: 0 },
         { transform: 'translate(-50%, -50%) rotate(-34deg) scaleX(1.35)', opacity: 1, offset: .5 },
@@ -288,6 +465,54 @@
         { transform: `translate(calc(-50% + ${dx * .7}px), calc(-50% + ${dy * .7}px)) scale(1)`, opacity: 1, offset: .25 },
         { transform: 'translate(-50%, -50%) scale(.2)', opacity: 0 }
       ], { duration: 410, easing: 'ease-in' }));
+    }
+    if (cardId === 'cang_lang') {
+      for (let i = 0; i < 3; i++) animations.push(animateAndRemove(node(`fx-slash fx-finisher-slash fx-sword-cang-lang`, pos.x, pos.y, 'water'), [
+        { transform: `translate(-50%, -50%) translateX(-70px) rotate(${i * 12 - 28}deg) scaleX(.1)`, opacity: 0 },
+        { transform: `translate(-50%, -50%) rotate(${i * 12 - 28}deg) scaleX(1.2)`, opacity: 1, offset: .46 },
+        { transform: `translate(-50%, -50%) translateX(70px) rotate(${i * 12 - 28}deg) scaleX(.7)`, opacity: 0 }
+      ], { duration: 340, delay: i * 70, easing: 'ease-out' }));
+    } else if (cardId === 'tian_he') {
+      animations.push(ring(pos.x - 54, pos.y, 'water', 'fx-ring fx-sword-tian-he', 520, 2.4));
+      animations.push(ring(pos.x + 54, pos.y, 'metal', 'fx-ring fx-sword-tian-he', 520, 2.4, 50));
+    } else if (cardId === 'yi_jian_kai_tian') {
+      animations.push(animateAndRemove(node('fx-slash fx-finisher-slash fx-sword-kai-tian', pos.x, pos.y, 'metal'), [
+        { transform: 'translate(-50%, -50%) rotate(-70deg) scaleX(.05)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) rotate(-70deg) scaleX(1.45)', opacity: 1, offset: .42 },
+        { transform: 'translate(-50%, -50%) rotate(-70deg) scaleX(1.1)', opacity: 0 }
+      ], { duration: 430, delay: 70, easing: 'ease-out' }));
+    }
+    return Promise.all(animations);
+  }
+
+  function alchemistFinisher({ target, source, cardId, element, empowered }) {
+    const pos = centerOf(target), origin = centerOf(source) || { x: window.innerWidth / 2, y: window.innerHeight * .68 };
+    if (!pos) return Promise.resolve();
+    const style = `fx-alchemist-${(cardId || 'finisher').replaceAll('_', '-')}`;
+    const animations = [ring(pos.x, pos.y, element, `fx-ring fx-finisher-ring ${style}${empowered ? ' fx-empowered' : ''}`, 620, empowered ? 4.1 : 3.4)];
+    if (cardId === 'bai_du_gui_yuan') {
+      animations.push(animateAndRemove(node(`fx-alchemist-vortex ${style}`, pos.x, pos.y, 'wood'), [
+        { transform: 'translate(-50%, -50%) scale(2.8) rotate(0deg)', opacity: 0 },
+        { transform: 'translate(-50%, -50%) scale(1.25) rotate(150deg)', opacity: .95, offset: .52 },
+        { transform: 'translate(-50%, -50%) scale(.1) rotate(300deg)', opacity: 0 }
+      ], { duration: 540, easing: 'ease-in' }));
+    } else if (cardId === 'chi_lu_fen_tian') {
+      animations.push(animateAndRemove(node(`fx-alchemist-pillar ${style}`, pos.x, pos.y + 30, 'fire'), [
+        { transform: 'translate(-50%, 0) scaleY(.1)', opacity: 0 },
+        { transform: 'translate(-50%, -80px) scaleY(1)', opacity: .9, offset: .5 },
+        { transform: 'translate(-50%, -130px) scaleY(.7)', opacity: 0 }
+      ], { duration: 520, easing: 'ease-out' }));
+      animations.push(flash(pos.x, pos.y, 'fire', `fx-flash ${style}`, 250, 180));
+    } else if (cardId === 'qing_di_hui_tian') {
+      for (let i = 0; i < (empowered ? 7 : 5); i++) {
+        const angle = i * Math.PI * 2 / 5;
+        const sx = origin.x + Math.cos(angle) * 36, sy = origin.y + Math.sin(angle) * 25;
+        animations.push(animateAndRemove(node(`fx-particle fx-element-wood fx-alchemist-heal ${style}`, sx, sy, 'wood'), [
+          { transform: 'translate(-50%, -50%) scale(.25)', opacity: 0 },
+          { transform: `translate(calc(-50% + ${(pos.x - sx) * .55}px), calc(-50% + ${(pos.y - sy) * .55}px)) scale(1.2)`, opacity: 1, offset: .55 },
+          { transform: `translate(calc(-50% + ${pos.x - sx}px), calc(-50% + ${pos.y - sy}px)) scale(.1)`, opacity: 0 }
+        ], { duration: 500 + i * 18, delay: i * 28, easing: 'ease-in' }));
+      }
     }
     return Promise.all(animations);
   }
@@ -365,6 +590,7 @@
     if (!pos || reduced()) return Promise.resolve();
     return Promise.all([
       ring(pos.x, pos.y, element, 'fx-ring fx-boss-phase', 700, 4),
+      cameraPunch({ strength: 'heavy' }),
       flash(pos.x, pos.y, element, 'fx-flash fx-boss-phase', 440, 110),
       ...Array.from({ length: 5 }, (_, index) => {
         const angle = index * Math.PI * 2 / 5;
@@ -398,6 +624,16 @@
       ring(dest.x, dest.y, element, `fx-ring fx-detonate-${status}`, status === 'burn' || status === 'thorns' ? 450 : 420, status === 'burn' || status === 'thorns' ? 3.6 : 3.1),
       flash(dest.x, dest.y, element, `fx-flash fx-detonate-${status}`, 230, 90)
     ];
+    if (status === 'poison') animations.push(animateAndRemove(node('fx-detonate-vortex', dest.x, dest.y, element), [
+      { transform: 'translate(-50%, -50%) scale(1.8) rotate(0deg)', opacity: 0 },
+      { transform: 'translate(-50%, -50%) scale(.62) rotate(185deg)', opacity: .9, offset: .64 },
+      { transform: 'translate(-50%, -50%) scale(2.8) rotate(300deg)', opacity: 0 }
+    ], { duration: 400, easing: 'ease-in' }));
+    if (status === 'burn') animations.push(animateAndRemove(node('fx-detonate-fire-column', dest.x, dest.y + 35, element), [
+      { transform: 'translate(-50%, 0) scaleY(.1)', opacity: 0 },
+      { transform: 'translate(-50%, -95px) scaleY(1)', opacity: .9, offset: .55 },
+      { transform: 'translate(-50%, -155px) scaleY(.65)', opacity: 0 }
+    ], { duration: 440, easing: 'ease-out' }));
     for (let index = 0; index < 8; index++) {
       const angle = 2 * Math.PI * index / 8;
       const spread = status === 'burn' ? 104 : 80;
@@ -428,6 +664,8 @@
     const wave = node('fx-zhoutian-wave', x, y, 'metal');
     const secondWave = node('fx-zhoutian-wave fx-zhoutian-wave-echo', x, y, 'metal');
     const animations = [
+      cameraPunch({ strength: 'heavy' }),
+      screenFlash({ tone: 'gold', intensity: 'ritual' }),
       animateAndRemove(ringNode, [
         { transform: 'translate(-50%, -50%) scale(.3) rotate(0deg)', opacity: 0 },
         { transform: 'translate(-50%, -50%) scale(1) rotate(180deg)', opacity: 1, offset: .52 },
@@ -445,6 +683,24 @@
       ], { duration: 330, delay: 320, easing: 'ease-out' }),
       flash(x, y, 'metal', 'fx-flash fx-zhoutian-core', 250, 300)
     ];
+    for (let i = 0; i < ORDER.length; i++) {
+      const angle = i * Math.PI * 2 / ORDER.length - Math.PI / 2;
+      const sx = x + Math.cos(angle) * 120, sy = y + Math.sin(angle) * 88;
+      const element = ORDER[i];
+      const seal = node('fx-ring fx-zhoutian-node', sx, sy, element);
+      const stream = node(`fx-particle fx-zhoutian-converge fx-element-${element}`, sx, sy, element);
+      const delay = i * 45;
+      animations.push(animateAndRemove(seal, [
+        { transform: 'translate(-50%, -50%) scale(.55)', opacity: .25 },
+        { transform: 'translate(-50%, -50%) scale(1.25)', opacity: .9, offset: .38 },
+        { transform: `translate(calc(-50% + ${x - sx}px), calc(-50% + ${y - sy}px)) scale(.2)`, opacity: 0 }
+      ], { duration: 480, delay, easing: 'ease-in' }));
+      animations.push(animateAndRemove(stream, [
+        { transform: `translate(calc(-50% + ${-Math.cos(angle) * 18}px), calc(-50% + ${-Math.sin(angle) * 18}px)) scale(.65)`, opacity: 0 },
+        { transform: `translate(calc(-50% + ${(x - sx) * .62}px), calc(-50% + ${(y - sy) * .62}px)) scale(1.1)`, opacity: 1, offset: .62 },
+        { transform: `translate(calc(-50% + ${x - sx}px), calc(-50% + ${y - sy}px)) scale(.3)`, opacity: 0 }
+      ], { duration: 500, delay, easing: 'ease-in' }));
+    }
     for (let i = 0; i < 25; i++) {
       const a = Math.PI * 2 * i / 25;
       const p = node('fx-particle fx-element-' + ORDER[i % 5], x, y, ORDER[i % 5]);
@@ -466,5 +722,5 @@
     await Promise.all(animations);
   }
 
-  window.WXEffects = { init, captureCard, playCardFlight, elementBurst, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, daoAwakening, fateReveal, fatePulse, encounterIntro, bossPhase, encounterDefeat, statusDetonate, zhoutian, clear };
+  window.WXEffects = { init, captureCard, playCardFlight, cardTrail, elementBurst, elementHit, targetLine, clearTargetLine, drawCard, discardHand, cameraPunch, resourceReady, screenFlash, impact, block, heal, status, chainPulse, overcomeBurst, finisher, buildAwakening, daoAwakening, fateReveal, fatePulse, encounterIntro, bossPhase, encounterDefeat, statusDetonate, zhoutian, clear };
 })();

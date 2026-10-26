@@ -22,16 +22,19 @@ function makeNode(rect = { left: 20, top: 30, width: 100, height: 140 }) {
 function loadEffects(reduced = false) {
   const layer = makeNode();
   const body = makeNode();
+  const battlefield = makeNode();
   const created = [];
   const document = {
     body,
     getElementById(id) { return id === 'fx-layer' ? layer : null; },
-    createElement() { const el = makeNode(); created.push(el); return el; },
+    createElement() { const el = makeNode(); el.setAttribute = (name, value) => { el[name === 'class' ? 'className' : name] = value; }; created.push(el); return el; },
+    createElementNS(_ns, tag) { const el = makeNode(); el.tagName = tag; el.setAttribute = (name, value) => { el[name === 'class' ? 'className' : name] = value; }; created.push(el); return el; },
+    querySelector(selector) { return selector === '.battlefield' ? battlefield : null; },
     querySelectorAll() { return []; }
   };
   const window = { WX_DATA: D, matchMedia: () => ({ matches: reduced }), innerWidth: 393, innerHeight: 852 };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../js/effects.js'), 'utf8'), { window, document, setTimeout, clearTimeout });
-  return { FX: window.WXEffects, layer, document, created };
+  return { FX: window.WXEffects, layer, document, created, battlefield };
 }
 
 test('天命获取具有独立五行汇聚，战斗触发较轻且减少动态效果时不生成粒子', async () => {
@@ -104,7 +107,7 @@ test('土系强命中的压缩幅度高于普通土系命中', async () => {
 });
 
 test('五行爆发、剑光、命中和周天增强时长但保持粒子上限', async () => {
-  const { FX, created } = loadEffects();
+  const { FX, created, layer } = loadEffects();
   await FX.elementBurst({ element: 'metal', x: 160, y: 160 });
   const slash = created.find(el => el.className.includes('fx-slash'));
   assert.ok(slash);
@@ -122,6 +125,7 @@ test('五行爆发、剑光、命中和周天增强时长但保持粒子上限',
   const zhou = created.find(el => el.className.includes('fx-zhoutian-ring'));
   assert.ok(zhou.animations[0].options.duration >= 620 && zhou.animations[0].options.duration <= 680);
   assert.ok(created.filter(el => el.className.includes('fx-particle')).length <= 42);
+  assert.equal(layer.children.length, 0);
 });
 
 test('剑修终结演出比普通命中更重且尊重减少动态效果', async () => {
@@ -137,12 +141,33 @@ test('剑修终结演出比普通命中更重且尊重减少动态效果', async
   assert.equal(reduced.created.length, 0);
 });
 
+test('九种角色终式包含角色专属视觉，而不是统一增加粒子', async () => {
+  const signatures = [
+    ['sword', 'yi_jian_kai_tian', 'fx-sword-kai-tian'],
+    ['sword', 'cang_lang', 'fx-sword-cang-lang'],
+    ['sword', 'tian_he', 'fx-sword-tian-he'],
+    ['alchemist', 'bai_du_gui_yuan', 'fx-alchemist-vortex'],
+    ['alchemist', 'chi_lu_fen_tian', 'fx-alchemist-pillar'],
+    ['alchemist', 'qing_di_hui_tian', 'fx-alchemist-heal'],
+    ['monk', 'han_shan_shi', 'fx-monk-han-shan-shi'],
+    ['monk', 'jin_gang_zhen_nu', 'fx-monk-jin-gang-zhen-nu'],
+    ['monk', 'beng_tian_shi', 'fx-monk-beng-tian-shi']
+  ];
+  for (const [kind, cardId, signature] of signatures) {
+    const { FX, created } = loadEffects();
+    await FX.finisher({ target: { x: 190, y: 210 }, source: { x: 90, y: 350 }, element: 'fire', kind, cardId });
+    assert.ok(created.some(el => el.className.includes(signature)), cardId);
+  }
+});
+
 test('毒爆火爆和生机化攻分别有独立粒子，并在结束后清理', async () => {
   for (const status of ['poison', 'burn', 'regen']) {
     const { FX, layer, created } = loadEffects();
     await FX.statusDetonate({ status, target: { x: 190, y: 210 }, source: { x: 90, y: 350 } });
     assert.ok(created.some(el => el.className.includes(`fx-detonate-${status}`)), status);
     assert.ok(created.filter(el => el.className.includes('fx-detonate-particle')).length >= 4, status);
+    if (status === 'poison') assert.ok(created.some(el => el.className.includes('fx-detonate-vortex')));
+    if (status === 'burn') assert.ok(created.some(el => el.className.includes('fx-detonate-fire-column')));
     assert.equal(layer.children.length, 0, status);
   }
   const reduced = loadEffects(true);
@@ -214,6 +239,66 @@ test('减少动态效果时不生成粒子且缺失 DOM 安全返回', async () 
   await FX.impact({ target: null, element: 'wood' });
   assert.equal(layer.children.length, 0);
   assert.equal(FX.captureCard(null), null);
+});
+
+test('V2-C 目标线可重绘、克制印独立显示，五行命中使用独立视觉标记', async () => {
+  const { FX, layer, created, battlefield } = loadEffects();
+  const source = makeNode({ left: 80, top: 500, width: 120, height: 180 });
+  const target = makeNode({ left: 230, top: 90, width: 140, height: 250 });
+  FX.targetLine({ source, target, element: 'wood', overcome: true });
+  assert.ok(layer.children.some(el => el.className.includes('fx-target-overlay')));
+  assert.ok(layer.children.some(el => el.className.includes('fx-target-seal')));
+  FX.clearTargetLine();
+  assert.equal(layer.children.some(el => el.className.includes('fx-target-overlay')), false);
+  for (const element of ['wood', 'fire', 'earth', 'metal', 'water']) {
+    await FX.elementHit({ element, target });
+    assert.ok(created.some(el => el.className.includes(`fx-hit-${element}`)), element);
+    assert.equal(layer.children.length, 0, `${element} 特效应及时清理`);
+  }
+  const reduced = loadEffects(true);
+  await reduced.FX.elementHit({ element: 'fire', target });
+  assert.equal(reduced.created.length, 0);
+});
+
+test('抽牌、弃牌和镜头强反馈接口遵守减少动态效果', async () => {
+  const normal = loadEffects();
+  const target = makeNode();
+  await normal.FX.drawCard({ target, index: 2, total: 3 });
+  await normal.FX.discardHand({ target });
+  await normal.FX.cameraPunch({ strength: 'heavy' });
+  assert.ok(normal.created.some(el => el.className.includes('fx-draw-card')));
+  assert.ok(normal.created.some(el => el.className.includes('fx-discard')));
+  assert.equal(normal.battlefield.animations.length, 1);
+  const reduced = loadEffects(true);
+  await reduced.FX.drawCard({ target });
+  await reduced.FX.discardHand({ target });
+  await reduced.FX.cameraPunch({ strength: 'heavy' });
+  assert.equal(reduced.created.length, 0);
+});
+
+test('卡牌飞行轨迹只保留三至五道短光痕，并自动清理', async () => {
+  const normal = loadEffects();
+  await normal.FX.cardTrail({ from: { x: 80, y: 700 }, to: { x: 220, y: 180 }, element: 'water' });
+  assert.equal(normal.created.filter(el => el.className.includes('fx-card-trail')).length, 3);
+  assert.equal(normal.layer.children.length, 0);
+  const finisher = loadEffects();
+  await finisher.FX.cardTrail({ from: { x: 80, y: 700 }, to: { x: 220, y: 180 }, element: 'metal', finisher: true });
+  assert.equal(finisher.created.filter(el => el.className.includes('fx-card-trail')).length, 5);
+  const reduced = loadEffects(true);
+  await reduced.FX.cardTrail({ from: { x: 80, y: 700 }, to: { x: 220, y: 180 }, element: 'water' });
+  assert.equal(reduced.created.length, 0);
+});
+
+test('高额护甲出现双层盾纹，中毒与灼烧施加特效使用不同形态', async () => {
+  const normal = loadEffects();
+  const target = makeNode();
+  await normal.FX.block({ target, amount: 18 });
+  assert.equal(normal.created.filter(el => el.className.includes('fx-shield-arc')).length, 2);
+  await normal.FX.status({ target, key: 'poison' });
+  await normal.FX.status({ target, key: 'burn' });
+  assert.ok(normal.created.some(el => el.className.includes('fx-poison-mist')));
+  assert.ok(normal.created.some(el => el.className.includes('fx-status-flame')));
+  assert.equal(normal.layer.children.length, 0);
 });
 
 test('浏览器动画未触发完成回调时，飞牌仍会超时清理', async () => {
