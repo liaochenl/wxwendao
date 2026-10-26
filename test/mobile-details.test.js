@@ -422,6 +422,25 @@ test('手机手牌先显示完整说明，确认前不出牌', () => {
   assert.match(ui.overlayHTML(), /card-detail-text/);
 });
 
+test('手机确认定向牌后，单敌立即出牌，双敌才进入选敌', () => {
+  const ui = makeUI(393);
+  ui.state.combat.hand = [{ id: 'jin_ren', up: false, uid: 'only-target' }];
+  const played = [];
+  ui.playCard = (index, target) => { played.push([index, target]); };
+  ui.inspectHandCard(0);
+  ui.confirmDetail();
+  assert.equal(ui.selected, null);
+  assert.deepEqual(played, [[0, 0]]);
+
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }, { id: 'qing_she' }] }, 'combat');
+  ui.state.combat.hand = [{ id: 'jin_ren', up: false, uid: 'choose-target' }];
+  ui.inspectHandCard(0);
+  ui.confirmDetail();
+  assert.equal(ui.selected, 0);
+  assert.equal(played.length, 1);
+  assert.match(ui.combatHTML(), /点按敌人图片出牌/);
+});
+
 test('手机丹药先显示效果，确认后才使用', () => {
   const ui = makeUI();
   let used = 0;
@@ -699,6 +718,40 @@ test('手机烈焰丹先选敌人再确认，其他丹药作用于自身', async
   assert.ok(ui.state.combat.enemies[1].hp < secondHp);
   ui.inspectPotionSlot(0);
   assert.equal(ui.detail?.id, 'heal');
+});
+
+test('手机烈焰丹只有一个活敌时确认后直接投掷', async () => {
+  const ui = makeUI(393);
+  ui.state.potions = ['fire'];
+  const hp = ui.state.combat.enemies[0].hp;
+  ui.inspectPotionSlot(0);
+  assert.match(ui.overlayHTML(), /确认投掷/);
+  ui.confirmDetail();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(ui.potionTargeting, null);
+  assert.equal(ui.state.potions.includes('fire'), false);
+  assert.ok(ui.state.combat.enemies[0].hp < hp);
+});
+
+test('手机双敌时烈焰丹提示选敌，定向技能提示施术', () => {
+  const ui = makeUI(393);
+  E.startCombat(ui.state, { enemies: [{ id: 'shan_xiao' }, { id: 'qing_she' }] }, 'combat');
+  ui.state.potions = ['fire'];
+  ui.inspectPotionSlot(0);
+  assert.match(ui.overlayHTML(), /选择敌人/);
+  ui.closeOverlay();
+  ui.state.combat.hand = [{ id: 'wan_du', up: false, uid: 'skill-target' }];
+  ui.selected = 0;
+  assert.match(ui.combatHTML(), /点此施术/);
+  assert.doesNotMatch(ui.combatHTML(), /点此攻击/);
+});
+
+test('战斗已结束的旧丹药详情确认不会读取失效目标', () => {
+  const ui = makeUI(393);
+  ui.state.potions = ['fire'];
+  ui.inspectPotionSlot(0);
+  ui.state.combat = null;
+  assert.doesNotThrow(() => ui.confirmDetail());
 });
 
 test('特殊卡和诅咒有独立图案，动效尊重减少动态效果设置', () => {

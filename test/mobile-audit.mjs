@@ -996,7 +996,7 @@ async function auditCombatEffects(cdp, baseUrl) {
     await sleep(900);
     const started = await cdp.eval(`(() => {
       localStorage.clear(); WX_UI.hasRun=false; WX_UI.beginRun();
-      WXEngine.startCombat(WX_UI.state,{enemies:[{id:'shan_xiao'}]},'combat');
+      WXEngine.startCombat(WX_UI.state,{enemies:[{id:'shan_xiao'},{id:'qing_she'}]},'combat');
       WX_UI.screen='combat'; WX_UI.overlay=null;
       const combat=WX_UI.state.combat;
       combat.hand=[{uid:'audit-attack',id:'po_jun',up:false}];
@@ -1004,10 +1004,13 @@ async function auditCombatEffects(cdp, baseUrl) {
       WX_UI.render();
       const card=document.querySelector('.hand .card');
       if (!card) return { error:'missing hand card' };
-      WX_UI.selected=0; WX_UI.render();
+      WX_UI.onCardClick(0);
       const targeting={ active:document.querySelector('.combat-screen').classList.contains('combat-targeting'),
         line:!!document.querySelector('#fx-layer .fx-target-overlay path'), seal:!!document.querySelector('#fx-layer .fx-target-seal'),
         focused:!!document.querySelector('.enemy-unit.focused .enemy-art'),
+        labels:document.querySelectorAll('.enemy-tap-label').length,
+        lineAnimation:getComputedStyle(document.querySelector('.fx-target-path')).animationName,
+        lineWidth:parseFloat(getComputedStyle(document.querySelector('.fx-target-path')).strokeWidth),
         path:document.querySelector('#fx-layer .fx-target-overlay path')?.getAttribute('d'),
         stroke:document.querySelector('#fx-layer .fx-target-overlay path') && getComputedStyle(document.querySelector('#fx-layer .fx-target-overlay path')).stroke,
         lineBox:document.querySelector('#fx-layer .fx-target-overlay')?.getBoundingClientRect().toJSON() };
@@ -1023,6 +1026,8 @@ async function auditCombatEffects(cdp, baseUrl) {
     if (started.error || started.pointer !== 'none' || started.fxZ >= started.overlayZ) {
       fail(`出牌特效@${width}: 快照、即时结算或遮挡层级异常 ${JSON.stringify(started)}`);
     }
+    if (width === 393 && (started.targeting.labels !== 2 || started.targeting.lineAnimation !== 'none' || started.targeting.lineWidth > 3.5))
+      fail(`手机选敌提示或目标线过强 ${JSON.stringify(started.targeting)}`);
     if (width === 393) console.log(`CHECK 目标线样式@${width}: ${JSON.stringify(started.targeting)}`);
     if (width === 393) {
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
@@ -1068,6 +1073,32 @@ async function auditCombatEffects(cdp, baseUrl) {
     if (!zhouFinished || await cdp.eval(`(() => document.querySelectorAll('.fx-zhoutian-ring,.fx-zhoutian-wave,#fx-layer .fx-particle,#fx-layer .fx-flash').length)()`)) fail(`周天特效@${width}: 动画未结束或节点未清理`);
     console.log(`CHECK 出牌特效@${width}: 飞牌、五行、周天、清理和层级`);
   }
+  await cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: 393, height: 852, screenWidth: 393, screenHeight: 852,
+    deviceScaleFactor: 1, mobile: false, scale: 1
+  });
+  await cdp.send('Page.navigate', { url: `${baseUrl}/index.html?v=${Date.now()}` });
+  await sleep(850);
+  const singleTarget = await cdp.eval(`(() => {
+    localStorage.clear(); WX_UI.hasRun=false; WX_UI.beginRun();
+    WXEngine.startCombat(WX_UI.state,{enemies:[{id:'shan_xiao'}]},'combat');
+    WX_UI.screen='combat'; WX_UI.overlay=null;
+    WX_UI.state.combat.hand=[{uid:'single-target',id:'po_jun',up:false}];
+    WX_UI.state.combat.energy=10;
+    WX_UI.render(); WX_UI.inspectHandCard(0); WX_UI.confirmDetail();
+    return {selected:WX_UI.selected,aiming:!!document.querySelector('.combat-targeting'),
+      line:!!document.querySelector('.fx-target-overlay'),busy:WX_UI.busy,
+      ghost:!!document.querySelector('.fx-card-ghost')};
+  })()`);
+  if (singleTarget.selected != null || singleTarget.aiming || singleTarget.line || !singleTarget.busy || !singleTarget.ghost)
+    fail(`手机单敌确认后未直接飞牌 ${JSON.stringify(singleTarget)}`);
+  const { data: singleShot } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  fs.mkdirSync(SHOT_DIR, { recursive: true });
+  fs.writeFileSync(path.join(SHOT_DIR, 'single-target-flight-393.png'), Buffer.from(singleShot, 'base64'));
+  await sleep(1200);
+  if (await cdp.eval(`WX_UI.busy || !!document.querySelector('.fx-target-overlay') || WX_UI.state.combat.hand.some(card=>card.uid==='single-target')`))
+    fail('手机单敌出牌完成后仍有目标线、忙碌态或原手牌');
+  console.log('CHECK 手机单敌确认: 直接飞牌，目标线不出现');
   await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   const reduced = await cdp.eval(`(() => { WXEffects.elementBurst({element:'fire',x:100,y:100});
     WXEffects.zhoutian(); WX_UI.floatAt(document.querySelector('.enemy-unit'), '-12', 'fx-damage');

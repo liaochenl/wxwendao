@@ -474,6 +474,13 @@
       if (!can.ok) { this.toast(can.reason || '无法打出'); return; }
       const alive = c.enemies.filter(e => e.hp > 0);
       if (E.cardNeedsTarget(data)) {
+        if (alive.length === 1) {
+          const onlyTarget = c.enemies.indexOf(alive[0]);
+          this.selected = null;
+          this.targetIndex = onlyTarget;
+          this.playCard(index, onlyTarget);
+          return;
+        }
         if (this.selected === index) { this.selected = null; this.render(); return; }
         this.selected = index;
         if (!alive.some(e => c.enemies.indexOf(e) === this.targetIndex)) this.targetIndex = c.enemies.indexOf(alive[0]);
@@ -543,7 +550,12 @@
       const d = this.detail;
       if (!d || this.overlay !== 'detail') return;
       this.closeOverlay();
-      if (d.action === 'use-potion' && this.state && this.state.potions[d.index] === d.id) this.usePotion(d.index);
+      if (d.action === 'use-potion' && this.state && this.state.potions[d.index] === d.id) {
+        const alive = E.aliveEnemies(this.state);
+        const onlyTarget = potionById(d.id)?.target === 'enemy' && alive.length === 1
+          ? this.state.combat.enemies.indexOf(alive[0]) : null;
+        this.usePotion(d.index, onlyTarget);
+      }
       else if (d.action === 'confirm-potion-target' && this.state && this.state.potions[d.index] === d.id) this.usePotion(d.index, d.targetIndex);
       else if (d.action === 'take-card' && this.state && this.state.reward && !this.state.reward.cardTaken && this.state.reward.cards[d.index] && this.state.reward.cards[d.index].id === d.id) this.takeRewardCard(d.index);
       else if (d.action === 'play-card' && this.state && this.state.combat && this.state.combat.hand[d.index] && this.state.combat.hand[d.index].uid === d.uid) this.onCardClick(d.index);
@@ -1583,7 +1595,7 @@
       const focusName = c.enemies[targetIdx] && c.enemies[targetIdx].hp > 0 ? c.enemies[targetIdx].name : '';
       const mobileUI = window.innerWidth <= 600;
       const selectedHint = this.potionTargeting != null ? '烈焰丹：请选择敌方目标' : this.selected != null
-        ? `选择目标：点击敌方单位打出「${esc(cardData(c.hand[this.selected]).name)}」`
+        ? `${mobileUI ? '点按敌人图片出牌' : '点击敌人出牌'}：「${esc(cardData(c.hand[this.selected]).name)}」`
         : (c.phase === 'enemy' ? '敌方回合……'
           : (alive.length > 1
             ? (mobileUI ? `当前目标：${esc(focusName)} · 点按手牌查看详情，确认后选敌人` : `当前目标：${esc(focusName)} · 点击卡牌后点敌人切换 · 数字键直接出牌`)
@@ -1669,6 +1681,9 @@
       const statuses = statusChips(e.statuses, 'enemy', i);
       const sub = `${e.block > 0 ? `<span class="block-pill">甲 ${e.block}</span>` : ''}${e.phase === 2 ? '<span class="phase-tag">狂怒</span>' : ''}${statuses ? `<span class="statuses">${statuses}</span>` : ''}`;
       const targetable = (this.selected != null || this.potionTargeting != null) && alive;
+      const selectedCard = this.selected != null ? this.state.combat.hand[this.selected] : null;
+      const targetActionLabel = this.potionTargeting != null ? '点此投掷'
+        : selectedCard && cardData(selectedCard)?.type === 'attack' ? '点此攻击' : '点此施术';
       const showTarget = alive && i === targetIdx && (targetable || this.state.combat.enemies.length > 1);
       const detail = intent ? [
         intent.damage && intent.block ? `+${intent.block} 甲` : '',
@@ -1697,7 +1712,7 @@
             ${weak ? `<span class="weak-tag" title="相克弱点">弱 ${elem(weak).glyph}</span>` : ''}
           </div>
           ${mechanic ? `<div class="enemy-mechanic ${mechanic.danger ? 'danger' : ''}" title="${esc(mechanic.hint)}" aria-label="${esc(mechanicText)}：${esc(mechanic.hint)}"><span>${esc(mechanicText)}</span></div>` : ''}
-          <div class="enemy-art"><div class="enemy-art-motion">${enemyPortrait(e.id, e.name, 'eager', 'enemy-art-figure')}</div></div>
+          <div class="enemy-art"><div class="enemy-art-motion">${enemyPortrait(e.id, e.name, 'eager', 'enemy-art-figure')}</div>${targetable && window.innerWidth <= 600 ? `<span class="enemy-tap-label">${targetActionLabel}</span>` : ''}</div>
           ${hpBarHTML(e.hp, e.maxHp, 'enemy-hp')}
           ${sub ? `<div class="enemy-sub">${sub}</div>` : ''}
         </div>
@@ -2114,7 +2129,9 @@
         const enemy = this.state && this.state.combat && this.state.combat.enemies[this.targetIndex];
         body = `<div class="entity-showcase potion-showcase">${potionVessel(p.id)}<span>丹 · ${esc(p.name)}</span></div><p class="detail-text">${formatText(p.desc)}</p>
           <p class="detail-note">${p.target === 'enemy' ? `目标：${esc(enemy && enemy.hp > 0 ? enemy.name : '当前敌人')}` : '作用于自身'}</p>`;
-        if (d.action === 'use-potion') confirm = p.target === 'enemy' ? '选择敌人' : '确认使用';
+        if (d.action === 'use-potion') confirm = p.target === 'enemy'
+          ? E.aliveEnemies(this.state).length === 1 ? '确认投掷' : '选择敌人'
+          : '确认使用';
         if (d.action === 'confirm-potion-target') confirm = '确认投掷';
       } else if (d.kind === 'relic') {
         const r = relicById(d.id);

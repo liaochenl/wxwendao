@@ -1356,6 +1356,11 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .combat-targeting .enemy-unit.focused .enemy-art { filter: brightness(1.08) drop-shadow(0 0 12px color-mix(in srgb, var(--enemy-element) 34%, transparent)); transform: translateY(-3px); }
 .combat-targeting .enemy-unit.focused .enemy-art-motion { animation: targetFocusFloat 1.4s ease-in-out infinite alternate; }
 @keyframes targetFocusFloat { to { transform: translateY(-3px); } }
+.enemy-tap-label { position: absolute; left: 50%; bottom: 7px; z-index: 3; transform: translateX(-50%); white-space: nowrap; pointer-events: none; color: #fff4d6; background: rgba(8, 13, 18, .9); border: 1px solid rgba(239, 209, 143, .72); border-radius: 12px; padding: 3px 10px; font: 11px var(--sans); letter-spacing: .06em; box-shadow: 0 2px 9px #0009; }
+@media (max-width: 600px) {
+  .fx-target-glow { stroke-width: 7; opacity: .13; filter: blur(2px); }
+  .fx-target-path, .fx-target-overlay.will-overcome .fx-target-path { stroke-width: 2.5; stroke-dasharray: none; opacity: .72; animation: none; filter: drop-shadow(0 0 3px var(--fx-target-color)); }
+}
 .in-hand.selected-target-card .card-inner { filter: drop-shadow(0 0 12px var(--el)); }
 .fx-particle, .fx-ring, .fx-slash, .fx-flash, .fx-zhoutian-ring, .fx-zhoutian-wave {
   position: fixed; display: block; pointer-events: none; will-change: transform, opacity;
